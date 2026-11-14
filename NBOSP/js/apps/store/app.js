@@ -118,18 +118,18 @@
     const section = document.createElement('section');
     section.className = 'detail-panel detail-release-track';
     const heading = document.createElement('h2');
-    heading.textContent = 'Release track';
+    heading.textContent = _t('apps.store.releaseTrack');
     section.appendChild(heading);
 
     const current = document.createElement('div');
     current.className = 'release-track-current';
     const currentTitle = document.createElement('h3');
     currentTitle.textContent = latest
-      ? `Latest release · v${latest.version}`
-      : 'Latest release';
+      ? _t('apps.store.latestReleaseVersion', { version: latest.version })
+      : _t('apps.store.latestRelease');
     const currentNotes = document.createElement('p');
     currentNotes.className = 'detail-release-notes';
-    currentNotes.textContent = latest?.notes || 'No release notes were provided for this release.';
+    currentNotes.textContent = latest?.notes || _t('apps.store.noReleaseNotes');
     current.append(currentTitle, currentNotes);
     section.appendChild(current);
 
@@ -137,13 +137,15 @@
     if (previousEntries.length) {
       const historyTitle = document.createElement('h3');
       historyTitle.className = 'release-track-history-title';
-      historyTitle.textContent = 'Previous releases';
+      historyTitle.textContent = _t('apps.store.previousReleases');
       const history = document.createElement('ol');
       history.className = 'release-track-history';
       for (const entry of previousEntries) {
         const item = document.createElement('li');
         const version = document.createElement('h4');
-        version.textContent = `v${entry.version}${entry.date ? ` · ${entry.date}` : ''}`;
+        version.textContent = entry.date
+          ? _t('apps.store.releaseVersionDate', { version: entry.version, date: entry.date })
+          : _t('apps.store.releaseVersion', { version: entry.version });
         item.appendChild(version);
         if (entry.notes) {
           const notes = document.createElement('p');
@@ -202,10 +204,10 @@
     if (!packageCache.has(app.id)) {
       const packagePromise = (async () => {
         const response = await fetch(new URL(app.file, STORE_BASE_URL).href);
-        if (!response.ok) throw new Error(`Package request failed (${response.status})`);
+        if (!response.ok) throw new Error(_t('apps.store.packageRequestFailed', { status: response.status }));
         const pkg = await response.json();
         if (!pkg || pkg.novabyte_app !== true || pkg.manifest?.id !== app.id) {
-          throw new Error(`The package identity does not match catalog entry "${app.id}".`);
+          throw new Error(_t('apps.store.identityMismatch', { app: app.id }));
         }
         return pkg;
       })();
@@ -264,7 +266,7 @@
     const badge = document.createElement('span');
     badge.className = `verified-badge ${className}`;
     badge.hidden = true;
-    badge.setAttribute('aria-label', 'Signature verified by a trusted NovaByte publisher');
+    badge.setAttribute('aria-label', _t('apps.store.signatureVerifiedPublisher'));
     parent.appendChild(badge);
 
     getCatalogVerification(app).then(result => {
@@ -272,10 +274,10 @@
         badge.remove();
         return;
       }
-      badge.textContent = '✓ Verified';
+      badge.textContent = _t('apps.store.verifiedBadge');
       badge.title = result.signer
-        ? `Signature verified: ${result.signer}`
-        : 'Signature verified by a trusted NovaByte publisher';
+        ? _t('apps.store.signatureVerifiedBy', { signer: result.signer })
+        : _t('apps.store.signatureVerifiedPublisher');
       badge.hidden = false;
     });
     return badge;
@@ -313,13 +315,13 @@
       : [];
     if (!required.length && !optional.length) return;
 
-    const panel = createDetailPanel('Permissions', 'detail-permissions');
+    const panel = createDetailPanel(_t('apps.store.permissions'), 'detail-permissions');
     const note = document.createElement('p');
     note.className = 'detail-metadata-note';
-    note.textContent = 'Requested by the package. The OS still controls and prompts for access.';
+    note.textContent = _t('apps.store.permissionsNote');
     panel.appendChild(note);
 
-    for (const [label, permissions] of [['Required', required], ['Optional', optional]]) {
+    for (const [label, permissions] of [[_t('apps.store.required'), required], [_t('apps.store.optional'), optional]]) {
       if (!permissions.length) continue;
       const group = document.createElement('div');
       group.className = 'permission-group';
@@ -340,20 +342,20 @@
 
   function getAppLinks(app, manifest) {
     const labels = {
-      homepage: 'Website',
-      website: 'Website',
-      support: 'Support',
-      supportUrl: 'Support',
-      source: 'Source code',
-      sourceUrl: 'Source code',
-      repository: 'Source code',
-      repositoryUrl: 'Source code',
-      privacyPolicy: 'Privacy policy',
-      privacyPolicyUrl: 'Privacy policy',
-      documentation: 'Documentation',
-      docs: 'Documentation',
-      issues: 'Report an issue',
-      issuesUrl: 'Report an issue',
+      homepage: _t('apps.store.website'),
+      website: _t('apps.store.website'),
+      support: _t('apps.store.support'),
+      supportUrl: _t('apps.store.support'),
+      source: _t('apps.store.sourceCode'),
+      sourceUrl: _t('apps.store.sourceCode'),
+      repository: _t('apps.store.sourceCode'),
+      repositoryUrl: _t('apps.store.sourceCode'),
+      privacyPolicy: _t('apps.store.privacyPolicy'),
+      privacyPolicyUrl: _t('apps.store.privacyPolicy'),
+      documentation: _t('apps.store.documentation'),
+      docs: _t('apps.store.documentation'),
+      issues: _t('apps.store.reportIssue'),
+      issuesUrl: _t('apps.store.reportIssue'),
     };
     const candidates = [
       ...(Array.isArray(app.links) ? app.links : Object.entries(app.links || {}).map(([label, url]) => ({ label, url }))),
@@ -372,7 +374,7 @@
         if (url.protocol !== 'https:' || seen.has(url.href)) return [];
         seen.add(url.href);
         const key = candidate.label || candidate.title || '';
-        return [{ label: labels[key] || key || 'More information', url: url.href }];
+        return [{ label: labels[key] || key || _t('apps.store.moreInformation'), url: url.href }];
       } catch {
         return [];
       }
@@ -383,7 +385,7 @@
     const links = getAppLinks(app, manifest);
     if (!links.length) return;
 
-    const panel = createDetailPanel('Links', 'detail-links');
+    const panel = createDetailPanel(_t('apps.store.links'), 'detail-links');
     const list = document.createElement('div');
     list.className = 'detail-links-list';
     for (const link of links) {
@@ -404,7 +406,7 @@
       : Array.isArray(pkg.manifest?.screenshots) ? pkg.manifest.screenshots : [];
     if (!screenshots.length) return;
 
-    const panel = createDetailPanel('Screenshots', 'detail-screenshots');
+    const panel = createDetailPanel(_t('apps.store.screenshots'), 'detail-screenshots');
     const strip = document.createElement('div');
     strip.className = 'screenshot-strip';
     for (const source of screenshots) {
@@ -412,7 +414,7 @@
       if (!url) continue;
       const image = document.createElement('img');
       image.src = url;
-      image.alt = `${app.name} screenshot`;
+      image.alt = _t('apps.store.screenshotAlt', { app: app.name });
       image.loading = 'lazy';
       strip.appendChild(image);
     }
@@ -443,7 +445,7 @@
 
     const image = document.createElement('img');
     image.src = iconUrl;
-    image.alt = `${app.name} icon`;
+    image.alt = _t('apps.store.iconAlt', { app: app.name });
     image.loading = 'lazy';
     image.onerror = async () => {
       image.onerror = null;
@@ -472,9 +474,9 @@
         Accept: 'application/json',
       },
     });
-    if (!response.ok) throw new Error(`Failed to fetch app catalog (${response.status})`);
+    if (!response.ok) throw new Error(_t('apps.store.fetchCatalogFailed', { status: response.status }));
     const catalog = await response.json();
-    if (!Array.isArray(catalog)) throw new Error('App catalog must contain a list of apps.');
+    if (!Array.isArray(catalog)) throw new Error(_t('apps.store.catalogNotList'));
     const apps = catalog.map(app => ({
       id: app.app_id,
       name: app.name,
@@ -508,12 +510,12 @@
     const pkg = await fetchPackage(app);
 
     if (!pkg || pkg.novabyte_app !== true) {
-      throw new Error('Not a valid .novaapp package.');
+      throw new Error(_t('apps.store.invalidPackage'));
     }
     const result = await verifyCatalogPackage(app);
 
     if (result.revoked) {
-      throw new Error(`"${pkg.manifest?.name}" has a revoked signature and cannot be installed.`);
+      throw new Error(_t('apps.store.revokedSignature', { app: pkg.manifest?.name }));
     }
 
     // integrity — blake3, sha256, sha512, whatever the package declares
@@ -524,7 +526,7 @@
       ) {
         const ok = await AppPackage.verifyIntegrity(pkg);
         if (!ok) {
-          throw new Error(`"${pkg.manifest?.name}" failed its integrity check — contents don't match the build-time hash.`);
+          throw new Error(_t('apps.store.integrityFailed', { app: pkg.manifest?.name }));
         }
       }
     }
@@ -535,20 +537,20 @@
   async function installApp(app, btn, { updating = false } = {}) {
     const existingApp = getInstalledApp(app.id);
     btn.disabled = true;
-    btn.textContent = updating ? 'Updating…' : 'Downloading…';
+    btn.textContent = updating ? _t('apps.store.updating') : _t('apps.store.downloading');
 
     try {
       if (updating && (!existingApp || !hasUpdate(app))) {
-        throw new Error('This app does not have an available update.');
+        throw new Error(_t('apps.store.noAvailableUpdate'));
       }
       const { pkg, verified, signer } = await fetchAndVerify(app);
       if (updating && pkg.manifest?.version !== app.version) {
-        throw new Error('The downloaded package version does not match the app catalog.');
+        throw new Error(_t('apps.store.versionMismatch'));
       }
       if (updating && compareVersions(pkg.manifest?.version, existingApp.version) !== 1) {
-        throw new Error('The downloaded package is not newer than the installed version.');
+        throw new Error(_t('apps.store.notNewer'));
       }
-      btn.textContent = 'Installing…';
+      btn.textContent = _t('apps.store.installing');
 
       const system = verified === true &&
         signer === 'NovaByte System' &&
@@ -604,24 +606,25 @@
         ? getReleaseTrack(app, pkg.manifest?.releaseNotes).latest?.notes
         : '';
       notify(
-        updating ? 'App Updated' : 'App Installed',
-        `${appData.name} v${appData.version} ${updating ? 'updated' : 'installed'} successfully.${
-          releaseNotes ? `\n\nWhat’s new in v${appData.version}:\n${releaseNotes}` : ''
-        }`,
+        updating ? _t('apps.store.appUpdated') : _t('apps.store.appInstalled'),
+        (updating
+          ? _t('apps.store.updatedSuccessfully', { app: appData.name, version: appData.version })
+          : _t('apps.store.installedSuccessfully', { app: appData.name, version: appData.version })) +
+        (releaseNotes ? _t('apps.store.whatsNew', { version: appData.version, notes: releaseNotes }) : ''),
         'success'
       );
       if (typeof rerenderCurrentView === 'function') rerenderCurrentView();
 
     } catch (err) {
-      notify(updating ? 'Update Failed' : 'Install Failed', err.message || String(err), 'error');
-      btn.textContent = updating ? 'Update' : 'Get';
+      notify(updating ? _t('apps.store.updateFailed') : _t('apps.store.installFailed'), err.message || String(err), 'error');
+      btn.textContent = updating ? _t('apps.store.update') : _t('apps.store.get');
       btn.disabled = false;
     }
   }
 
   async function uninstallApp(app, btn) {
     btn.disabled = true;
-    btn.textContent = 'Removing…';
+    btn.textContent = _t('apps.store.removing');
 
     try {
       const appId = app.id;
@@ -669,17 +672,17 @@
       if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
       if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
 
-      notify('App Removed', `${app.name} has been uninstalled.`, 'success');
+      notify(_t('apps.store.appRemoved'), _t('apps.store.uninstalledBody', { app: app.name }), 'success');
 
-      btn.textContent = 'Install';
+      btn.textContent = _t('apps.store.install');
       btn.className = 'app-btn btn-install';
       btn.disabled = false;
       btn.onclick = () => installApp(app, btn);
       if (typeof rerenderCurrentView === 'function') rerenderCurrentView();
 
     } catch (err) {
-      notify('Uninstall Failed', err.message || String(err), 'error');
-      btn.textContent = 'Uninstall';
+      notify(_t('apps.store.uninstallFailed'), err.message || String(err), 'error');
+      btn.textContent = _t('apps.store.uninstall');
       btn.disabled = false;
     }
   }
@@ -692,7 +695,7 @@
     const openButton = document.createElement('button');
     openButton.type = 'button';
     openButton.className = 'app-card-open';
-    openButton.setAttribute('aria-label', `View ${app.name} details`);
+    openButton.setAttribute('aria-label', _t('apps.store.viewDetailsAria', { app: app.name }));
 
     const iconWrap = document.createElement('div');
     iconWrap.className = 'app-icon';
@@ -718,7 +721,7 @@
 
     const desc = document.createElement('div');
     desc.className = 'app-desc';
-    desc.textContent = app.description || 'No description provided.';
+    desc.textContent = app.description || _t('apps.store.noDescription');
 
     const categories = document.createElement('div');
     categories.className = 'app-card-categories';
@@ -748,8 +751,8 @@
       const updateButton = document.createElement('button');
       updateButton.type = 'button';
       updateButton.className = 'app-btn btn-update';
-      updateButton.textContent = 'Update';
-      updateButton.setAttribute('aria-label', `Update ${app.name} to version ${app.version}`);
+      updateButton.textContent = _t('apps.store.update');
+      updateButton.setAttribute('aria-label', _t('apps.store.updateToVersionAria', { app: app.name, version: app.version }));
       updateButton.addEventListener('click', () => installApp(app, updateButton, { updating: true }));
       actions.appendChild(updateButton);
     }
@@ -769,7 +772,7 @@
     const installed = isInstalled(app.id);
     button.classList.toggle('btn-uninstall', installed);
     button.classList.toggle('btn-install', !installed);
-    button.textContent = installed ? 'Uninstall' : 'Get';
+    button.textContent = installed ? _t('apps.store.uninstall') : _t('apps.store.get');
     button.onclick = () => installed
       ? uninstallApp(app, button)
       : installApp(app, button);
@@ -806,19 +809,19 @@
       const settingsButton = document.createElement('button');
       settingsButton.type = 'button';
       settingsButton.className = 'store-settings-button';
-      settingsButton.textContent = 'Settings';
-      settingsButton.setAttribute('aria-label', 'Store settings');
+      settingsButton.textContent = _t('apps.store.settings');
+      settingsButton.setAttribute('aria-label', _t('apps.store.settingsAria'));
       settingsButton.addEventListener('click', () => {
         settingsOpen = !settingsOpen;
         renderView();
       });
       const searchWrap = document.createElement('label');
       searchWrap.className = 'store-search-wrap';
-      searchWrap.setAttribute('aria-label', 'Search apps');
+      searchWrap.setAttribute('aria-label', _t('apps.store.searchAppsAria'));
       searchWrap.innerHTML = '<span class="store-search-icon" aria-hidden="true">⌕</span>';
       const search = document.createElement('input');
       search.type = 'search';
-      search.placeholder = 'Search apps and creators';
+      search.placeholder = _t('apps.store.searchPlaceholder');
       search.className = 'store-search';
       search.autocomplete = 'off';
       searchWrap.appendChild(search);
@@ -828,7 +831,7 @@
       page.className = 'store-page';
       const loading = document.createElement('div');
       loading.className = 'store-loading';
-      loading.innerHTML = '<span class="store-spinner" aria-hidden="true"></span><span>Loading the app catalog…</span>';
+      loading.innerHTML = '<span class="store-spinner" aria-hidden="true"></span><span>' + _t('apps.store.loadingCatalog') + '</span>';
       page.appendChild(loading);
       content.append(header, page);
 
@@ -838,8 +841,8 @@
         ))].sort((a, b) => a.localeCompare(b));
         const bar = document.createElement('nav');
         bar.className = 'category-bar';
-        bar.setAttribute('aria-label', 'Filter apps by category');
-        const entries = [['all', 'Explore', allApps.length], ...categories.map(category => [
+        bar.setAttribute('aria-label', _t('apps.store.filterByCategoryAria'));
+        const entries = [['all', _t('apps.store.explore'), allApps.length], ...categories.map(category => [
           category,
           formatCategory(category),
           allApps.filter(app => app.categories?.includes(category)).length,
@@ -885,7 +888,7 @@
         const back = document.createElement('button');
         back.type = 'button';
         back.className = 'back-button';
-        back.innerHTML = '<span aria-hidden="true">←</span> Store';
+        back.innerHTML = '<span aria-hidden="true">←</span> ' + _t('apps.store.backToStore');
         back.addEventListener('click', () => {
           settingsOpen = false;
           renderView();
@@ -895,14 +898,14 @@
         const panel = document.createElement('section');
         panel.className = 'detail-panel store-settings-panel';
         const title = document.createElement('h1');
-        title.textContent = 'Update settings';
+        title.textContent = _t('apps.store.updateSettings');
         const description = document.createElement('p');
         description.className = 'detail-description';
-        description.textContent = 'The Store checks for updates once after startup. Choose how often it checks again while NovaByte is running.';
+        description.textContent = _t('apps.store.updateSettingsDescription');
         const label = document.createElement('label');
         label.className = 'store-settings-field';
         label.htmlFor = 'store-update-interval';
-        label.textContent = 'Check for updates every';
+        label.textContent = _t('apps.store.checkEveryLabel');
         const interval = document.createElement('select');
         interval.id = 'store-update-interval';
         interval.className = 'store-update-interval';
@@ -910,14 +913,14 @@
           ?? window.RegistrySystemState?.storeUpdateInterval?.()
           ?? 60;
         for (const [minutes, text] of [
-          [0, 'Startup only'],
-          [15, '15 minutes'],
-          [30, '30 minutes'],
-          [60, '1 hour'],
-          [120, '2 hours'],
-          [360, '6 hours'],
-          [720, '12 hours'],
-          [1440, '24 hours'],
+          [0, _t('apps.store.updateIntervalStartupOnly')],
+          [15, _t('apps.store.updateInterval15Minutes')],
+          [30, _t('apps.store.updateInterval30Minutes')],
+          [60, _t('apps.store.updateInterval1Hour')],
+          [120, _t('apps.store.updateInterval2Hours')],
+          [360, _t('apps.store.updateInterval6Hours')],
+          [720, _t('apps.store.updateInterval12Hours')],
+          [1440, _t('apps.store.updateInterval24Hours')],
         ]) {
           const option = document.createElement('option');
           option.value = String(minutes);
@@ -930,17 +933,17 @@
         const checkButton = document.createElement('button');
         checkButton.type = 'button';
         checkButton.className = 'app-btn btn-install';
-        checkButton.textContent = 'Check now';
+        checkButton.textContent = _t('apps.store.checkNow');
         const status = document.createElement('p');
         status.className = 'store-settings-status';
         interval.addEventListener('change', () => {
           try {
             const service = window.StoreUpdateService;
             if (!service?.setIntervalMinutes) {
-              throw new Error('The update service is unavailable. Restart NovaByte and try again.');
+              throw new Error(_t('apps.store.updateServiceUnavailable'));
             }
             service.setIntervalMinutes(interval.value);
-            status.textContent = `Update checks set to ${interval.options[interval.selectedIndex].text.toLowerCase()}.`;
+            status.textContent = _t('apps.store.updateChecksSetTo', { interval: interval.options[interval.selectedIndex].text.toLowerCase() });
           } catch (error) {
             status.textContent = error.message || String(error);
             console.error('[AppStore] Could not save update interval:', error);
@@ -949,23 +952,25 @@
         checkButton.addEventListener('click', async () => {
           const service = window.StoreUpdateService;
           if (!service?.checkNow) {
-            status.textContent = 'The update service is unavailable. Restart NovaByte and try again.';
+            status.textContent = _t('apps.store.updateServiceUnavailable');
             return;
           }
           checkButton.disabled = true;
-          checkButton.textContent = 'Checking…';
+          checkButton.textContent = _t('apps.store.checking');
           status.textContent = '';
           try {
             const updates = await service.checkNow();
             status.textContent = updates.length
-              ? `${updates.length} app update${updates.length === 1 ? '' : 's'} available. See the update notifications or browse your apps.`
-              : 'Your installed apps are up to date.';
+              ? (updates.length === 1
+                  ? _t('apps.store.updatesAvailableOne', { count: updates.length })
+                  : _t('apps.store.updatesAvailableMany', { count: updates.length }))
+              : _t('apps.store.upToDate');
           } catch (error) {
-            status.textContent = `Could not check for updates: ${error.message || String(error)}`;
+            status.textContent = _t('apps.store.couldNotCheck', { message: error.message || String(error) });
             console.error('[AppStore] Manual update check failed:', error);
           } finally {
             checkButton.disabled = false;
-            checkButton.textContent = 'Check now';
+            checkButton.textContent = _t('apps.store.checkNow');
           }
         });
         controls.append(checkButton, status);
@@ -992,13 +997,19 @@
         });
         const appCount = filtered.length;
         const heading = normalizedQuery
-          ? `Results for “${query.trim()}”`
+          ? _t('apps.store.resultsFor', { query: query.trim() })
           : activeCategory === 'all'
-            ? 'Discover apps'
+            ? _t('apps.store.discoverApps')
             : formatCategory(activeCategory);
         page.appendChild(makeSectionHeading(
           heading,
-          `${appCount} ${appCount === 1 ? 'app' : 'apps'}${activeCategory === 'all' ? ' available' : ' in this category'}`
+          (appCount === 1
+            ? (activeCategory === 'all'
+                ? _t('apps.store.appCountAvailableOne', { count: appCount })
+                : _t('apps.store.appCountInCategoryOne', { count: appCount }))
+            : (activeCategory === 'all'
+                ? _t('apps.store.appCountAvailableMany', { count: appCount })
+                : _t('apps.store.appCountInCategoryMany', { count: appCount })))
         ));
 
         if (filtered.length === 0) {
@@ -1006,11 +1017,11 @@
           empty.className = 'store-empty';
           empty.innerHTML = '<span class="empty-mark" aria-hidden="true">⌕</span>';
           const title = document.createElement('h2');
-          title.textContent = allApps.length ? 'No apps found' : 'The catalog is empty';
+          title.textContent = allApps.length ? _t('apps.store.noAppsFound') : _t('apps.store.catalogEmpty');
           const note = document.createElement('p');
           note.textContent = allApps.length
-            ? 'Try a different search or choose another category.'
-            : 'There are no apps available in the store yet.';
+            ? _t('apps.store.tryDifferentSearch')
+            : _t('apps.store.noAppsAvailableYet');
           empty.append(title, note);
           page.appendChild(empty);
           return;
@@ -1020,12 +1031,12 @@
           const featured = filtered.find(app => app.featured === true) || filtered[0];
           const hero = document.createElement('section');
           hero.className = 'featured-app';
-          hero.setAttribute('aria-label', 'Featured app');
+          hero.setAttribute('aria-label', _t('apps.store.featuredApp'));
           const copy = document.createElement('div');
           copy.className = 'featured-copy';
           const eyebrow = document.createElement('span');
           eyebrow.className = 'featured-eyebrow';
-          eyebrow.textContent = 'Featured app';
+          eyebrow.textContent = _t('apps.store.featuredApp');
           const titleRow = document.createElement('div');
           titleRow.className = 'featured-title-row';
           const title = document.createElement('h2');
@@ -1033,10 +1044,10 @@
           titleRow.appendChild(title);
           addVerificationBadge(titleRow, featured, 'verified-badge-featured');
           const description = document.createElement('p');
-          description.textContent = featured.description || 'Discover this app for NovaByte OS.';
+          description.textContent = featured.description || _t('apps.store.discoverThisApp');
           const meta = document.createElement('div');
           meta.className = 'featured-meta';
-          meta.textContent = [featured.author, featured.version && `Version ${featured.version}`]
+          meta.textContent = [featured.author, featured.version && _t('apps.store.versionLabel', { version: featured.version })]
             .filter(Boolean)
             .join(' · ');
           const actions = document.createElement('div');
@@ -1044,7 +1055,7 @@
           const detailsButton = document.createElement('button');
           detailsButton.type = 'button';
           detailsButton.className = 'app-btn btn-install';
-          detailsButton.textContent = 'View app';
+          detailsButton.textContent = _t('apps.store.viewApp');
           detailsButton.addEventListener('click', () => showDetails(featured));
           const featuredIcon = document.createElement('div');
           featuredIcon.className = 'featured-icon';
@@ -1058,7 +1069,7 @@
         const gridHeading = document.createElement('div');
         gridHeading.className = 'catalog-heading';
         const listTitle = document.createElement('h2');
-        listTitle.textContent = normalizedQuery ? 'Apps' : 'All apps';
+        listTitle.textContent = normalizedQuery ? _t('apps.store.appsHeading') : _t('apps.store.allApps');
         const listCount = document.createElement('span');
         listCount.textContent = String(filtered.length);
         gridHeading.append(listTitle, listCount);
@@ -1066,7 +1077,7 @@
 
         const grid = document.createElement('section');
         grid.className = 'store-grid';
-        grid.setAttribute('aria-label', 'Available apps');
+        grid.setAttribute('aria-label', _t('apps.store.availableAppsAria'));
         filtered.forEach(app => grid.appendChild(renderCard(app)));
         page.appendChild(grid);
       }
@@ -1080,7 +1091,7 @@
         const back = document.createElement('button');
         back.type = 'button';
         back.className = 'back-button';
-        back.innerHTML = '<span aria-hidden="true">←</span> All apps';
+        back.innerHTML = '<span aria-hidden="true">←</span> ' + _t('apps.store.allApps');
         back.addEventListener('click', () => {
           selectedAppId = null;
           renderView();
@@ -1105,7 +1116,7 @@
         addVerificationBadge(titleRow, app, 'verified-badge-detail');
         const author = document.createElement('p');
         author.className = 'detail-author';
-        author.textContent = app.author ? `by ${app.author}` : 'NovaByte app';
+        author.textContent = app.author ? _t('apps.store.byAuthor', { author: app.author }) : _t('apps.store.novaByteApp');
         const categories = document.createElement('div');
         categories.className = 'detail-categories';
         (Array.isArray(app.categories) ? app.categories : []).forEach(category => {
@@ -1127,8 +1138,8 @@
           const updateButton = document.createElement('button');
           updateButton.type = 'button';
           updateButton.className = 'app-btn btn-update detail-install';
-          updateButton.textContent = 'Update';
-          updateButton.setAttribute('aria-label', `Update ${app.name} to version ${app.version}`);
+          updateButton.textContent = _t('apps.store.update');
+          updateButton.setAttribute('aria-label', _t('apps.store.updateToVersionAria', { app: app.name, version: app.version }));
           updateButton.addEventListener('click', () => installApp(app, updateButton, { updating: true }));
           actions.appendChild(updateButton);
         }
@@ -1140,10 +1151,10 @@
         const about = document.createElement('section');
         about.className = 'detail-panel detail-about';
         const aboutTitle = document.createElement('h2');
-        aboutTitle.textContent = 'About this app';
+        aboutTitle.textContent = _t('apps.store.aboutThisApp');
         const description = document.createElement('p');
         description.className = 'detail-description';
-        description.textContent = app.description || 'The publisher has not provided a description for this app.';
+        description.textContent = app.description || _t('apps.store.noAppDescription');
         about.append(aboutTitle, description);
 
         contentGrid.appendChild(about);
@@ -1151,16 +1162,16 @@
         const sidebar = document.createElement('aside');
         sidebar.className = 'detail-panel detail-facts';
         const factsTitle = document.createElement('h2');
-        factsTitle.textContent = 'App information';
+        factsTitle.textContent = _t('apps.store.appInformation');
         sidebar.appendChild(factsTitle);
         const facts = [
-          ['Version', app.version || '—'],
-          ['Publisher', app.author || '—'],
-          ['Package', '.novaapp'],
-          ['Download size', app.size || 'Shown during download'],
+          [_t('apps.store.version'), app.version || '—'],
+          [_t('apps.store.publisher'), app.author || '—'],
+          [_t('apps.store.package'), '.novaapp'],
+          [_t('apps.store.downloadSize'), app.size || _t('apps.store.sizeDuringDownload')],
         ];
-        if (app.updatedAt) facts.push(['Updated', app.updatedAt]);
-        if (app.license) facts.push(['License', app.license]);
+        if (app.updatedAt) facts.push([_t('apps.store.updated'), app.updatedAt]);
+        if (app.license) facts.push([_t('apps.store.license'), app.license]);
         const factsList = document.createElement('dl');
         for (const [label, value] of facts) {
           const row = document.createElement('div');
@@ -1175,7 +1186,7 @@
         sidebar.appendChild(factsList);
         const trustNote = document.createElement('p');
         trustNote.className = 'detail-trust-note';
-        trustNote.textContent = 'The package signature, revocation status, and integrity are checked before installation.';
+        trustNote.textContent = _t('apps.store.trustNote');
         sidebar.appendChild(trustNote);
         contentGrid.appendChild(sidebar);
         detail.appendChild(contentGrid);
@@ -1244,23 +1255,23 @@
         const failure = document.createElement('div');
         failure.className = 'store-empty store-error';
         const title = document.createElement('h2');
-        title.textContent = 'Could not load the app catalog';
+        title.textContent = _t('apps.store.couldNotLoadCatalog');
         const message = document.createElement('p');
         message.textContent = error.message;
         const retry = document.createElement('button');
         retry.type = 'button';
         retry.className = 'app-btn btn-install';
-        retry.textContent = 'Try again';
+        retry.textContent = _t('apps.store.tryAgain');
         retry.addEventListener('click', async () => {
           retry.disabled = true;
-          retry.textContent = 'Loading…';
+          retry.textContent = _t('apps.store.loading');
           try {
             allApps = await fetchAppList();
             renderView();
           } catch (retryError) {
             message.textContent = retryError.message;
             retry.disabled = false;
-            retry.textContent = 'Try again';
+            retry.textContent = _t('apps.store.tryAgain');
           }
         });
         failure.append(title, message, retry);

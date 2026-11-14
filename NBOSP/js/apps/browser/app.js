@@ -64,7 +64,7 @@ registerApp({
       content.innerHTML =
         '<div style="font-size:32px">⚠️</div>' +
         '<div style="font-size:14px;text-align:center">' +
-        '<b>com.nbosp.browser</b><br>App data directory missing.<br>This app requires NovaByte OS.' +
+        '<b>com.nbosp.browser</b><br>' + _t('apps.browser.runtime.appDataMissing') + '<br>' + _t('apps.browser.runtime.requiresNovaByte') +
         '</div>';
       return;
     }
@@ -124,7 +124,7 @@ registerApp({
     });
 
     // Tab state
-    let tabs        = [{ id: 1, title: 'New Tab', url: '', favicon: '', incognito: false }];
+    let tabs        = [{ id: 1, title: _t('apps.browser.tabs.newTab'), url: '', favicon: '', incognito: false }];
     let activeTabId = 1;
     let nextTabId   = 2;
 
@@ -308,7 +308,7 @@ registerApp({
         const fs = require('fs');
         try {
           const stat = fs.lstatSync(passwordVaultPath);
-          if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Password vault path is not a regular file.');
+          if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(_t('apps.browser.vault.notRegularFileError'));
           return { path: passwordVaultPath, content: fs.readFileSync(passwordVaultPath, 'utf8') };
         } catch (error) {
           if (error.code === 'ENOENT') return null;
@@ -351,7 +351,7 @@ registerApp({
         }
         const actions = createEl('div', { style: 'display:flex;justify-content:flex-end;gap:8px;margin-top:18px;' });
         const cancel = createEl('button', {
-          type: 'button', textContent: 'Cancel',
+          type: 'button', textContent: _t('common.cancel'),
           style: 'padding:8px 14px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;'
         });
         const submit = createEl('button', {
@@ -408,7 +408,7 @@ registerApp({
     }
 
     async function persistPasswordVault() {
-      if (!passwordVaultKey || !passwordVaultEntries) throw new Error('Password vault is locked');
+      if (!passwordVaultKey || !passwordVaultEntries) throw new Error(_t('apps.browser.vault.lockedError'));
       const fileContent = await encryptPasswordVault(passwordVaultEntries, passwordVaultKey, passwordVaultSalt);
       if (linuxNative) {
         const fs = require('fs').promises;
@@ -438,17 +438,17 @@ registerApp({
       const file = findPasswordVaultFile();
       if (!file) {
         const values = await promptPasswordFields(
-          'Create Password Vault',
-          'Choose a master password of at least 10 characters. It encrypts saved logins and cannot be recovered if forgotten.',
+          _t('apps.browser.vault.createTitle'),
+          _t('apps.browser.vault.createBody'),
           [
-            { label: 'Master password', type: 'password', autocomplete: 'new-password' },
-            { label: 'Confirm master password', type: 'password', autocomplete: 'new-password' }
+            { label: _t('apps.browser.vault.masterPassword'), type: 'password', autocomplete: 'new-password' },
+            { label: _t('apps.browser.vault.confirmMaster'), type: 'password', autocomplete: 'new-password' }
           ],
-          'Create vault'
+          _t('apps.browser.vault.createVault')
         );
         if (!values) return false;
         if (values[0].length < 10 || values[0] !== values[1]) {
-          Notify.show({ title: 'Password vault', body: 'Passwords must match and contain at least 10 characters.', type: 'error', appName: 'Browser' });
+          Notify.show({ title: _t('apps.browser.vault.vaultTitle'), body: _t('apps.browser.vault.passwordsMismatch'), type: 'error', appName: 'Browser' });
           return false;
         }
         const nodeCrypto = require('crypto');
@@ -467,13 +467,13 @@ registerApp({
           throw new Error('Unsupported password vault format');
         }
       } catch (err) {
-        throw new Error('Password vault is unreadable: ' + err.message);
+        throw new Error(_t('apps.browser.vault.unreadableError', { message: err.message }));
       }
       const [masterPassword] = await promptPasswordFields(
-        'Unlock Password Vault',
-        'Enter the master password to unlock saved logins. The vault locks automatically after five minutes.',
-        [{ label: 'Master password', type: 'password', autocomplete: 'current-password' }],
-        'Unlock'
+        _t('apps.browser.vault.unlockTitle'),
+        _t('apps.browser.vault.unlockBody'),
+        [{ label: _t('apps.browser.vault.masterPassword'), type: 'password', autocomplete: 'current-password' }],
+        _t('apps.browser.vault.unlock')
       ) || [];
       if (masterPassword == null) return false;
       const nodeCrypto = require('crypto');
@@ -498,7 +498,7 @@ registerApp({
         return true;
       } catch {
         key.fill(0);
-        Notify.show({ title: 'Password vault', body: 'Incorrect master password or damaged vault.', type: 'error', appName: 'Browser' });
+        Notify.show({ title: _t('apps.browser.vault.vaultTitle'), body: _t('apps.browser.vault.incorrect'), type: 'error', appName: 'Browser' });
         return false;
       }
     }
@@ -553,9 +553,9 @@ registerApp({
       } catch { return; }
       try {
         const shouldSave = await showModal(
-          'Save password?',
-          `Save this login for ${origin}? Passwords are encrypted with your master password.`,
-          [{ label: 'Save', value: true }, { label: 'Not now', value: false }]
+          _t('apps.browser.vault.saveTitle'),
+          _t('apps.browser.vault.saveBody', { origin }),
+          [{ label: _t('common.save'), value: true }, { label: _t('apps.browser.vault.notNow'), value: false }]
         );
         if (!shouldSave || !await unlockPasswordVault()) return;
         const existing = passwordVaultEntries.findIndex(item => item.origin === origin && item.username === login.username);
@@ -563,10 +563,10 @@ registerApp({
         if (existing >= 0) passwordVaultEntries[existing] = entry;
         else passwordVaultEntries.push(entry);
         await persistPasswordVault();
-        Notify.show({ title: 'Password saved', body: `Encrypted login saved for ${origin}.`, type: 'success', appName: 'Browser' });
+        Notify.show({ title: _t('apps.browser.vault.savedTitle'), body: _t('apps.browser.vault.savedBody', { origin }), type: 'success', appName: 'Browser' });
       } catch (err) {
         console.error('[NB Browser] Failed to save encrypted password:', err);
-        Notify.show({ title: 'Password not saved', body: err.message || 'Could not save the encrypted login.', type: 'error', appName: 'Browser' });
+        Notify.show({ title: _t('apps.browser.vault.notSavedTitle'), body: err.message || _t('apps.browser.vault.notSavedBody'), type: 'error', appName: 'Browser' });
       }
     }
 
@@ -599,12 +599,12 @@ registerApp({
           style: 'width:min(620px,100%);max-height:85%;overflow:auto;padding:22px;border-radius:12px;background:var(--bg-elevated,#141a28);border:1px solid var(--border-default,rgba(255,255,255,.14));box-shadow:0 24px 70px rgba(0,0,0,.6);'
         });
         const header = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;' });
-        const heading = createEl('h2', { textContent: 'Saved Passwords', style: 'margin:0;font-size:17px;color:var(--text-primary,#e6edf3);' });
+        const heading = createEl('h2', { textContent: _t('apps.browser.vault.managerTitle'), style: 'margin:0;font-size:17px;color:var(--text-primary,#e6edf3);' });
         const actions = createEl('div', { style: 'display:flex;gap:6px;' });
-        const add = createEl('button', { textContent: 'Add login', style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
-        const changeMaster = createEl('button', { textContent: 'Change master password', style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
-        const lock = createEl('button', { textContent: 'Lock', style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
-        const close = createEl('button', { textContent: 'Close', style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
+        const add = createEl('button', { textContent: _t('apps.browser.vault.addLogin'), style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
+        const changeMaster = createEl('button', { textContent: _t('apps.browser.vault.changeMaster'), style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
+        const lock = createEl('button', { textContent: _t('apps.browser.vault.lock'), style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
+        const close = createEl('button', { textContent: _t('common.close'), style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
         actions.append(add, changeMaster, lock, close);
         header.append(heading, actions);
         close.addEventListener('click', () => overlay.remove());
@@ -614,14 +614,14 @@ registerApp({
         });
         changeMaster.addEventListener('click', async () => {
           armPasswordVaultLock();
-          const values = await promptPasswordFields('Change Master Password', 'Choose a new master password. Your saved logins will be re-encrypted.', [
-            { label: 'New master password', type: 'password', autocomplete: 'new-password' },
-            { label: 'Confirm new master password', type: 'password', autocomplete: 'new-password' }
-          ], 'Change password');
+          const values = await promptPasswordFields(_t('apps.browser.vault.changeMasterTitle'), _t('apps.browser.vault.changeMasterBody'), [
+            { label: _t('apps.browser.vault.newMaster'), type: 'password', autocomplete: 'new-password' },
+            { label: _t('apps.browser.vault.confirmNewMaster'), type: 'password', autocomplete: 'new-password' }
+          ], _t('apps.browser.vault.changePassword'));
           if (!values) return;
           if (!passwordVaultKey || !passwordVaultEntries) return;
           if (values[0].length < 10 || values[0] !== values[1]) {
-            Notify.show({ title: 'Password vault', body: 'Passwords must match and contain at least 10 characters.', type: 'error', appName: 'Browser' });
+            Notify.show({ title: _t('apps.browser.vault.vaultTitle'), body: _t('apps.browser.vault.passwordsMismatch'), type: 'error', appName: 'Browser' });
             return;
           }
           const nodeCrypto = require('crypto');
@@ -633,22 +633,22 @@ registerApp({
             await persistPasswordVault();
             oldKey?.fill(0);
             armPasswordVaultLock();
-            Notify.show({ title: 'Master password changed', body: 'Saved logins were re-encrypted with the new master password.', type: 'success', appName: 'Browser' });
+            Notify.show({ title: _t('apps.browser.vault.masterChangedTitle'), body: _t('apps.browser.vault.masterChangedBody'), type: 'success', appName: 'Browser' });
           } catch (err) {
             if (passwordVaultKey && passwordVaultKey !== oldKey) passwordVaultKey.fill(0);
             passwordVaultKey = oldKey;
             passwordVaultSalt = oldSalt;
             console.error('[NB Browser] Failed to change password vault master password:', err);
-            Notify.show({ title: 'Master password not changed', body: 'Could not re-encrypt the password vault.', type: 'error', appName: 'Browser' });
+            Notify.show({ title: _t('apps.browser.vault.masterNotChangedTitle'), body: _t('apps.browser.vault.masterNotChangedBody'), type: 'error', appName: 'Browser' });
           }
         });
         add.addEventListener('click', async () => {
           armPasswordVaultLock();
-          const values = await promptPasswordFields('Add Login', 'Add a credential to the encrypted password vault.', [
-            { label: 'Website URL', type: 'url', placeholder: 'https://example.com' },
-            { label: 'Username', autocomplete: 'username' },
-            { label: 'Password', type: 'password', autocomplete: 'new-password' }
-          ], 'Save login');
+          const values = await promptPasswordFields(_t('apps.browser.vault.addTitle'), _t('apps.browser.vault.addBody'), [
+            { label: _t('apps.browser.vault.websiteUrl'), type: 'url', placeholder: 'https://example.com' },
+            { label: _t('apps.browser.vault.username'), autocomplete: 'username' },
+            { label: _t('apps.browser.vault.password'), type: 'password', autocomplete: 'new-password' }
+          ], _t('apps.browser.vault.saveLogin'));
           if (!values) return;
           if (!passwordVaultKey || !passwordVaultEntries) return;
           let origin;
@@ -657,7 +657,7 @@ registerApp({
             if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error();
             origin = parsed.origin;
           } catch {
-            Notify.show({ title: 'Invalid website', body: 'Enter a valid HTTP or HTTPS URL without embedded credentials.', type: 'error', appName: 'Browser' });
+            Notify.show({ title: _t('apps.browser.vault.invalidWebsiteTitle'), body: _t('apps.browser.vault.invalidWebsiteBody'), type: 'error', appName: 'Browser' });
             return;
           }
           const existingIndex = passwordVaultEntries.findIndex(entry => entry.origin === origin && entry.username === values[1]);
@@ -670,12 +670,12 @@ registerApp({
             showPasswordManager();
           } catch (err) {
             console.error('[NB Browser] Failed to save manual login:', err);
-            Notify.show({ title: 'Login not saved', body: 'Could not update the encrypted vault.', type: 'error', appName: 'Browser' });
+            Notify.show({ title: _t('apps.browser.vault.loginNotSavedTitle'), body: _t('apps.browser.vault.couldNotUpdate'), type: 'error', appName: 'Browser' });
           }
         });
         dialog.appendChild(header);
         if (!passwordVaultEntries.length) {
-          dialog.appendChild(createEl('p', { textContent: 'No saved logins yet. When you sign in to a site, Browser can offer to save the login here.', style: 'color:var(--text-secondary);font-size:12px;' }));
+          dialog.appendChild(createEl('p', { textContent: _t('apps.browser.vault.empty'), style: 'color:var(--text-secondary);font-size:12px;' }));
         }
         const entries = passwordVaultEntries.map((entry, index) => {
           const row = createEl('div', { style: 'display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border-subtle);' });
@@ -684,7 +684,7 @@ registerApp({
             createEl('div', { textContent: entry.origin, style: 'font-size:12px;overflow-wrap:anywhere;color:var(--text-primary);' }),
             createEl('div', { textContent: entry.username, style: 'font-size:11px;color:var(--text-secondary);margin-top:3px;' })
           );
-          const remove = createEl('button', { textContent: 'Delete', style: 'padding:6px 10px;border:1px solid var(--text-danger);border-radius:6px;background:transparent;color:var(--text-danger);cursor:pointer;' });
+          const remove = createEl('button', { textContent: _t('apps.browser.vault.delete'), style: 'padding:6px 10px;border:1px solid var(--text-danger);border-radius:6px;background:transparent;color:var(--text-danger);cursor:pointer;' });
           remove.addEventListener('click', async () => {
             if (!passwordVaultKey || !passwordVaultEntries) return;
             armPasswordVaultLock();
@@ -695,7 +695,7 @@ registerApp({
               showPasswordManager();
             } catch (err) {
               console.error('[NB Browser] Failed to delete saved login:', err);
-              Notify.show({ title: 'Password not deleted', body: 'Could not update the encrypted vault.', type: 'error', appName: 'Browser' });
+              Notify.show({ title: _t('apps.browser.vault.notDeletedTitle'), body: _t('apps.browser.vault.couldNotUpdate'), type: 'error', appName: 'Browser' });
             }
           });
           row.append(info, remove);
@@ -709,7 +709,7 @@ registerApp({
         container.appendChild(overlay);
       }).catch(err => {
         console.error('[NB Browser] Password vault error:', err);
-        Notify.show({ title: 'Password vault unavailable', body: err.message, type: 'error', appName: 'Browser' });
+        Notify.show({ title: _t('apps.browser.vault.unavailableTitle'), body: err.message, type: 'error', appName: 'Browser' });
       });
     }
 
@@ -866,8 +866,8 @@ registerApp({
       if (!tabEl) {
         e.preventDefault();
         ContextMenu.show(e.clientX, e.clientY, [
-          { label: 'New Tab', icon: 'plus', action: createNewTab },
-          { label: 'New Incognito Tab', icon: 'incognito', action: createIncognitoTab },
+          { label: _t('apps.browser.tabs.newTab'), icon: 'plus', action: createNewTab },
+          { label: _t('apps.browser.menu.newIncognitoTab'), icon: 'incognito', action: createIncognitoTab },
         ]);
         return;
       }
@@ -876,17 +876,17 @@ registerApp({
       const idx = tabs.findIndex(t => t.id === tabId);
       const isIncog = Boolean(tabs[idx]?.incognito);
       ContextMenu.show(e.clientX, e.clientY, [
-        { label: 'New Tab', icon: 'plus', action: createNewTab },
-        { label: 'New Incognito Tab', icon: 'incognito', action: createIncognitoTab },
+        { label: _t('apps.browser.tabs.newTab'), icon: 'plus', action: createNewTab },
+        { label: _t('apps.browser.menu.newIncognitoTab'), icon: 'incognito', action: createIncognitoTab },
         { separator: true },
-        { label: 'Reload', icon: 'refresh', action: () => reloadTab(tabId) },
-        { label: 'Duplicate', icon: 'copy', action: () => duplicateTab(tabId) },
+        { label: _t('apps.browser.menu.reload'), icon: 'refresh', action: () => reloadTab(tabId) },
+        { label: _t('apps.browser.menu.duplicate'), icon: 'copy', action: () => duplicateTab(tabId) },
         { separator: true },
-        { label: 'Close Tab', icon: 'x', shortcut: 'Ctrl+W', danger: true, action: () => closeTab(tabId) },
-        { label: 'Close Other Tabs', action: () => closeOthers(tabId) },
-        { label: 'Close Tabs to the Right', action: () => closeTabsToRight(tabId) },
-        { label: 'Close Tabs to the Left', action: () => closeTabsToLeft(tabId) },
-        ...(isIncog ? [{ separator: true }, { label: 'New Incognito Tab', icon: 'incognito', action: createIncognitoTab }] : []),
+        { label: _t('apps.browser.menu.closeTab'), icon: 'x', shortcut: 'Ctrl+W', danger: true, action: () => closeTab(tabId) },
+        { label: _t('apps.browser.menu.closeOtherTabs'), action: () => closeOthers(tabId) },
+        { label: _t('apps.browser.menu.closeTabsRight'), action: () => closeTabsToRight(tabId) },
+        { label: _t('apps.browser.menu.closeTabsLeft'), action: () => closeTabsToLeft(tabId) },
+        ...(isIncog ? [{ separator: true }, { label: _t('apps.browser.menu.newIncognitoTab'), icon: 'incognito', action: createIncognitoTab }] : []),
       ]);
     }, { signal: appAbort.signal });
 
@@ -915,12 +915,12 @@ registerApp({
         tabEl.appendChild(faviconSpan);
         const titleSpan = createEl('span', { className: 'tab-title', textContent: tab.title });
         tabEl.appendChild(titleSpan);
-        const closeBtn = createEl('span', { className: 'tab-close', role: 'button', 'aria-label': 'Close tab' });
+        const closeBtn = createEl('span', { className: 'tab-close', role: 'button', 'aria-label': _t('apps.browser.tabs.closeTabAria') });
         closeBtn.innerHTML = svgIcon('x', 12);
         tabEl.appendChild(closeBtn);
         frag.appendChild(tabEl);
       }
-      const newTabBtn = createEl('button', { className: 'browser-new-tab-btn', 'aria-label': 'New tab' });
+      const newTabBtn = createEl('button', { className: 'browser-new-tab-btn', 'aria-label': _t('apps.browser.tabs.newTabAria') });
       newTabBtn.innerHTML = svgIcon('plus', 16);
       frag.appendChild(newTabBtn);
       // Replace contents in one operation.
@@ -940,13 +940,13 @@ registerApp({
     }
 
     function createNewTab() {
-      const t = { id: nextTabId++, title: 'New Tab', url: '', favicon: '', incognito: false };
+      const t = { id: nextTabId++, title: _t('apps.browser.tabs.newTab'), url: '', favicon: '', incognito: false };
       tabs.push(t);
       switchToTab(t.id);
     }
 
     function createIncognitoTab() {
-      const t = { id: nextTabId++, title: 'Incognito', url: '', favicon: '', incognito: true };
+      const t = { id: nextTabId++, title: _t('apps.browser.tabs.incognito'), url: '', favicon: '', incognito: true };
       tabs.push(t);
       switchToTab(t.id);
     }
@@ -1132,7 +1132,7 @@ registerApp({
       const idx = tabs.findIndex(t => t.id === tabId);
       const dup = {
         id: nextTabId++,
-        title: src.title || 'New Tab',
+        title: src.title || _t('apps.browser.tabs.newTab'),
         url: src.url || '',
         favicon: src.favicon || '',
         incognito: src.incognito || false,
@@ -1180,10 +1180,10 @@ registerApp({
 
       const greeting = createEl('div', { style: 'font-size:22px;font-weight:600;color:var(--text-primary);' });
       const h = new Date().getHours();
-      greeting.textContent = h < 12 ? '🌤 Good morning' : h < 18 ? '☀️ Good afternoon' : '🌙 Good evening';
+      greeting.textContent = h < 12 ? _t('apps.browser.speedDial.goodMorning') : h < 18 ? _t('apps.browser.speedDial.goodAfternoon') : _t('apps.browser.speedDial.goodEvening');
       if (tab?.incognito) {
         sd.style.background = 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)';
-        greeting.textContent = '🕶 Incognito';
+        greeting.textContent = _t('apps.browser.speedDial.incognito');
       }
       sd.appendChild(greeting);
 
@@ -1220,7 +1220,7 @@ registerApp({
         sd.appendChild(grid);
       } else {
         const hint = createEl('div', { style: 'color:var(--text-muted);font-size:13px;text-align:center;' });
-        hint.textContent = 'Bookmark sites with ★ to see them here';
+        hint.textContent = _t('apps.browser.bookmarks.speedDialHint');
         sd.appendChild(hint);
       }
 
@@ -1229,7 +1229,7 @@ registerApp({
         const sec = createEl('div', { style: 'width:100%;max-width:640px;' });
         const hdr = createEl('div', {
           style: 'font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;',
-          textContent: 'Recent'
+          textContent: _t('apps.browser.speedDial.recent')
         });
         sec.appendChild(hdr);
         for (const hEntry of hist) {
@@ -1316,26 +1316,26 @@ registerApp({
 
     // Toolbar
     const toolbar    = createEl('div', { className: 'browser-toolbar' });
-    const backBtn    = createEl('button', { className: 'browser-nav-btn', 'aria-label': 'Go back' });
+    const backBtn    = createEl('button', { className: 'browser-nav-btn', 'aria-label': _t('apps.browser.navigation.backAria') });
     backBtn.innerHTML = svgIcon('chevron-left', 16);
-    const fwdBtn     = createEl('button', { className: 'browser-nav-btn', 'aria-label': 'Go forward' });
+    const fwdBtn     = createEl('button', { className: 'browser-nav-btn', 'aria-label': _t('apps.browser.navigation.forwardAria') });
     fwdBtn.innerHTML = svgIcon('chevron-right', 16);
-    const refreshBtn = createEl('button', { className: 'browser-nav-btn', 'aria-label': 'Refresh' });
+    const refreshBtn = createEl('button', { className: 'browser-nav-btn', 'aria-label': _t('apps.browser.navigation.refreshAria') });
     refreshBtn.innerHTML = svgIcon('refresh', 16);
 
     const urlBarWrap = createEl('div', { className: 'browser-url-bar-wrap' });
     const urlBar = createEl('input', {
       id: 'browser-url-bar', name: 'url',
       className: 'browser-url-bar',
-      placeholder: 'Search or enter URL…',
-      'aria-label': 'Address bar',
+      placeholder: _t('apps.browser.urlBar.placeholder'),
+      'aria-label': _t('apps.browser.urlBar.aria'),
       autocomplete: 'off', spellcheck: 'false',
     });
     const urlIcon = createEl('span', { className: 'browser-url-icon' });
     urlIcon.innerHTML = svgIcon('search', 14);
     const urlWarning = createEl('span', {
       className: 'browser-security-warning',
-      textContent: 'Not secure',
+      textContent: _t('apps.browser.urlBar.notSecure'),
       style: 'display:none;flex-shrink:0;font-size:11px;font-weight:600;color:var(--text-warning);white-space:nowrap;'
     });
     urlBarWrap.append(urlBar, urlIcon, urlWarning);
@@ -1344,28 +1344,28 @@ registerApp({
       if (/^https:\/\//i.test(url || '')) {
         urlIcon.innerHTML = svgIcon('lock', 14);
         urlIcon.style.color = 'var(--text-success)';
-        urlIcon.title = 'Secure connection';
-        urlIcon.setAttribute('aria-label', 'Secure connection');
+        urlIcon.title = _t('apps.browser.urlBar.secureConnection');
+        urlIcon.setAttribute('aria-label', _t('apps.browser.urlBar.secureConnection'));
         urlWarning.style.display = 'none';
       } else if (/^http:\/\//i.test(url || '')) {
         if (getSetting('show_security_warnings', true)) {
           urlIcon.innerHTML = svgIcon('unlock', 14);
           urlIcon.style.color = 'var(--text-warning)';
-          urlIcon.title = 'Not secure: this connection is not encrypted';
-          urlIcon.setAttribute('aria-label', 'Not secure connection');
+          urlIcon.title = _t('apps.browser.urlBar.notSecureTitle');
+          urlIcon.setAttribute('aria-label', _t('apps.browser.urlBar.notSecureAria'));
           urlWarning.style.display = 'inline';
         } else {
           urlIcon.innerHTML = svgIcon('globe', 14);
           urlIcon.style.color = '';
           urlIcon.title = '';
-          urlIcon.setAttribute('aria-label', 'Website');
+          urlIcon.setAttribute('aria-label', _t('apps.browser.urlBar.websiteAria'));
           urlWarning.style.display = 'none';
         }
       } else {
         urlIcon.innerHTML = svgIcon('search', 14);
         urlIcon.style.color = '';
         urlIcon.title = '';
-        urlIcon.setAttribute('aria-label', 'Search or internal page');
+        urlIcon.setAttribute('aria-label', _t('apps.browser.urlBar.searchOrInternalAria'));
         urlWarning.style.display = 'none';
       }
     }
@@ -1373,7 +1373,7 @@ registerApp({
     // Star bookmark button
     const starBtn = createEl('button', {
       className: 'browser-nav-btn',
-      'aria-label': 'Bookmark', title: 'Bookmark this page'
+      'aria-label': _t('apps.browser.bookmarks.bookmarkAria'), title: _t('apps.browser.bookmarks.bookmarkTitle')
     });
     starBtn.innerHTML = svgIcon('star', 16);
     starBtn.addEventListener('click', () => {
@@ -1384,7 +1384,7 @@ registerApp({
       starBtn.style.color = added ? 'var(--accent)' : '';
       starBtn.innerHTML = svgIcon(added ? 'star-filled' : 'star', 16);
       Notify.show({
-        title: added ? 'Bookmark added' : 'Bookmark removed',
+        title: added ? _t('apps.browser.bookmarks.added') : _t('apps.browser.bookmarks.removed'),
         body: tab?.title || currentUrl,
         type: 'info', appName: 'Browser'
       });
@@ -1392,25 +1392,25 @@ registerApp({
 
     // Menu button — Chromium-style overflow menu.
     const menuBtn = createEl('button', {
-      className: 'browser-nav-btn', 'aria-label': 'Menu', title: 'Browser menu'
+      className: 'browser-nav-btn', 'aria-label': _t('apps.browser.menu.menuAria'), title: _t('apps.browser.menu.menuTitle')
     });
     menuBtn.innerHTML = svgIcon('menu', 16);
     menuBtn.addEventListener('click', (e) => {
       const tab = activeTab();
       const isIncog = tab?.incognito || false;
       const menuItems = [
-        { label: 'New Tab', action: createNewTab },
-        { label: 'New Incognito Tab', action: createIncognitoTab },
+        { label: _t('apps.browser.tabs.newTab'), action: createNewTab },
+        { label: _t('apps.browser.menu.newIncognitoTab'), action: createIncognitoTab },
         { separator: true },
       ];
-      if (!isIncog) menuItems.push({ label: 'Bookmarks', action: () => showPanel('bookmarks') });
-      menuItems.push({ label: 'History', action: () => showPanel('history') });
+      if (!isIncog) menuItems.push({ label: _t('apps.browser.menu.bookmarks'), action: () => showPanel('bookmarks') });
+      menuItems.push({ label: _t('apps.browser.menu.history'), action: () => showPanel('history') });
       menuItems.push({ separator: true });
       menuItems.push(
-        { label: 'Find in Page', shortcut: 'Ctrl+F', action: openFindBar },
-        { label: tab?.userAgent === 'mobile' ? 'Switch to Desktop Site' : 'Switch to Mobile Site', action: toggleUserAgent },
+        { label: _t('apps.browser.menu.findInPage'), shortcut: 'Ctrl+F', action: openFindBar },
+        { label: tab?.userAgent === 'mobile' ? _t('apps.browser.menu.switchToDesktopSite') : _t('apps.browser.menu.switchToMobileSite'), action: toggleUserAgent },
         {
-          label: getTabMode(activeTabId) === 'iframe' ? 'Switch to Webview Mode' : 'Switch to iFrame Mode',
+          label: getTabMode(activeTabId) === 'iframe' ? _t('apps.browser.menu.switchToWebviewMode') : _t('apps.browser.menu.switchToIframeMode'),
           action: () => {
             const next = getTabMode(activeTabId) === 'iframe' ? 'webview' : 'iframe';
             if (next === 'webview') clearFindStateOnModeSwitch();
@@ -1421,11 +1421,11 @@ registerApp({
           },
         },
         { separator: true },
-        { label: 'Zoom In',  action: () => adjustZoom(ZOOM_STEP) },
-        { label: 'Zoom Out', action: () => adjustZoom(-ZOOM_STEP) },
-        { label: 'Reset Zoom', action: () => adjustZoom(0) },
+        { label: _t('apps.browser.menu.zoomIn'),  action: () => adjustZoom(ZOOM_STEP) },
+        { label: _t('apps.browser.menu.zoomOut'), action: () => adjustZoom(-ZOOM_STEP) },
+        { label: _t('apps.browser.menu.resetZoom'), action: () => adjustZoom(0) },
         { separator: true },
-        { label: 'Settings', action: () => navigate('browser://settings') },
+        { label: _t('apps.browser.settings.title'), action: () => navigate('browser://settings') },
       );
       ContextMenu.show(e.clientX, e.clientY, menuItems);
     }, { signal: appAbort.signal });
@@ -1443,10 +1443,10 @@ registerApp({
     // The underlying toggle logic is safe to leave in for devs.
     const modeBtn = createEl('button', {
       className: 'browser-mode-btn',
-      title: 'Switch to iframe mode',
+      title: _t('apps.browser.mode.switchToIframe'),
       'aria-pressed': 'false'
     });
-    modeBtn.innerHTML = svgIcon('monitor', 14) + ' <span>Webview</span>';
+    modeBtn.innerHTML = svgIcon('monitor', 14) + ' <span>' + _t('apps.browser.mode.webview') + '</span>';
     modeBtn.addEventListener('click', () => {
       const current = getTabMode(activeTabId);
       const next = current === 'webview' ? 'iframe' : 'webview';
@@ -1463,7 +1463,7 @@ registerApp({
     });
     const findInput = createEl('input', {
       id: 'page-find-input', name: 'page-find',
-      placeholder: 'Find in page…',
+      placeholder: _t('apps.browser.find.placeholder'),
       style: 'flex:1;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 8px;font-size:12px;color:var(--text-primary);outline:none;',
       autocomplete: 'off', spellcheck: 'false',
     });
@@ -1471,11 +1471,11 @@ registerApp({
       style: 'font-size:11px;color:var(--text-muted);min-width:50px;',
       role: 'status', 'aria-live': 'polite'
     });
-    const findPrev  = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 6px;', title: 'Previous', 'aria-label': 'Previous match' });
+    const findPrev  = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 6px;', title: _t('apps.browser.find.previousTitle'), 'aria-label': _t('apps.browser.find.previousAria') });
     findPrev.innerHTML = svgIcon('chevron-up', 14);
-    const findNext = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 6px;', title: 'Next', 'aria-label': 'Next match' });
+    const findNext = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 6px;', title: _t('common.next'), 'aria-label': _t('apps.browser.find.nextAria') });
     findNext.innerHTML = svgIcon('chevron-down', 14);
-    const findClose = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 6px;', title: 'Close', 'aria-label': 'Close find bar' });
+    const findClose = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 6px;', title: _t('common.close'), 'aria-label': _t('apps.browser.find.closeAria') });
     findClose.innerHTML = svgIcon('x', 14);
     findBar.append(findInput, findCount, findPrev, findNext, findClose);
 
@@ -1667,10 +1667,10 @@ registerApp({
         style: 'display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border-subtle);gap:8px;flex-shrink:0;'
       });
       const title = createEl('span', {
-        textContent: type === 'bookmarks' ? '★ Bookmarks' : '🕐 History',
+        textContent: type === 'bookmarks' ? _t('apps.browser.bookmarks.panelTitle') : _t('apps.browser.history.panelTitle'),
         style: 'font-size:13px;font-weight:600;flex:1;'
       });
-      const closeP = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 6px;', 'aria-label': 'Close panel' });
+      const closeP = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 6px;', 'aria-label': _t('apps.browser.panel.closeAria') });
       closeP.innerHTML = svgIcon('x', 14);
       closeP.addEventListener('click', () => { panel.style.display = 'none'; _panelType = null; });
       hdr.append(title, closeP);
@@ -1685,8 +1685,8 @@ registerApp({
           style: 'text-align:center;padding:32px 16px;color:var(--text-muted);font-size:13px;'
         });
         empty.innerHTML = type === 'bookmarks'
-          ? 'No bookmarks yet.<br>Click ★ to save a page.'
-          : 'No history yet.';
+          ? _t('apps.browser.bookmarks.empty') + '<br>' + _t('apps.browser.bookmarks.emptyHint')
+          : _t('apps.browser.history.empty');
         list.appendChild(empty);
         return;
       }
@@ -1747,8 +1747,8 @@ registerApp({
         const del = createEl('button', {
           className: 'browser-nav-btn',
           style: 'padding:2px 4px;opacity:0;transition:opacity 0.1s;',
-          title: 'Remove',
-          'aria-label': 'Remove item',
+          title: _t('common.remove'),
+          'aria-label': _t('apps.browser.bookmarks.removeAria'),
           'data-panel-del': 'true'
         });
         del.innerHTML = svgIcon('x', 12);
@@ -1771,7 +1771,7 @@ registerApp({
     function showQuickControlFeedback(direction) {
       clearTimeout(quickControlFeedbackTimer);
       quickControlArrow.innerHTML = svgIcon(direction === 'back' ? 'chevron-left' : 'chevron-right', 22);
-      quickControlLabel.textContent = direction === 'back' ? 'Back' : 'Forward';
+      quickControlLabel.textContent = direction === 'back' ? _t('common.back') : _t('apps.browser.navigation.forward');
       quickControlFeedback.classList.toggle('is-forward', direction === 'forward');
       quickControlFeedback.classList.remove('is-visible');
       void quickControlFeedback.offsetWidth;
@@ -1816,7 +1816,7 @@ registerApp({
                'background:var(--bg-hover);border:1px solid var(--border-subtle);' +
                'border-radius:4px;padding:2px 7px;white-space:nowrap;flex-shrink:0;' +
                'letter-spacing:.05em;text-transform:uppercase;',
-        textContent: 'Popup'
+        textContent: _t('apps.browser.popup.badge')
       });
       toolbar.appendChild(popupBadge);
       tabs[0].isPopup = true;
@@ -1992,9 +1992,9 @@ registerApp({
           const { statusCode, headers } = res;
           if (statusCode >= 300 && statusCode < 400 && headers.location) {
             res.resume();
-            if (redirectsLeft <= 0) return reject(new Error('Too many redirects'));
+            if (redirectsLeft <= 0) return reject(new Error(_t('apps.browser.downloads.tooManyRedirects')));
             const next = new URL(headers.location, url).href;
-            if (!/^https?:/i.test(next)) return reject(new Error('Unsupported redirect'));
+            if (!/^https?:/i.test(next)) return reject(new Error(_t('apps.browser.downloads.unsupportedRedirect')));
             const nextHeaders = { ...requestHeaders };
             if (new URL(url).origin !== new URL(next).origin) {
               for (const name of Object.keys(nextHeaders)) {
@@ -2025,10 +2025,10 @@ registerApp({
           };
           res.on('data', chunk => { received += chunk.length; });
           res.on('error', fail);
-          res.on('aborted', () => fail(new Error('Download response was interrupted')));
+          res.on('aborted', () => fail(new Error(_t('apps.browser.downloads.interrupted'))));
           out.on('error', fail);
           out.on('close', () => {
-            if (!failed && !out.writableFinished) fail(new Error('Download file was closed before completion'));
+            if (!failed && !out.writableFinished) fail(new Error(_t('apps.browser.downloads.closedEarly')));
           });
           out.on('finish', () => {
             if (failed) return;
@@ -2037,7 +2037,7 @@ registerApp({
           res.pipe(out);
         });
         req.on('error', reject);
-        req.setTimeout(30000, () => req.destroy(new Error('Connection timed out')));
+        req.setTimeout(30000, () => req.destroy(new Error(_t('apps.browser.downloads.timedOut'))));
       });
     }
 
@@ -2073,10 +2073,10 @@ registerApp({
 
     // Chromium's own download would open the host's native chooser, so the
     // permission handler denies it and routes the URL here for the OS Save As.
-    async function saveDownloadViaDialog(url, requestedName, title = 'Save As', requestHeaders = {}) {
+    async function saveDownloadViaDialog(url, requestedName, title = _t('shell.files.saveAs'), requestHeaders = {}) {
       const isDataUrl = /^data:/i.test(url || '');
       if (!url || (!/^https?:\/\//i.test(url) && !isDataUrl)) {
-        Notify.show({ title: 'Download failed', body: 'Only HTTP(S) and data URLs can be saved through this dialog.', type: 'error', appName: 'Downloads' });
+        Notify.show({ title: _t('apps.browser.downloads.failed'), body: _t('apps.browser.downloads.onlyHttpBody'), type: 'error', appName: 'Downloads' });
         return;
       }
       const rawName = sanitizeDownloadName(requestedName || url);
@@ -2084,7 +2084,7 @@ registerApp({
       const picked = await SystemDialogs.save({ title, suggestedName });
       if (!picked) return;
       if (!picked.path) {
-        Notify.show({ title: 'Download failed', body: 'Save As did not return a file path.', type: 'error', appName: 'Downloads' });
+        Notify.show({ title: _t('apps.browser.downloads.failed'), body: _t('apps.browser.downloads.noPathBody'), type: 'error', appName: 'Downloads' });
         return;
       }
       const entry = window.Downloads?.add(picked.name, isDataUrl ? '' : url, 0, '');
@@ -2093,7 +2093,7 @@ registerApp({
         let bytes;
         if (isDataUrl) {
           const comma = url.indexOf(',');
-          if (comma < 5) throw new Error('Invalid data URL');
+          if (comma < 5) throw new Error(_t('apps.browser.downloads.invalidDataUrl'));
           const metadata = url.slice(5, comma);
           const payload = url.slice(comma + 1);
           const data = /(?:^|;)base64(?:;|$)/i.test(metadata)
@@ -2113,10 +2113,10 @@ registerApp({
           bytes = await streamUrlToFile(url, picked.path, requestHeaders);
         }
         if (entry) window.Downloads.setStatus(entry.id, 'done', bytes);
-        Notify.show({ title: 'Download complete', body: picked.name, type: 'success', appName: 'Downloads' });
+        Notify.show({ title: _t('apps.browser.downloads.complete'), body: picked.name, type: 'success', appName: 'Downloads' });
       } catch (err) {
         if (entry) window.Downloads.setStatus(entry.id, 'failed');
-        Notify.show({ title: 'Download failed', body: String(err?.message || err), type: 'error', appName: 'Downloads' });
+        Notify.show({ title: _t('apps.browser.downloads.failed'), body: String(err?.message || err), type: 'error', appName: 'Downloads' });
       }
     }
 
@@ -2330,28 +2330,28 @@ registerApp({
         let titleText, message, hint, showBypass = false;
         if (desc.includes('CERT') || desc.includes('SSL') || desc.includes('HTTPS') ||
             code === -202 || code === -200 || code === -207) {
-          titleText = '⚠ Certificate Error';
-          message = 'The connection to this site is not trusted. The certificate may be self-signed, expired, or issued by an unknown authority.';
-          hint = 'If this is a local development server, click "Proceed anyway" below.';
+          titleText = _t('apps.browser.error.certTitle');
+          message = _t('apps.browser.error.certBody');
+          hint = _t('apps.browser.error.certHint');
           showBypass = true;
         } else if (desc.includes('CONNECTION_REFUSED') || code === -102) {
-          titleText = '⚡ Connection Refused';
-          message = 'No server is listening at this address. Check that the server is running and the port is correct.';
+          titleText = _t('apps.browser.error.refusedTitle');
+          message = _t('apps.browser.error.refusedBody');
           hint = (failedUrl.includes('localhost') || failedUrl.includes('127.0.0.1'))
-            ? 'Tip: make sure your local server is started (e.g. npm start).'
+            ? _t('apps.browser.error.refusedHintLocal')
             : '';
         } else if (desc.includes('NAME_NOT_RESOLVED') || code === -105) {
-          titleText = '🌐 DNS Error';
-          message = 'The hostname could not be resolved. Check the URL or your internet connection.';
+          titleText = _t('apps.browser.error.dnsTitle');
+          message = _t('apps.browser.error.dnsBody');
           hint = '';
         } else if (desc.includes('TIMED_OUT') || code === -7) {
-          titleText = '⏱ Connection Timed Out';
-          message = 'The server took too long to respond.';
-          hint = 'Try again or check your network.';
+          titleText = _t('apps.browser.error.timeoutTitle');
+          message = _t('apps.browser.error.timeoutBody');
+          hint = _t('apps.browser.error.timeoutHint');
         } else {
-          titleText = '✕ Page Failed to Load';
-          message = 'Something went wrong loading this page.';
-          hint = desc ? 'Error: ' + desc : '';
+          titleText = _t('apps.browser.error.genericTitle');
+          message = _t('apps.browser.error.genericBody');
+          hint = desc ? _t('apps.browser.error.errorLabel', { desc }) : '';
         }
 
         // Build the error page. The <script> tag uses data-attributes +
@@ -2400,8 +2400,8 @@ registerApp({
   <div class="url">${safeUrl}</div>
   ${safeHint ? `<div class="hint">${safeHint}</div>` : ''}
   <div class="actions">
-    ${showBypass ? '<button class="unsafe" id="__nb_bypass">Proceed anyway (unsafe)</button>' : ''}
-    <button id="__nb_retry">↺ Retry</button>
+    ${showBypass ? `<button class="unsafe" id="__nb_bypass">${_t('apps.browser.error.proceedAnyway')}</button>` : ''}
+    <button id="__nb_retry">${_t('apps.browser.error.retry')}</button>
   </div>
 </div>
 <script>
@@ -2429,7 +2429,15 @@ registerApp({
         if (!e.isTopLevel) return;
         if (!e.url || e.url === 'about:blank' || e.url === 'about:newtab') return;
         if (e.reason === 'ERR_ABORTED') return;
-        const reasonJson = JSON.stringify(e.reason || 'Unknown reason')
+        const reasonJson = JSON.stringify(e.reason || _t('apps.browser.error.unknownReason'))
+          .replace(/</g, '\\u003c')
+          .replace(/\u2028/g, '\\u2028')
+          .replace(/\u2029/g, '\\u2029');
+        const navTitleJson = JSON.stringify(_t('apps.browser.error.navigationBlocked'))
+          .replace(/</g, '\\u003c')
+          .replace(/\u2028/g, '\\u2028')
+          .replace(/\u2029/g, '\\u2029');
+        const goBackJson = JSON.stringify(_t('apps.browser.error.goBack'))
           .replace(/</g, '\\u003c')
           .replace(/\u2028/g, '\\u2028')
           .replace(/\u2029/g, '\\u2029');
@@ -2437,14 +2445,16 @@ registerApp({
           wv.executeScript({ code: `
             (function() {
               const reason = ${reasonJson};
+              const navTitle = ${navTitleJson};
+              const goBackLabel = ${goBackJson};
               const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
               const reasonText = esc(reason);
               const html = '<html><body style="background:#0d1117;color:#c9d1d9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">' +
                 '<div style="text-align:center;max-width:400px">' +
                 '<div style="font-size:32px;margin-bottom:12px">🚫</div>' +
-                '<div style="font-size:16px;font-weight:700;margin-bottom:8px">Navigation Blocked</div>' +
+                '<div style="font-size:16px;font-weight:700;margin-bottom:8px">' + esc(navTitle) + '</div>' +
                 '<div style="font-size:12px;color:#8b949e;margin-bottom:16px">' + reasonText + '</div>' +
-                '<button id="__nb_back" style="background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer">← Go Back</button>' +
+                '<button id="__nb_back" style="background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer">' + esc(goBackLabel) + '</button>' +
                 '</div></body></html>';
               document.documentElement.innerHTML = html;
               const b = document.getElementById('__nb_back');
@@ -2517,10 +2527,10 @@ registerApp({
         if (tabId === activeTabId) {
           showInfoBar(
             tabId,
-            '⚠\uFE0F This page is not responding.',
+            _t('apps.browser.infoBar.notResponding'),
             [
-              { label: 'Wait', action: () => {} },
-              { label: 'Reload', action: () => navigate(tabs.find(t => t.id === tabId)?.url || '') }
+              { label: _t('apps.browser.infoBar.wait'), action: () => {} },
+              { label: _t('apps.browser.menu.reload'), action: () => navigate(tabs.find(t => t.id === tabId)?.url || '') }
             ]
           );
         }
@@ -2575,7 +2585,7 @@ registerApp({
           barTitle.textContent = url;
           const barClose = document.createElement('button');
           barClose.textContent = '✕';
-          barClose.setAttribute('aria-label', 'Close popup');
+          barClose.setAttribute('aria-label', _t('apps.browser.popup.closeAria'));
           barClose.style.cssText = 'background:none;border:none;color:inherit;opacity:0.5;cursor:pointer;font-size:13px;padding:2px 6px;border-radius:4px;';
           barClose.onmouseenter = () => barClose.style.opacity = '1';
           barClose.onmouseleave = () => barClose.style.opacity = '0.5';
@@ -2615,7 +2625,7 @@ registerApp({
           const parentTab = tabs.find(t => t.id === tabId);
           const newTab = {
             id: nextTabId++,
-            title: 'New Tab',
+            title: _t('apps.browser.tabs.newTab'),
             url: '',
             favicon: '',
             incognito: parentTab?.incognito || false
@@ -2696,10 +2706,13 @@ registerApp({
       notice.dataset.tab = tabId;
       // Build via DOM APIs to avoid innerHTML with translated strings.
       const icon = createEl('div', { className: 'blocked-icon', textContent: '🚫' });
-      const titleEl = createEl('div', { className: 'blocked-title', textContent: 'Page blocked iframe embedding' });
+      const titleEl = createEl('div', { className: 'blocked-title', textContent: _t('apps.browser.blocked.title') });
       const body = createEl('div', { className: 'blocked-body' });
-      body.innerHTML = 'This site uses <code>X-Frame-Options</code> or <code>Content-Security-Policy: frame-ancestors</code> to prevent embedding. Switch to Webview mode to load it normally.';
-      const sw = createEl('button', { className: 'blocked-switch', textContent: 'Switch to Webview Mode' });
+      body.innerHTML = _t('apps.browser.blocked.body', {
+        xfo: '<code>X-Frame-Options</code>',
+        csp: '<code>Content-Security-Policy: frame-ancestors</code>'
+      });
+      const sw = createEl('button', { className: 'blocked-switch', textContent: _t('apps.browser.menu.switchToWebviewMode') });
       sw.addEventListener('click', () => { setTabMode(tabId, 'webview'); navigate(url); });
       notice.append(icon, titleEl, body, sw);
       viewport.appendChild(notice);
@@ -2752,11 +2765,11 @@ registerApp({
     function updateModeBtn() {
       const mode = getTabMode(activeTabId);
       modeBtn.classList.toggle('iframe-active', mode === 'iframe');
-      modeBtn.title = mode === 'iframe' ? 'Switch to Webview mode' : 'Switch to iframe mode';
+      modeBtn.title = mode === 'iframe' ? _t('apps.browser.mode.switchToWebview') : _t('apps.browser.mode.switchToIframe');
       modeBtn.setAttribute('aria-pressed', mode === 'iframe' ? 'true' : 'false');
       modeBtn.innerHTML = (mode === 'iframe'
-        ? svgIcon('layout', 14) + ' <span>iFrame</span>'
-        : svgIcon('monitor', 14) + ' <span>Webview</span>');
+        ? svgIcon('layout', 14) + ' <span>' + _t('apps.browser.mode.iframe') + '</span>'
+        : svgIcon('monitor', 14) + ' <span>' + _t('apps.browser.mode.webview') + '</span>');
     }
 
     function showViewForTab(tabId) {
@@ -3018,8 +3031,8 @@ registerApp({
         }
         if (permission === 'geolocation' && url.protocol !== 'https:') {
           Notify.show({
-            title: 'Location requires a secure connection',
-            body: `${url.origin} cannot access location over HTTP. Open the HTTPS version of this site and try again.`,
+            title: _t('apps.browser.permissions.secureRequiredTitle'),
+            body: _t('apps.browser.permissions.secureRequiredBody', { origin: url.origin }),
             type: 'error', appName: 'Browser'
           });
           return false;
@@ -3036,11 +3049,12 @@ registerApp({
 
       const prompt = (async () => {
         try {
-          const subject = permission === 'geolocation' ? 'your location' : 'your camera or microphone';
           const allowed = await showModal(
-            permission === 'geolocation' ? 'Location access' : 'Camera or microphone access',
-            `Allow ${origin} to access ${subject}? Your choice lasts until Browser closes.`,
-            [{ label: 'Block', value: false }, { label: 'Allow', value: true, primary: true }]
+            permission === 'geolocation' ? _t('apps.browser.permissions.locationTitle') : _t('apps.browser.permissions.cameraTitle'),
+            permission === 'geolocation'
+              ? _t('apps.browser.permissions.locationPrompt', { origin })
+              : _t('apps.browser.permissions.cameraPrompt', { origin }),
+            [{ label: _t('apps.browser.permissions.block'), value: false }, { label: _t('apps.browser.permissions.allow'), value: true, primary: true }]
           );
           const decision = allowed === true;
           sitePermissionDecisions.set(key, decision);
@@ -3327,7 +3341,7 @@ registerApp({
           saveDownloadViaDialog(
             downloadUrl,
             e.request.filename || e.request.suggestedFilename,
-            'Save As',
+            _t('shell.files.saveAs'),
             getDownloadRequestHeaders(wv, downloadUrl, tab?.url)
           ).catch(err => {
             console.warn('[NB Browser] Download failed to start:', err);
@@ -3612,7 +3626,7 @@ registerApp({
         const id = String(request.id);
         if (filePickOpen || request.directory) {
           if (request.directory) {
-            Notify.show({ title: 'Folder upload unavailable', body: "Browser can't upload whole folders yet.", type: 'info', appName: 'Browser' });
+            Notify.show({ title: _t('apps.browser.upload.folderTitle'), body: _t('apps.browser.upload.folderBody'), type: 'info', appName: 'Browser' });
           }
           await runInGuest(guestFileCall('cancel', id));
           return;
@@ -3620,7 +3634,7 @@ registerApp({
         filePickOpen = true;
         try {
           const result = await SystemDialogs.open({
-            title: request.multiple ? 'Choose Files to Upload' : 'Choose File to Upload',
+            title: request.multiple ? _t('apps.browser.upload.chooseFiles') : _t('apps.browser.upload.chooseFile'),
             multiple: request.multiple === true,
             accept: request.accept,
             pathOnly: true,
@@ -3631,9 +3645,9 @@ registerApp({
             return;
           }
           for (const picked of picks) await sendFileToGuest(runInGuest, id, picked);
-          if ((await runInGuest(guestFileCall('finish', id))) !== true) throw new Error('The page did not accept the file');
+          if ((await runInGuest(guestFileCall('finish', id))) !== true) throw new Error(_t('apps.browser.upload.pageDidNotAccept'));
         } catch (err) {
-          Notify.show({ title: 'Upload failed', body: String(err?.message || err), type: 'error', appName: 'Browser' });
+          Notify.show({ title: _t('apps.browser.upload.failed'), body: String(err?.message || err), type: 'error', appName: 'Browser' });
           await runInGuest(guestFileCall('cancel', id)).catch(() => {});
         } finally {
           filePickOpen = false;
@@ -3656,7 +3670,7 @@ registerApp({
       function _ctxOpenInNewTab(url) {
         const _ctxTabId = wv._nbTabId;
         const _ctxTab   = tabs.find(t => t.id === _ctxTabId);
-        const t = { id: nextTabId++, title: 'New Tab', url, favicon: '', incognito: _ctxTab?.incognito || false };
+        const t = { id: nextTabId++, title: _t('apps.browser.tabs.newTab'), url, favicon: '', incognito: _ctxTab?.incognito || false };
         tabs.push(t);
         switchToTab(t.id);
         navigate(url);
@@ -3682,11 +3696,11 @@ registerApp({
         saveDownloadViaDialog(
           src,
           imageName,
-          'Save Image As',
+          _t('apps.browser.savePage.imageTitle'),
           getDownloadRequestHeaders(wv, src, ctx.pageUrl)
         ).catch(error => {
           console.error('[NB Browser] Could not save image:', error);
-          Notify.show({ title: 'Image save failed', body: error?.message || 'Could not save this image.', type: 'error', appName: 'Browser' });
+          Notify.show({ title: _t('apps.browser.savePage.imageFailedTitle'), body: error?.message || _t('apps.browser.savePage.imageFailedBody'), type: 'error', appName: 'Browser' });
         });
       }
 
@@ -3741,7 +3755,7 @@ registerApp({
         const sourceHost = new URL(sourceUrl).hostname;
         tabs.push({
           id: sourceTabId,
-          title: 'Source: ' + sourceHost,
+          title: _t('apps.browser.savePage.sourceTab', { host: sourceHost }),
           url: 'view-source:' + sourceUrl,
           favicon: '',
           incognito: Boolean(tabs.find(t => t.id === wv._nbTabId)?.incognito),
@@ -3778,11 +3792,11 @@ registerApp({
         const filename = /\.html?$/i.test(baseName) ? baseName : baseName + '.html';
         const notifyResult = (message, type) => {
           if (message) {
-            Notify.show({ title: type === 'success' ? 'Page saved' : 'Save page failed', body: message, type, appName: 'Browser' });
+            Notify.show({ title: type === 'success' ? _t('apps.browser.savePage.savedTitle') : _t('apps.browser.savePage.failedTitle'), body: message, type, appName: 'Browser' });
           }
         };
 
-        SystemDialogs.save({ title: 'Save Page As', suggestedName: filename }).then(picked => {
+        SystemDialogs.save({ title: _t('apps.browser.savePage.pageTitle'), suggestedName: filename }).then(picked => {
           if (!picked) return;
           const savePath = picked.path;
           try {
@@ -3790,17 +3804,17 @@ registerApp({
               code: 'document.documentElement ? document.documentElement.outerHTML : null'
             }, results => {
               if (chrome.runtime?.lastError) {
-                notifyResult('Could not read the page content: ' + chrome.runtime.lastError.message, 'error');
+                notifyResult(_t('apps.browser.savePage.readFailed', { message: chrome.runtime.lastError.message }), 'error');
                 return;
               }
               const html = Array.isArray(results) ? results[0] : null;
               if (typeof html !== 'string' || !html) {
-                notifyResult('The page has no HTML content to save.', 'error');
+                notifyResult(_t('apps.browser.savePage.noHtml'), 'error');
                 return;
               }
               let fs;
               try { fs = require('fs'); } catch (error) {
-                notifyResult('Could not access the file system: ' + (error?.message || error), 'error');
+                notifyResult(_t('apps.browser.savePage.fsUnavailable', { message: error?.message || error }), 'error');
                 return;
               }
               const content = html.startsWith('<!doctype') || html.startsWith('<!DOCTYPE')
@@ -3808,16 +3822,16 @@ registerApp({
                 : '<!doctype html>\n' + html;
               fs.writeFile(savePath, content, 'utf8', error => {
                 if (error) {
-                  notifyResult('Could not write the file: ' + error.message, 'error');
+                  notifyResult(_t('apps.browser.savePage.writeFailed', { message: error.message }), 'error');
                   return;
                 }
-                notifyResult(picked.name + ' was saved.', 'success');
+                notifyResult(_t('apps.browser.savePage.savedBody', { name: picked.name }), 'success');
               });
             });
           } catch (error) {
-            notifyResult('Could not read the page content: ' + (error?.message || error), 'error');
+            notifyResult(_t('apps.browser.savePage.readFailed', { message: error?.message || error }), 'error');
           }
-        }).catch(error => notifyResult('Save dialog failed: ' + (error?.message || error), 'error'));
+        }).catch(error => notifyResult(_t('apps.browser.savePage.dialogFailed', { message: error?.message || error }), 'error'));
       }
 
       function _buildWebviewMenu(ctx, pageUrl) {
@@ -3829,23 +3843,23 @@ registerApp({
 
         // Link items
         if (hasLink) {
-          items.push({ label: 'Open Link in New Tab', action: () => _ctxOpenInNewTab(ctx.linkHref) });
-          items.push({ label: 'Copy Link Address',    action: () => _ctxCopyText(ctx.linkHref) });
+          items.push({ label: _t('apps.browser.contextMenu.openLinkNewTab'), action: () => _ctxOpenInNewTab(ctx.linkHref) });
+          items.push({ label: _t('apps.browser.contextMenu.copyLinkAddress'),    action: () => _ctxCopyText(ctx.linkHref) });
           items.push({ separator: true });
         }
 
         // Image items
         if (hasImg) {
-          items.push({ label: 'Open Image in New Tab', action: () => _ctxOpenInNewTab(ctx.imgSrc) });
-          items.push({ label: 'Copy Image Address',    action: () => _ctxCopyText(ctx.imgSrc) });
-          items.push({ label: 'Save Image As\u2026', action: () => _ctxSaveImageAs(ctx) });
+          items.push({ label: _t('apps.browser.contextMenu.openImageNewTab'), action: () => _ctxOpenInNewTab(ctx.imgSrc) });
+          items.push({ label: _t('apps.browser.contextMenu.copyImageAddress'),    action: () => _ctxCopyText(ctx.imgSrc) });
+          items.push({ label: _t('apps.browser.contextMenu.saveImageAs'), action: () => _ctxSaveImageAs(ctx) });
           items.push({ separator: true });
         }
 
         // Video items
         if (hasVideo) {
-          items.push({ label: 'Open Video in New Tab', action: () => _ctxOpenInNewTab(ctx.videoSrc) });
-          items.push({ label: 'Copy Video Address',    action: () => _ctxCopyText(ctx.videoSrc) });
+          items.push({ label: _t('apps.browser.contextMenu.openVideoNewTab'), action: () => _ctxOpenInNewTab(ctx.videoSrc) });
+          items.push({ label: _t('apps.browser.contextMenu.copyVideoAddress'),    action: () => _ctxCopyText(ctx.videoSrc) });
           items.push({ separator: true });
         }
 
@@ -3854,29 +3868,29 @@ registerApp({
           const snippet = ctx.selectedText.length > 40
             ? ctx.selectedText.slice(0, 40) + '\u2026'
             : ctx.selectedText;
-          items.push({ label: 'Copy \u201c' + snippet + '\u201d', action: () => _ctxCopyText(ctx.selectedText) });
+          items.push({ label: _t('apps.browser.contextMenu.copySelection', { snippet }), action: () => _ctxCopyText(ctx.selectedText) });
           const _engine = SEARCH_ENGINES[getSetting('searchEngine', 'brave')];
           if (_engine) {
             const _q = encodeURIComponent(ctx.selectedText.slice(0, 300));
-            items.push({ label: 'Search for \u201c' + snippet + '\u201d', action: () => _ctxOpenInNewTab(_engine.url + _q) });
+            items.push({ label: _t('apps.browser.contextMenu.searchSelection', { snippet }), action: () => _ctxOpenInNewTab(_engine.url + _q) });
           }
           items.push({ separator: true });
         }
 
         // Page navigation (always present)
-        items.push({ label: 'Back',    action: () => { try { wv.back();    } catch { /* ignore */ } } });
-        items.push({ label: 'Forward', action: () => { try { wv.forward(); } catch { /* ignore */ } } });
-        items.push({ label: 'Reload',  action: () => { try { wv.reload();  } catch { /* ignore */ } } });
+        items.push({ label: _t('common.back'),    action: () => { try { wv.back();    } catch { /* ignore */ } } });
+        items.push({ label: _t('apps.browser.navigation.forward'), action: () => { try { wv.forward(); } catch { /* ignore */ } } });
+        items.push({ label: _t('apps.browser.menu.reload'),  action: () => { try { wv.reload();  } catch { /* ignore */ } } });
         items.push({ separator: true });
         if (pageUrl && /^https?:/i.test(pageUrl)) {
-          items.push({ label: 'Copy Page URL', action: () => _ctxCopyText(pageUrl) });
+          items.push({ label: _t('apps.browser.contextMenu.copyPageUrl'), action: () => _ctxCopyText(pageUrl) });
         }
-        items.push({ label: 'Save Page As\u2026', action: () => _ctxSavePageAs(wv, pageUrl) });
-        items.push({ label: 'Print\u2026', action: () => {
+        items.push({ label: _t('apps.browser.contextMenu.savePageAs'), action: () => _ctxSavePageAs(wv, pageUrl) });
+        items.push({ label: _t('apps.browser.contextMenu.print'), action: () => {
           try { wv.executeScript({ code: 'window.print()' }); } catch { /* ignore */ }
         }});
         items.push({ separator: true });
-        items.push({ label: 'View Page Source', action: () => {
+        items.push({ label: _t('apps.browser.contextMenu.viewSource'), action: () => {
           try {
             wv.executeScript({ code: '[location.href, document.documentElement ? document.documentElement.outerHTML : ""]' }, r => {
               const result = Array.isArray(r) ? r[0] : null;
@@ -3885,7 +3899,7 @@ registerApp({
               if (typeof sourceText !== 'string' || sourceText.length === 0) {
                 Notify.show({
                   title: 'Browser',
-                  body: 'Could not read the page source.',
+                  body: _t('apps.browser.savePage.sourceReadFailed'),
                   type: 'error', appName: 'Browser'
                 });
                 return;
@@ -3896,7 +3910,7 @@ registerApp({
                 console.error('[NB Browser] Failed to open page source:', err);
                 Notify.show({
                   title: 'Browser',
-                  body: 'Could not open the page source.',
+                  body: _t('apps.browser.savePage.sourceOpenFailed'),
                   type: 'error', appName: 'Browser'
                 });
               }
@@ -3905,12 +3919,12 @@ registerApp({
             console.error('[NB Browser] Failed to retrieve page source:', err);
             Notify.show({
               title: 'Browser',
-              body: 'Could not retrieve the page source.',
+              body: _t('apps.browser.savePage.sourceRetrieveFailed'),
               type: 'error', appName: 'Browser'
             });
           }
         }});
-        items.push({ label: 'Inspect', action: () => {
+        items.push({ label: _t('apps.browser.contextMenu.inspect'), action: () => {
           try { wv.showDevTools(true); } catch {
             try { nw.Window.get().showDevTools(); } catch { /* ignore */ }
           }
@@ -4014,9 +4028,9 @@ registerApp({
       try {
         const supportedTypes = new Set(['appcache', 'cache', 'cookies', 'fileSystems', 'indexedDB', 'localStorage', 'webSQL']);
         const unsupportedTypes = Object.keys(types).filter(type => types[type] && !supportedTypes.has(type));
-        if (unsupportedTypes.length) throw new Error('Unsupported browser data type: ' + unsupportedTypes.join(', '));
+        if (unsupportedTypes.length) throw new Error(_t('apps.browser.notifications.unsupportedDataType', { types: unsupportedTypes.join(', ') }));
         const dataTypes = Object.fromEntries(Object.entries(types).filter(([type, enabled]) => enabled && supportedTypes.has(type)));
-        if (!Object.keys(dataTypes).length) throw new Error('No supported browser data types were requested');
+        if (!Object.keys(dataTypes).length) throw new Error(_t('apps.browser.notifications.noDataTypesRequested'));
 
         const partitions = [...new Set([
           BROWSER_PARTITION,
@@ -4033,10 +4047,10 @@ registerApp({
               files: { 'index.html': Buffer.from('<!doctype html><html><body></body></html>').toString('base64') }
             })
           });
-          if (!registerResponse.ok) throw new Error('Could not prepare the browser-data clearing page (' + registerResponse.status + ')');
+          if (!registerResponse.ok) throw new Error(_t('apps.browser.notifications.prepareFailedStatus', { status: registerResponse.status }));
           registered = true;
           const registration = await registerResponse.json();
-          if (typeof registration.baseUrl !== 'string') throw new Error('The browser-data clearing page returned no URL');
+          if (typeof registration.baseUrl !== 'string') throw new Error(_t('apps.browser.notifications.noBaseUrl'));
           const primerUrl = new URL(registration.baseUrl + '/index.html', window.location.origin).href;
 
           const results = await Promise.allSettled(partitions.map(partition => new Promise((resolve, reject) => {
@@ -4045,7 +4059,7 @@ registerApp({
             wv.style.cssText = 'position:fixed;width:1px;height:1px;left:-10px;top:-10px;opacity:0;pointer-events:none;z-index:-1;';
             let finished = false;
             let clearTimer = null;
-            const loadTimer = setTimeout(() => finish(new Error('Timed out while preparing browser data storage')), 20000);
+            const loadTimer = setTimeout(() => finish(new Error(_t('apps.browser.notifications.prepareTimeout'))), 20000);
             const finish = error => {
               if (finished) return;
               finished = true;
@@ -4057,11 +4071,11 @@ registerApp({
             };
             wv.addEventListener('loadstop', () => {
               if (clearTimer || finished) return;
-              clearTimer = setTimeout(() => finish(new Error('Timed out while clearing browser data')), 15000);
+              clearTimer = setTimeout(() => finish(new Error(_t('apps.browser.notifications.clearTimeout'))), 15000);
               try {
                 wv.clearData({}, dataTypes, () => {
                   const error = globalThis.chrome?.runtime?.lastError;
-                  if (error) finish(new Error(error.message || 'Chromium could not clear browser data'));
+                  if (error) finish(new Error(error.message || _t('apps.browser.notifications.clearRejected')));
                   else finish();
                 });
               } catch (err) {
@@ -4069,10 +4083,10 @@ registerApp({
               }
             });
             wv.addEventListener('loadabort', event => {
-              finish(new Error('Could not load browser-data clearing page: ' + (event.reason || 'navigation aborted')));
+              finish(new Error(_t('apps.browser.notifications.loadClearPageFailed', { reason: event.reason || _t('apps.browser.notifications.navigationAborted') })));
             });
             wv.addEventListener('loaderror', event => {
-              finish(new Error('Could not load browser-data clearing page: ' + (event.errorDescription || 'navigation failed')));
+              finish(new Error(_t('apps.browser.notifications.loadClearPageFailed', { reason: event.errorDescription || _t('apps.browser.notifications.navigationFailed') })));
             });
             viewport.appendChild(wv);
             wv.src = primerUrl;
@@ -4095,8 +4109,8 @@ registerApp({
       } catch (err) {
         console.error('[NB Browser] Failed to clear webview data:', err);
         Notify.show({
-          title: 'Could not clear browser data',
-          body: err.message || 'Chromium did not confirm that the requested data was cleared.',
+          title: _t('apps.browser.notifications.clearFailedTitle'),
+          body: err.message || _t('apps.browser.notifications.clearFailedBody'),
           type: 'error', appName: 'Browser'
         });
       }
@@ -4212,21 +4226,21 @@ registerApp({
       }
 
       const NAV = [
-        { id: 'general',       label: 'General',          icon: '⚙️' },
-        { id: 'search',        label: 'Search Engine',    icon: '🔍' },
-        { id: 'privacy',       label: 'Privacy & Security', icon: '🔒' },
-        { id: 'content',       label: 'Content',          icon: '🌐' },
-        { id: 'bandwidth',     label: 'Bandwidth',        icon: '📶' },
-        { id: 'accessibility', label: 'Accessibility',    icon: '♿' },
-        { id: 'labs',          label: 'Labs',             icon: '🧪' },
-        { id: 'reset',         label: 'Reset',            icon: '🔄' },
+        { id: 'general',       label: _t('apps.browser.settings.general'),          icon: '⚙️' },
+        { id: 'search',        label: _t('apps.browser.settings.searchEngine'),    icon: '🔍' },
+        { id: 'privacy',       label: _t('apps.browser.settings.privacySecurity'), icon: '🔒' },
+        { id: 'content',       label: _t('apps.browser.settings.content'),          icon: '🌐' },
+        { id: 'bandwidth',     label: _t('apps.browser.settings.bandwidth'),        icon: '📶' },
+        { id: 'accessibility', label: _t('apps.browser.settings.accessibility'),    icon: '♿' },
+        { id: 'labs',          label: _t('apps.browser.settings.labs'),             icon: '🧪' },
+        { id: 'reset',         label: _t('apps.browser.settings.reset'),            icon: '🔄' },
       ];
 
       const sidebar = createEl('div', {
         style: 'width:200px;flex-shrink:0;border-right:1px solid var(--border-subtle);padding:20px 0;display:flex;flex-direction:column;gap:2px;overflow-y:auto;background:var(--bg-elevated);'
       });
       sidebar.appendChild(createEl('div', {
-        textContent: 'Settings',
+        textContent: _t('apps.browser.settings.title'),
         style: 'font-size:13px;font-weight:700;color:var(--text-primary);padding:0 16px 14px;border-bottom:1px solid var(--border-subtle);margin-bottom:6px;'
       }));
 
@@ -4261,8 +4275,8 @@ registerApp({
       }
 
       if (activeCategory === 'general') {
-        panelTitle('General', 'Basic browser behaviour and preferences.');
-        const hpSel = mkSelect('homepage', 'most_visited', [['most_visited', 'Speed Dial'], ['blank', 'Blank Page'], ['custom', 'Custom URL']]);
+        panelTitle(_t('apps.browser.settings.general'), _t('apps.browser.settings.generalDesc'));
+        const hpSel = mkSelect('homepage', 'most_visited', [['most_visited', _t('apps.browser.settings.homepageSpeedDial')], ['blank', _t('apps.browser.settings.homepageBlank')], ['custom', _t('apps.browser.settings.homepageCustom')]]);
         const hpCustomWrap = createEl('div', { style: 'margin-top:6px;display:' + (getBPref('homepage', 'most_visited') === 'custom' ? 'block' : 'none') + ';' });
         const hpInp = createEl('input', {
           type: 'url', id: 'browser-homepage-input', name: 'browser-homepage',
@@ -4274,14 +4288,14 @@ registerApp({
         hpSel.addEventListener('change', () => { hpCustomWrap.style.display = hpSel.value === 'custom' ? 'block' : 'none'; });
         const hpWrap = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;max-width:200px;' });
         hpWrap.append(hpSel, hpCustomWrap);
-        panelInner.appendChild(mkRow('Homepage', 'Page shown when opening a new tab', hpWrap));
-        panelInner.appendChild(mkRow('Autofill saved logins', 'Fill saved credentials for the current site after unlocking the password vault',
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.homepage'), _t('apps.browser.settings.homepageDesc'), hpWrap));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.autofill'), _t('apps.browser.settings.autofillDesc'),
           mkToggle('autofill_enabled', true, enabled => {
             if (enabled && passwordVaultEntries) for (const wv of tabWebviews.values()) fillSavedLogin(wv);
           })));
 
       } else if (activeCategory === 'search') {
-        panelTitle('Search Engine', 'Choose your default search engine.');
+        panelTitle(_t('apps.browser.settings.searchEngine'), _t('apps.browser.settings.searchEngineDesc'));
         const seList = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;margin-top:4px;' });
         for (const [key, info] of Object.entries(SEARCH_ENGINES)) {
           const row = createEl('label', {
@@ -4295,102 +4309,102 @@ registerApp({
           const lbl = createEl('span', { textContent: info.label, style: 'flex:1;font-size:13px;' });
           const hint = createEl('span', { textContent: info.url.replace('https://', '').split('/')[0], style: 'font-size:11px;color:var(--text-muted);' });
           row.append(radio, lbl, hint);
-          if (key === eng) row.appendChild(createEl('span', { textContent: 'Default', style: 'font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;' }));
+          if (key === eng) row.appendChild(createEl('span', { textContent: _t('apps.browser.settings.defaultEngineBadge'), style: 'font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;' }));
           radio.addEventListener('change', () => { if (radio.checked) { saveSetting('searchEngine', key); renderSettingsPage('search'); } });
           seList.appendChild(row);
         }
         panelInner.appendChild(seList);
 
       } else if (activeCategory === 'privacy') {
-        panelTitle('Privacy & Security', 'Control cookies, passwords, location, camera/microphone and browsing data.');
-        panelInner.appendChild(mkRow('Show security warnings', 'Show a visible “Not secure” label for HTTP pages',
+        panelTitle(_t('apps.browser.settings.privacySecurity'), _t('apps.browser.settings.privacySecurityDesc'));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.showSecurityWarnings'), _t('apps.browser.settings.showSecurityWarningsDesc'),
           mkToggle('show_security_warnings', true, () => updateUrlIcon(currentUrl))));
 
-        panelInner.appendChild(mkSubHdr('Cookies'));
-        panelInner.appendChild(mkRow('Accept cookies', 'Allow sites to save cookies. Disabling clears existing cookies and blocks new ones via webRequest',
+        panelInner.appendChild(mkSubHdr(_t('apps.browser.settings.cookiesSubHdr')));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.acceptCookies'), _t('apps.browser.settings.acceptCookiesDesc'),
           mkToggle('accept_cookies', true, (v) => {
-            if (!v) clearWebviewData({ cookies: true }, 'Cookies blocked', 'Existing cookies cleared. New cookies will be blocked.');
+            if (!v) clearWebviewData({ cookies: true }, _t('apps.browser.settings.cookiesBlockedTitle'), _t('apps.browser.settings.cookiesBlockedBody'));
           })));
-        panelInner.appendChild(mkRow('Clear cookies', '', mkClearBtn('Clear Cookies', () => clearWebviewData({ cookies: true }, 'Cookies cleared', 'All cookies have been deleted.'))));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.clearCookiesRow'), '', mkClearBtn(_t('apps.browser.settings.clearCookiesBtn'), () => clearWebviewData({ cookies: true }, _t('apps.browser.settings.cookiesClearedTitle'), _t('apps.browser.settings.cookiesClearedBody')))));
 
-        panelInner.appendChild(mkSubHdr('Form Data & Site Storage'));
-        panelInner.appendChild(mkRow('Clear form and site data', 'Clear website storage. NW.js does not expose Chromium’s separate form-autocomplete history.',
-          mkClearBtn('Clear Form & Site Data', () => clearWebviewData(
+        panelInner.appendChild(mkSubHdr(_t('apps.browser.settings.formDataSubHdr')));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.clearFormSiteRow'), _t('apps.browser.settings.clearFormSiteDesc'),
+          mkClearBtn(_t('apps.browser.settings.clearFormSiteBtn'), () => clearWebviewData(
             { fileSystems: true, indexedDB: true, localStorage: true, webSQL: true },
-            'Site data cleared', 'Supported website storage was cleared. Chromium form-autocomplete history is not exposed by this webview.'
+            _t('apps.browser.settings.siteDataClearedTitle'), _t('apps.browser.settings.siteDataClearedBody')
           ))));
 
-        panelInner.appendChild(mkSubHdr('Location'));
-        panelInner.appendChild(mkRow('Enable location', 'Ask before allowing websites to use your location. Your choice lasts until Browser closes.',
+        panelInner.appendChild(mkSubHdr(_t('apps.browser.settings.locationSubHdr')));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.enableLocation'), _t('apps.browser.settings.enableLocationDesc'),
           mkToggle('enable_geolocation', false, enabled => {
             clearSitePermissionDecisions('geolocation');
             updateGeolocationAccess(enabled);
-            if (enabled) Notify.show({ title: 'Location enabled', body: 'Open pages were reloaded to apply the location policy.', type: 'info', appName: 'Browser' });
-            else Notify.show({ title: 'Location blocked', body: 'Open sites were reloaded to stop active geolocation requests. Sites may still estimate your area from your IP address.', type: 'success', appName: 'Browser' });
+            if (enabled) Notify.show({ title: _t('apps.browser.settings.locationEnabledTitle'), body: _t('apps.browser.settings.locationEnabledBody'), type: 'info', appName: 'Browser' });
+            else Notify.show({ title: _t('apps.browser.settings.locationBlockedTitle'), body: _t('apps.browser.settings.locationBlockedBody'), type: 'success', appName: 'Browser' });
           })));
-        panelInner.appendChild(mkRow('Enable camera & microphone', 'Ask before allowing websites to use your camera and microphone. Changing this reloads open pages.',
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.enableMedia'), _t('apps.browser.settings.enableMediaDesc'),
           mkToggle('enable_media', false, () => {
             clearSitePermissionDecisions('media');
             updateMediaAccess();
           })));
-        panelInner.appendChild(mkRow('Block location requests', 'Immediately block future location requests from all sites',
-          mkClearBtn('Block Location', () => {
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.blockLocationRow'), _t('apps.browser.settings.blockLocationDesc'),
+          mkClearBtn(_t('apps.browser.settings.blockLocationBtn'), () => {
             saveSetting('enable_geolocation', false);
             clearSitePermissionDecisions('geolocation');
             updateGeolocationAccess(false);
             renderSettingsPage('privacy');
-            Notify.show({ title: 'Location blocked', body: 'Open sites were reloaded to stop active geolocation requests. Sites may still estimate your area from your IP address.', type: 'success', appName: 'Browser' });
+            Notify.show({ title: _t('apps.browser.settings.locationBlockedTitle'), body: _t('apps.browser.settings.locationBlockedBody'), type: 'success', appName: 'Browser' });
           })));
 
-        panelInner.appendChild(mkSubHdr('Passwords'));
-        panelInner.appendChild(mkRow('Remember passwords', 'Ask before saving logins in the encrypted, master-password-protected vault',
+        panelInner.appendChild(mkSubHdr(_t('apps.browser.settings.passwordsSubHdr')));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.rememberPasswords'), _t('apps.browser.settings.rememberPasswordsDesc'),
           mkToggle('remember_passwords', true)));
-        panelInner.appendChild(mkRow('Password vault', 'Unlock, inspect, and delete saved logins',
-          mkClearBtn('Manage Passwords', showPasswordManager)));
-        panelInner.appendChild(mkRow('Clear saved passwords', 'Permanently remove saved logins from the encrypted Browser password vault',
-          mkClearBtn('Clear Passwords', async () => {
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.passwordVaultRow'), _t('apps.browser.settings.passwordVaultDesc'),
+          mkClearBtn(_t('apps.browser.settings.managePasswordsBtn'), showPasswordManager)));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.clearPasswordsRow'), _t('apps.browser.settings.clearPasswordsDesc'),
+          mkClearBtn(_t('apps.browser.settings.clearPasswordsBtn'), async () => {
             try {
               await clearPasswordVault();
-              Notify.show({ title: 'Passwords cleared', body: 'Saved logins in the encrypted Browser vault were removed.', type: 'success', appName: 'Browser' });
+              Notify.show({ title: _t('apps.browser.settings.passwordsClearedTitle'), body: _t('apps.browser.settings.passwordsClearedBody'), type: 'success', appName: 'Browser' });
             } catch (err) {
               console.error('[NB Browser] Failed to clear passwords:', err);
-              Notify.show({ title: 'Passwords not cleared', body: err.message, type: 'error', appName: 'Browser' });
+              Notify.show({ title: _t('apps.browser.settings.passwordsNotClearedTitle'), body: err.message, type: 'error', appName: 'Browser' });
             }
           })));
 
-        panelInner.appendChild(mkSubHdr('Browsing Data'));
+        panelInner.appendChild(mkSubHdr(_t('apps.browser.settings.browsingDataSubHdr')));
         const dataRow = createEl('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;padding:12px 0;' });
         dataRow.append(
-          mkClearBtn('Clear Cache', () => clearWebviewData({ cache: true, appcache: true }, 'Cache cleared', 'Cached data has been deleted.')),
-          mkClearBtn('Clear History', () => {
+          mkClearBtn(_t('apps.browser.settings.clearCacheBtn'), () => clearWebviewData({ cache: true, appcache: true }, _t('apps.browser.settings.cacheClearedTitle'), _t('apps.browser.settings.cacheClearedBody'))),
+          mkClearBtn(_t('apps.browser.settings.clearHistoryBtn'), () => {
             try {
               localStorage.removeItem(HX_KEY);
               _historyCache = [];
-              Notify.show({ title: 'History cleared', body: 'Browsing history has been deleted.', type: 'success', appName: 'Browser' });
+              Notify.show({ title: _t('apps.browser.settings.historyClearedTitle'), body: _t('apps.browser.settings.historyClearedBody'), type: 'success', appName: 'Browser' });
             } catch (err) {
               console.error('[NB Browser] Failed to clear history:', err);
-              Notify.show({ title: 'History not cleared', body: err.message, type: 'error', appName: 'Browser' });
+              Notify.show({ title: _t('apps.browser.settings.historyNotClearedTitle'), body: err.message, type: 'error', appName: 'Browser' });
             }
           }),
-          mkClearBtn('Clear Bookmarks', () => {
+          mkClearBtn(_t('apps.browser.settings.clearBookmarksBtn'), () => {
             try {
               localStorage.removeItem(BK_KEY);
               _bookmarksCache = [];
               refreshBookmarkSet();
-              Notify.show({ title: 'Bookmarks cleared', body: 'All bookmarks have been deleted.', type: 'success', appName: 'Browser' });
+              Notify.show({ title: _t('apps.browser.settings.bookmarksClearedTitle'), body: _t('apps.browser.settings.bookmarksClearedBody'), type: 'success', appName: 'Browser' });
             } catch (err) {
               console.error('[NB Browser] Failed to clear bookmarks:', err);
-              Notify.show({ title: 'Bookmarks not cleared', body: err.message, type: 'error', appName: 'Browser' });
+              Notify.show({ title: _t('apps.browser.settings.bookmarksNotClearedTitle'), body: err.message, type: 'error', appName: 'Browser' });
             }
           })
         );
         panelInner.appendChild(dataRow);
 
       } else if (activeCategory === 'content') {
-        panelTitle('Content', 'Control how web pages are loaded and displayed.');
-        panelInner.appendChild(mkRow('Block pop-up windows', 'Prevent sites from opening new windows', mkToggle('block_popup_windows', true)));
-        panelInner.appendChild(mkRow('Open links in background', 'New tabs open without switching to them', mkToggle('open_in_background', false)));
-        panelInner.appendChild(mkRow('Default zoom', 'Initial page zoom for new tabs', mkSelect('default_zoom', 'MEDIUM', [['FAR', 'Far (75%)'], ['MEDIUM', 'Medium (100%)'], ['CLOSE', 'Close (125%)']], value => {
+        panelTitle(_t('apps.browser.settings.content'), _t('apps.browser.settings.contentDesc'));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.blockPopups'), _t('apps.browser.settings.blockPopupsDesc'), mkToggle('block_popup_windows', true)));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.openInBackground'), _t('apps.browser.settings.openInBackgroundDesc'), mkToggle('open_in_background', false)));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.defaultZoom'), _t('apps.browser.settings.defaultZoomDesc'), mkSelect('default_zoom', 'MEDIUM', [['FAR', _t('apps.browser.settings.zoomFar')], ['MEDIUM', _t('apps.browser.settings.zoomMedium')], ['CLOSE', _t('apps.browser.settings.zoomClose')]], value => {
           const zoomMap = { FAR: 0.75, MEDIUM: 1, CLOSE: 1.25 };
           for (const [tabId, wv] of tabWebviews) {
             if (!tabZoom.has(tabId)) {
@@ -4400,53 +4414,53 @@ registerApp({
         })));
 
       } else if (activeCategory === 'bandwidth') {
-        panelTitle('Bandwidth', 'Manage how much data the browser downloads.');
-        panelInner.appendChild(mkRow('Load images and media', 'Allow image, audio, and video requests from web pages', mkToggle('load_images', true)));
-        panelInner.appendChild(mkRow('Preload next page', 'Prefetch same-origin pages explicitly marked as the next page',
-          mkSelect('preload_when', 'NEVER', [['ALWAYS', 'Always'], ['NEVER', 'Never']], () => {
+        panelTitle(_t('apps.browser.settings.bandwidth'), _t('apps.browser.settings.bandwidthDesc'));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.loadImages'), _t('apps.browser.settings.loadImagesDesc'), mkToggle('load_images', true)));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.preloadNext'), _t('apps.browser.settings.preloadNextDesc'),
+          mkSelect('preload_when', 'NEVER', [['ALWAYS', _t('apps.browser.settings.always')], ['NEVER', _t('apps.browser.settings.never')]], () => {
             for (const wv of tabWebviews.values()) applyGuestBrowserFeatures(wv);
           })));
-        panelInner.appendChild(mkRow('Link prefetch', 'Prefetch a same-origin link when hovered. Always may use extra data.',
-          mkSelect('link_prefetch_when', 'NEVER', [['ALWAYS', 'Always'], ['NEVER', 'Never']], () => {
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.linkPrefetch'), _t('apps.browser.settings.linkPrefetchDesc'),
+          mkSelect('link_prefetch_when', 'NEVER', [['ALWAYS', _t('apps.browser.settings.always')], ['NEVER', _t('apps.browser.settings.never')]], () => {
             for (const wv of tabWebviews.values()) applyGuestBrowserFeatures(wv);
           })));
 
       } else if (activeCategory === 'accessibility') {
-        panelTitle('Accessibility', 'Adjust display and interaction settings.');
-        panelInner.appendChild(mkRow('Inverted colours', 'Invert page colours while keeping images and video natural', mkToggle('inverted', false, () => {
+        panelTitle(_t('apps.browser.settings.accessibility'), _t('apps.browser.settings.accessibilityDesc'));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.invertedColors'), _t('apps.browser.settings.invertedColorsDesc'), mkToggle('inverted', false, () => {
           for (const wv of tabWebviews.values()) applyPageAccessibility(wv);
         })));
-        panelInner.appendChild(mkSliderRow('Text zoom', 'text_zoom', 10, 1, 30, '0%', () => {
+        panelInner.appendChild(mkSliderRow(_t('apps.browser.settings.textZoom'), 'text_zoom', 10, 1, 30, '0%', () => {
           for (const wv of tabWebviews.values()) applyPageAccessibility(wv);
         }));
-        panelInner.appendChild(mkSliderRow('Minimum font size', 'min_font_size', 0, 0, 32, 'px', () => {
+        panelInner.appendChild(mkSliderRow(_t('apps.browser.settings.minFontSize'), 'min_font_size', 0, 0, 32, 'px', () => {
           for (const wv of tabWebviews.values()) applyPageAccessibility(wv);
         }));
 
       } else if (activeCategory === 'labs') {
-        panelTitle('Labs', 'Experimental features — may be unstable.');
-        panelInner.appendChild(mkRow('Quick controls', 'Drag inward from a page edge or swipe horizontally on your touchpad to go back or forward', mkToggle('enable_quick_controls', false, () => {
+        panelTitle(_t('apps.browser.settings.labs'), _t('apps.browser.settings.labsDesc'));
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.quickControls'), _t('apps.browser.settings.quickControlsDesc'), mkToggle('enable_quick_controls', false, () => {
           for (const wv of tabWebviews.values()) applyGuestBrowserFeatures(wv);
         })));
-        panelInner.appendChild(mkRow('Fullscreen mode', 'Hide controls on websites; reveal them by scrolling up or moving to the top edge, then move away to hide them again', mkToggle('fullscreen', false, enabled => {
+        panelInner.appendChild(mkRow(_t('apps.browser.settings.fullscreenMode'), _t('apps.browser.settings.fullscreenModeDesc'), mkToggle('fullscreen', false, enabled => {
           if (enabled) closeFindBar();
           setBrowserChromeHidden(enabled && getSetting('fullscreen', false));
           for (const wv of tabWebviews.values()) applyGuestBrowserFeatures(wv);
         })));
 
       } else if (activeCategory === 'reset') {
-        panelTitle('Reset', 'Restore all settings to their factory defaults.');
+        panelTitle(_t('apps.browser.settings.reset'), _t('apps.browser.settings.resetDesc'));
         const resetBtn = createEl('button', {
-          textContent: 'Reset all settings to defaults',
+          textContent: _t('apps.browser.settings.resetAllBtn'),
           style: 'margin-top:8px;padding:9px 18px;border-radius:8px;border:1px solid var(--text-danger);background:transparent;color:var(--text-danger);font-size:13px;cursor:pointer;transition:background 0.15s;'
         });
         resetBtn.addEventListener('mouseenter', () => resetBtn.style.background = 'rgba(248,81,73,0.1)');
         resetBtn.addEventListener('mouseleave', () => resetBtn.style.background = 'transparent');
         resetBtn.addEventListener('click', () => {
           showModal(
-            'Reset Browser Settings',
-            'This will restore all browser settings to their factory defaults. Your bookmarks and history will not be affected.',
-            [{ label: 'Reset', danger: true, value: true }, { label: 'Cancel', value: false }]
+            _t('apps.browser.settings.resetModalTitle'),
+            _t('apps.browser.settings.resetModalBody'),
+            [{ label: _t('apps.browser.settings.reset'), danger: true, value: true }, { label: _t('common.cancel'), value: false }]
           ).then(confirmed => {
             if (!confirmed) return;
             clearTimeout(_settingsSaveTimer);
@@ -4460,7 +4474,7 @@ registerApp({
               _settingsCache = null;
             } catch (err) {
               console.error('[NB Browser] Failed to reset settings:', err);
-              Notify.show({ title: 'Settings not reset', body: err.message, type: 'error', appName: 'Browser' });
+              Notify.show({ title: _t('apps.browser.settings.settingsNotResetTitle'), body: err.message, type: 'error', appName: 'Browser' });
               return;
             }
             _settingsCache = {};
@@ -4474,7 +4488,7 @@ registerApp({
             }
             updateUrlIcon(currentUrl);
             renderSettingsPage('general');
-            Notify.show({ title: 'Settings reset', body: 'All browser settings restored to defaults.', type: 'success', appName: 'Browser' });
+            Notify.show({ title: _t('apps.browser.settings.settingsResetTitle'), body: _t('apps.browser.settings.settingsResetBody'), type: 'success', appName: 'Browser' });
           });
         });
         panelInner.appendChild(resetBtn);
@@ -4577,7 +4591,7 @@ registerApp({
       if (isViewSource && !/^https?:\/\//i.test(addressToCheck)) {
         Notify.show({
           title: 'Browser',
-          body: 'Page source is only available for HTTP and HTTPS pages.',
+          body: _t('apps.browser.notifications.sourceOnlyHttp'),
           type: 'error', appName: 'Browser'
         });
         return;
@@ -4586,7 +4600,7 @@ registerApp({
       if (isLocalAddress(addressToCheck)) {
         Notify.show({
           title: 'Browser',
-          body: 'Navigation to local or private network addresses is not allowed.',
+          body: _t('apps.browser.notifications.localBlocked'),
           type: 'error', appName: 'Browser'
         });
         return;
@@ -4607,7 +4621,7 @@ registerApp({
         const activeT = activeTab();
         if (activeT) {
           activeT.url = url;
-          activeT.title = 'Settings';
+          activeT.title = _t('apps.browser.settings.title');
           activeT.favicon = '';
         }
         renderTabs();
@@ -4696,7 +4710,7 @@ registerApp({
         }
         urlBar.value = stripHttps(url);
         Notify.show({
-          title: 'Browser', body: 'File not found in vault: ' + vaultRel,
+          title: 'Browser', body: _t('apps.browser.notifications.fileNotFound', { path: vaultRel }),
           type: 'error', appName: 'Browser'
         });
         return;
@@ -4945,6 +4959,23 @@ registerApp({
         else if (currentUrl) navigate(currentUrl);
       }
     });
+
+    // Live language switching — the settings page is the only persistent
+    // surface that re-renders wholesale; everything else is built at
+    // open-time (new windows pick up the active language). One guarded
+    // window-level listener covers every browser window instance.
+    if (!window.__browserLocaleWired) {
+      window.__browserLocaleWired = true;
+      try {
+        OS.events?.on?.('languageChanged', () => {
+          try {
+            window.NovaI18n?.applyStaticDom?.(document);
+            const activeT = activeTab();
+            if (activeT?.url === 'browser://settings') renderSettingsPage(activeT.settingsCategory || 'general');
+          } catch (e) { console.warn('[Browser] Language change re-render failed:', e); }
+        });
+      } catch (_) { /* event bus unavailable (tests) */ }
+    }
 
     // Open HTML file from vault — triggered when the browser is launched
     // with options.fileId (e.g. double-clicking an HTML file in Files app).

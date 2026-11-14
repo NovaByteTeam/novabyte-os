@@ -16,13 +16,13 @@ registerApp({
   init(content, state, options) {
     if (!window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>' + _t('apps.devconsole.appDataMissing') + '<br>' + _t('apps.devconsole.requiresNovaByte') + '</div>';
       return;
     }
 
     if (!OS.settings.get('devMode')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">Enable Developer Mode in Settings to use Console.</div>';
+      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">' + _t('apps.devconsole.devModeRequired') + '</div>';
       return;
     }
 
@@ -37,11 +37,11 @@ registerApp({
 
     const outputToolbar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:8px;flex-shrink:0;' });
     const searchInput = createEl('input', {
-      placeholder: 'Filter output…',
+      placeholder: _t('apps.devconsole.filterPlaceholder'),
       style: 'flex:1;padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;box-sizing:border-box;'
     });
-    const clearBtn = createEl('button', { textContent: 'Clear', title: 'Clear all output in this session', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
-    const exportBtn = createEl('button', { textContent: 'Export', title: 'Download this session\'s output as a .txt file', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const clearBtn = createEl('button', { textContent: _t('apps.devconsole.clear'), title: _t('apps.devconsole.clearTitle'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const exportBtn = createEl('button', { textContent: _t('apps.devconsole.export'), title: _t('apps.devconsole.exportTitle'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
     outputToolbar.appendChild(searchInput);
     outputToolbar.appendChild(clearBtn);
     outputToolbar.appendChild(exportBtn);
@@ -50,12 +50,12 @@ registerApp({
     // textarea instead of <input> so Shift+Enter can insert a newline for
     // multi-line snippets (e.g. a small for-loop). Enter alone still runs.
     const input = createEl('textarea', {
-      placeholder: 'Enter JS to evaluate, or `reg query HKNS\\shell` for the Registry CLI\nEnter to run · Shift+Enter for newline · ↑/↓ for history',
+      placeholder: _t('apps.devconsole.inputPlaceholder'),
       rows: '2',
       style: 'flex:1;padding:8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;resize:vertical;min-height:36px;max-height:160px;'
     });
-    const runBtn = createEl('button', { textContent: 'Run', style: 'padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;flex-shrink:0;' });
-    const output = createEl('pre', { textContent: 'Console ready. Type an expression above and press Enter or Run.\nShift+Enter for a newline, ↑/↓ to recall previous commands.\n', style: 'flex:1;padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);overflow:auto;font-size:12px;color:var(--text-muted);margin:0;white-space:pre-wrap;word-break:break-word;' });
+    const runBtn = createEl('button', { textContent: _t('apps.devconsole.run'), style: 'padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;flex-shrink:0;' });
+    const output = createEl('pre', { textContent: _t('apps.devconsole.readyMessage') + '\n', style: 'flex:1;padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);overflow:auto;font-size:12px;color:var(--text-muted);margin:0;white-space:pre-wrap;word-break:break-word;' });
 
     let hasRun = false;
     let outputSearch = '';
@@ -74,7 +74,7 @@ registerApp({
     function renderOutput() {
       const q = outputSearch.trim().toLowerCase();
       const visible = q ? entries.filter(e => e.toLowerCase().includes(q)) : entries;
-      output.textContent = visible.length ? visible.join('') : (q ? `(no output matches "${outputSearch}")` : '');
+      output.textContent = visible.length ? visible.join('') : (q ? _t('apps.devconsole.noOutputMatches', { query: outputSearch }) : '');
       output.scrollTop = output.scrollHeight;
     }
 

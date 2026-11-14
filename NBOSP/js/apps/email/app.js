@@ -29,9 +29,9 @@ registerApp({
       msgDiv.append(
         b,
         document.createElement('br'),
-        document.createTextNode('App data directory missing.'),
+        document.createTextNode(_t('apps.email.guard.appDataMissing')),
         document.createElement('br'),
-        document.createTextNode('This app requires NovaByte OS.'),
+        document.createTextNode(_t('apps.email.guard.requiresOs')),
       );
       content.append(iconDiv, msgDiv);
       return;
@@ -150,11 +150,11 @@ registerApp({
     const ROW_ANIM_MS = 200;
     const ONE_WEEK_MS = 7 * 86_400_000;
     const DEFAULT_FOLDERS = Object.freeze([
-      { path: 'INBOX', name: 'Inbox' },
-      { path: 'SENT', name: 'Sent' },
-      { path: 'DRAFTS', name: 'Drafts' },
-      { path: 'TRASH', name: 'Trash' },
-      { path: 'SPAM', name: 'Spam' },
+      { path: 'INBOX', name: _t('apps.email.folders.inbox') },
+      { path: 'SENT', name: _t('apps.email.folders.sent') },
+      { path: 'DRAFTS', name: _t('apps.email.folders.drafts') },
+      { path: 'TRASH', name: _t('apps.email.folders.trash') },
+      { path: 'SPAM', name: _t('apps.email.folders.spam') },
     ]);
     const PROTO_DEFAULTS = Object.freeze({ imap: '993', pop3: '995', exchange: '443' });
 
@@ -466,7 +466,7 @@ registerApp({
     const toolbar = createEl('div', { className: 'em-toolbar' });
     const menuBtn = createEl('button', {
       className: 'em-tb-btn',
-      title: 'Toggle sidebar',
+      title: _t('apps.email.toolbar.toggleSidebar'),
       innerHTML: '&#9776;',
     });
     const acctLabel = createEl('span', {
@@ -475,12 +475,12 @@ registerApp({
     const tbSep = createEl('div', { className: 'em-tb-sep' });
     const refreshBtn = createEl('button', {
       className: 'em-tb-btn',
-      title: 'Refresh',
+      title: _t('common.refresh'),
       innerHTML: svgIcon('refresh', 14),
     });
     const composeBtn = createEl('button', {
       className: 'em-tb-btn em-primary',
-      innerHTML: '&#9998; Compose',
+      innerHTML: '&#9998; ' + _t('apps.email.toolbar.compose'),
     });
     toolbar.append(menuBtn, acctLabel, tbSep, refreshBtn, composeBtn);
     root.appendChild(toolbar);
@@ -505,21 +505,21 @@ registerApp({
     const listTb = createEl('div', { className: 'em-list-tb' });
     const selectAllChk = createEl('input', {
       type: 'checkbox',
-      title: 'Select all',
+      title: _t('apps.email.list.selectAll'),
       style: 'accent-color:var(--accent);cursor:pointer;flex-shrink:0;',
     });
     const searchInp = createEl('input', {
       className: 'em-search',
       type: 'search',
-      placeholder: 'Search…',
+      placeholder: _t('apps.email.list.searchPlaceholder'),
     });
     listTb.append(selectAllChk, searchInp);
     listCol.appendChild(listTb);
 
     const batchBar = createEl('div', { className: 'em-batch-bar' });
     const batchLbl = createEl('span', { style: 'flex:1' });
-    const batchReadBtn = createEl('button', { className: 'em-btn', textContent: 'Mark read' });
-    const batchTrashBtn = createEl('button', { className: 'em-btn danger', textContent: 'Delete' });
+    const batchReadBtn = createEl('button', { className: 'em-btn', textContent: _t('apps.email.batch.markRead') });
+    const batchTrashBtn = createEl('button', { className: 'em-btn danger', textContent: _t('apps.email.batch.delete') });
     batchBar.append(batchLbl, batchReadBtn, batchTrashBtn);
     listCol.appendChild(batchBar);
 
@@ -527,9 +527,9 @@ registerApp({
     listCol.appendChild(msgListEl);
 
     const paginationEl = createEl('div', { className: 'em-pagination' });
-    const prevBtn = createEl('button', { className: 'em-btn', textContent: '‹ Prev' });
+    const prevBtn = createEl('button', { className: 'em-btn', textContent: _t('apps.email.list.prev') });
     const pageLbl = createEl('span');
-    const nextBtn = createEl('button', { className: 'em-btn', textContent: 'Next ›' });
+    const nextBtn = createEl('button', { className: 'em-btn', textContent: _t('apps.email.list.next') });
     paginationEl.append(prevBtn, pageLbl, nextBtn);
     listCol.appendChild(paginationEl);
 
@@ -546,11 +546,11 @@ registerApp({
       sidebar.replaceChildren();
 
       if (accounts.length > 1) {
-        sidebar.appendChild(createEl('div', { className: 'em-sb-section', textContent: 'Accounts' }));
+        sidebar.appendChild(createEl('div', { className: 'em-sb-section', textContent: _t('apps.email.sidebar.accounts') }));
         const row = createEl('div', {
           className: 'em-sb-row' + (activeAcctId === 'all' ? ' active' : ''),
         });
-        row.textContent = '📬 Combined Inbox';
+        row.textContent = _t('apps.email.sidebar.combinedInbox');
         row.addEventListener('click', () => {
           activeAcctId = 'all';
           activeFolder = 'INBOX';
@@ -609,13 +609,13 @@ registerApp({
           className: 'em-sb-row',
           style: 'color:var(--text-secondary);',
         });
-        settRow.textContent = '⚙ Manage Accounts';
+        settRow.textContent = _t('apps.email.sidebar.manageAccounts');
         settRow.addEventListener('click', () => openAccountManager(), { signal: appSignal });
         sidebar.appendChild(settRow);
       }
 
       acctLabel.textContent = activeAcctId === 'all'
-        ? 'Combined Inbox'
+        ? _t('apps.email.combinedInbox')
         : (accounts.find(a => a.id === activeAcctId)?.name || 'Email');
     }
 
@@ -631,7 +631,7 @@ registerApp({
         className: 'em-accounts-dialog',
         role: 'dialog',
         'aria-modal': 'true',
-        'aria-label': 'Manage email accounts',
+        'aria-label': _t('apps.email.accounts.dialogAria'),
       });
       const close = () => {
         accountOverlays.delete(overlay);
@@ -647,12 +647,12 @@ registerApp({
       }, { signal: appSignal });
 
       const title = createEl('strong', {
-        textContent: 'Email Accounts',
+        textContent: _t('apps.email.accounts.title'),
         style: 'flex:1;font-size:15px;',
       });
       const closeButton = createEl('button', {
         className: 'em-btn',
-        textContent: 'Close',
+        textContent: _t('common.close'),
       });
       closeButton.addEventListener('click', close, { signal: appSignal });
       const header = createEl('div', { className: 'em-accounts-hdr' });
@@ -662,7 +662,7 @@ registerApp({
       if (!accounts.length) {
         list.appendChild(createEl('div', {
           className: 'em-empty',
-          textContent: 'No accounts added yet.',
+          textContent: _t('apps.email.accounts.empty'),
           style: 'min-height:100px;',
         }));
       }
@@ -680,8 +680,8 @@ registerApp({
         );
         const editButton = createEl('button', {
           className: 'em-btn',
-          textContent: 'Edit',
-          'aria-label': `Edit ${acct.name || acct.email || acct.user}`,
+          textContent: _t('apps.email.accounts.edit'),
+          'aria-label': _t('apps.email.accounts.editAria', { name: acct.name || acct.email || acct.user }),
         });
         editButton.addEventListener('click', () => {
           close();
@@ -696,7 +696,7 @@ registerApp({
 
       const addButton = createEl('button', {
         className: 'em-btn',
-        textContent: '＋ Add Account',
+        textContent: _t('apps.email.accounts.addAccount'),
       });
       addButton.addEventListener('click', () => {
         close();
@@ -720,11 +720,11 @@ registerApp({
       const card = createEl('div', { className: 'em-setup-card' });
       card.appendChild(createEl('div', {
         className: 'em-setup-title',
-        textContent: existing ? 'Edit Account' : 'Add Email Account',
+        textContent: existing ? _t('apps.email.setup.editTitle') : _t('apps.email.setup.title'),
       }));
 
       // Protocol selector
-      card.appendChild(createEl('div', { className: 'em-lbl', textContent: 'Protocol' }));
+      card.appendChild(createEl('div', { className: 'em-lbl', textContent: _t('apps.email.setup.protocol') }));
       const protoRow = createEl('div', { className: 'em-proto-row' });
       let proto = existing?.type || 'imap';
       ['imap', 'pop3', 'exchange'].forEach(p => {
@@ -743,22 +743,22 @@ registerApp({
       });
       card.appendChild(protoRow);
 
-      const { wrapper: nameW, inp: nameInp } = makeFieldRow('Display Name', 'text', 'Work Email', existing?.name || '');
-      const { wrapper: hostW, inp: hostInp } = makeFieldRow('Incoming Server (IMAP/POP3/EWS Host)', 'text', 'mail.example.com', existing?.host || '');
-      const { wrapper: userW, inp: userInp } = makeFieldRow('Username / Email', 'email', 'user@example.com', existing?.user || '');
-      const { wrapper: passW, inp: passInp } = makeFieldRow('Password', 'password', '••••••••', (existing && credCache[existing.id]?.pass) || '');
+      const { wrapper: nameW, inp: nameInp } = makeFieldRow(_t('apps.email.setup.displayName'), 'text', _t('apps.email.setup.displayNamePlaceholder'), existing?.name || '');
+      const { wrapper: hostW, inp: hostInp } = makeFieldRow(_t('apps.email.setup.host'), 'text', 'mail.example.com', existing?.host || '');
+      const { wrapper: userW, inp: userInp } = makeFieldRow(_t('apps.email.setup.user'), 'email', 'user@example.com', existing?.user || '');
+      const { wrapper: passW, inp: passInp } = makeFieldRow(_t('apps.email.setup.password'), 'password', '••••••••', (existing && credCache[existing.id]?.pass) || '');
 
       const row2 = createEl('div', { className: 'em-row2' });
-      const { wrapper: portW, inp: portInp } = makeFieldRow('Port', 'number', '993', existing?.port || '993');
+      const { wrapper: portW, inp: portInp } = makeFieldRow(_t('apps.email.setup.port'), 'number', '993', existing?.port || '993');
       const sslW = createEl('div', { style: 'display:flex;flex-direction:column;gap:3px;' });
-      sslW.appendChild(createEl('div', { className: 'em-lbl', textContent: 'SSL/TLS' }));
+      sslW.appendChild(createEl('div', { className: 'em-lbl', textContent: _t('apps.email.setup.ssl') }));
       const sslR = createEl('div', { style: 'display:flex;align-items:center;gap:6px;padding-top:10px;' });
       const sslChk = createEl('input', {
         type: 'checkbox',
         style: 'width:15px;height:15px;accent-color:var(--accent);cursor:pointer;',
         checked: existing?.ssl !== false,
       });
-      sslR.append(sslChk, createEl('span', { textContent: 'Enabled', style: 'font-size:12px;color:var(--text-secondary);' }));
+      sslR.append(sslChk, createEl('span', { textContent: _t('apps.email.setup.enabled'), style: 'font-size:12px;color:var(--text-secondary);' }));
       sslW.appendChild(sslR);
       row2.append(portW, sslW);
 
@@ -768,22 +768,22 @@ registerApp({
       });
       smtpSection.appendChild(createEl('div', {
         className: 'em-lbl',
-        textContent: 'Outgoing Mail (SMTP) — optional',
+        textContent: _t('apps.email.setup.smtpSection'),
       }));
       const smtpRow = createEl('div', { className: 'em-row2' });
-      const { wrapper: smtpHostW, inp: smtpHostInp } = makeFieldRow('SMTP Host', 'text', 'smtp.example.com', existing?.smtpHost || '');
-      const { wrapper: smtpPortW, inp: smtpPortInp } = makeFieldRow('SMTP Port', 'number', '587', existing?.smtpPort || '587');
+      const { wrapper: smtpHostW, inp: smtpHostInp } = makeFieldRow(_t('apps.email.setup.smtpHost'), 'text', 'smtp.example.com', existing?.smtpHost || '');
+      const { wrapper: smtpPortW, inp: smtpPortInp } = makeFieldRow(_t('apps.email.setup.smtpPort'), 'number', '587', existing?.smtpPort || '587');
       smtpRow.append(smtpHostW, smtpPortW);
       smtpSection.appendChild(smtpRow);
 
-      const { wrapper: syncW, inp: syncInp } = makeFieldRow('Check every (mins, 0 = manual)', 'number', '15', String(existing?.syncInterval ?? 15));
+      const { wrapper: syncW, inp: syncInp } = makeFieldRow(_t('apps.email.setup.syncInterval'), 'number', '15', String(existing?.syncInterval ?? 15));
       const sigW = createEl('div', { style: 'display:flex;flex-direction:column;gap:3px;' });
-      sigW.appendChild(createEl('div', { className: 'em-lbl', textContent: 'Signature' }));
+      sigW.appendChild(createEl('div', { className: 'em-lbl', textContent: _t('apps.email.setup.signature') }));
       const sigTa = createEl('textarea', {
         className: 'em-input',
         id: 'email-signature-input',
         name: 'email-signature',
-        placeholder: 'Sent from NBOSP Email',
+        placeholder: _t('apps.email.setup.signaturePlaceholder'),
         style: 'min-height:56px;resize:vertical;',
         value: existing?.signature || '',
       });
@@ -793,18 +793,18 @@ registerApp({
       const footRow = createEl('div', { style: 'display:flex;gap:8px;' });
       const cancelBtn = createEl('button', {
         className: 'em-btn',
-        textContent: 'Cancel',
+        textContent: _t('common.cancel'),
         style: 'flex-shrink:0;',
       });
       const saveBtn = createEl('button', {
-        textContent: existing ? 'Save' : 'Add Account',
+        textContent: existing ? _t('common.save') : _t('apps.email.setup.addAccount'),
         style: 'flex:1;padding:9px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;',
       });
 
       if (existing) {
         const delBtn = createEl('button', {
           className: 'em-btn danger',
-          textContent: 'Remove',
+          textContent: _t('common.remove'),
           style: 'flex-shrink:0;',
         });
         delBtn.addEventListener('click', async () => {
@@ -843,11 +843,11 @@ registerApp({
         const user = userInp.value.trim();
         const pass = passInp.value;
         if (!host || !user || !pass) {
-          errEl.textContent = 'Host, username and password are required.';
+          errEl.textContent = _t('apps.email.setup.requiredFields');
           return;
         }
         errEl.textContent = '';
-        saveBtn.textContent = 'Connecting…';
+        saveBtn.textContent = _t('apps.email.setup.connecting');
         saveBtn.disabled = true;
         try {
           await api('POST', '/connect', {
@@ -890,11 +890,11 @@ registerApp({
           activeFolder = 'INBOX';
           showMain();
           scheduleSyncAll();
-          notify('"' + acct.name + '" connected.', 'success');
+          notify(_t('apps.email.notify.connected', { name: acct.name }), 'success');
         } catch (e) {
           errEl.textContent = e.message;
         } finally {
-          saveBtn.textContent = existing ? 'Save' : 'Add Account';
+          saveBtn.textContent = existing ? _t('common.save') : _t('apps.email.setup.addAccount');
           saveBtn.disabled = false;
         }
       }, { signal: appSignal });
@@ -1005,7 +1005,7 @@ registerApp({
         w.appendChild(document.createTextNode('📭'));
         w.appendChild(document.createElement('br'));
         w.appendChild(createEl('span', {
-          textContent: searchQ ? 'No results' : 'No messages',
+          textContent: searchQ ? _t('apps.email.list.noResults') : _t('apps.email.list.noMessages'),
         }));
         msgListEl.appendChild(w);
         paginationEl.style.display = 'none';
@@ -1019,8 +1019,8 @@ registerApp({
           className: 'em-msg-row' + (!msg.seen ? ' unread' : '') + (isSelected ? ' selected' : ''),
           role: 'button',
           tabindex: '0',
-          title: 'Open message',
-          'aria-label': `${msg.from || '(unknown)'}: ${msg.subject || '(no subject)'}`,
+          title: _t('apps.email.list.openMessageTitle'),
+          'aria-label': `${msg.from || _t('apps.email.message.unknownSender')}: ${msg.subject || _t('apps.email.message.noSubject')}`,
         });
         row.dataset.uid = String(msg.uid);
 
@@ -1035,7 +1035,7 @@ registerApp({
           updateBatchBar();
         });
 
-        const fromText = msg.from || '(unknown)';
+        const fromText = msg.from || _t('apps.email.message.unknownSender');
         const av = createEl('div', {
           className: 'em-avatar',
           textContent: fromText[0].toUpperCase(),
@@ -1046,7 +1046,7 @@ registerApp({
         meta.appendChild(createEl('div', { className: 'em-msg-from', textContent: fromText }));
         meta.appendChild(createEl('div', {
           className: 'em-msg-subj',
-          textContent: msg.subject || '(no subject)',
+          textContent: msg.subject || _t('apps.email.message.noSubject'),
         }));
         if (msg._acctName) {
           meta.appendChild(createEl('div', { className: 'em-msg-acct', textContent: msg._acctName }));
@@ -1094,7 +1094,7 @@ registerApp({
       const n = selectedMessages.size;
       batchBar.style.display = n ? 'flex' : 'none';
       if (n) {
-        batchLbl.textContent = n + ' selected';
+        batchLbl.textContent = _t('apps.email.batch.selected', { count: n });
         const selectedOnPage = messages.reduce(
           (count, msg) => count + Number(selectedMessages.has(selectionKey(msg))),
           0
@@ -1147,8 +1147,8 @@ registerApp({
       });
       if (unsupported) {
         notify(op === 'read'
-          ? 'Mark as read is supported for IMAP and Exchange accounts.'
-          : 'Bulk delete is currently supported for IMAP accounts only.', 'error');
+          ? _t('apps.email.notify.markReadUnsupported')
+          : _t('apps.email.notify.bulkDeleteUnsupported'), 'error');
         return;
       }
 
@@ -1185,8 +1185,8 @@ registerApp({
         }
         for (const key of completedKeys) selectedMessages.delete(key);
         renderMsgList();
-        if (op === 'read') notify(`${completedKeys.size} marked as read.`, 'success');
-        else if (op === 'delete') notify(`${completedKeys.size} deleted.`, 'success');
+        if (op === 'read') notify(_t('apps.email.notify.markedRead', { count: completedKeys.size }), 'success');
+        else if (op === 'delete') notify(_t('apps.email.notify.bulkDeleted', { count: completedKeys.size }), 'success');
       } catch (error) {
         notify(error.message, 'error');
       }
@@ -1202,7 +1202,7 @@ registerApp({
       const icon = createEl('div');
       icon.textContent = '✉';
       w.append(icon, document.createElement('br'), createEl('span', {
-        textContent: 'Select a message to read',
+        textContent: _t('apps.email.reader.selectPrompt'),
       }));
       readerEl.appendChild(w);
     }
@@ -1249,12 +1249,12 @@ registerApp({
       const hdr = createEl('div', { className: 'em-reader-hdr' });
       hdr.appendChild(createEl('div', {
         className: 'em-reader-subj',
-        textContent: full.subject || '(no subject)',
+        textContent: full.subject || _t('apps.email.message.noSubject'),
       }));
       const meta = createEl('div', { className: 'em-reader-meta' });
-      if (full.from) meta.appendChild(createEl('span', { textContent: 'From: ' + full.from }));
-      if (full.to) meta.appendChild(createEl('span', { textContent: 'To: ' + full.to }));
-      if (full.cc) meta.appendChild(createEl('span', { textContent: 'CC: ' + full.cc }));
+      if (full.from) meta.appendChild(createEl('span', { textContent: _t('apps.email.reader.from', { from: full.from }) }));
+      if (full.to) meta.appendChild(createEl('span', { textContent: _t('apps.email.reader.to', { to: full.to }) }));
+      if (full.cc) meta.appendChild(createEl('span', { textContent: _t('apps.email.reader.cc', { cc: full.cc }) }));
       if (full.date) {
         meta.appendChild(createEl('span', { textContent: new Date(full.date).toLocaleString() }));
       }
@@ -1262,11 +1262,11 @@ registerApp({
 
       const acts = createEl('div', { className: 'em-reader-actions' });
       const replyBtn = createEl('button', { className: 'em-btn' });
-      replyBtn.innerHTML = svgIcon('corner-up-left', 13) + ' Reply';
+      replyBtn.innerHTML = svgIcon('corner-up-left', 13) + ' ' + _t('apps.email.reader.reply');
       const fwdBtn = createEl('button', { className: 'em-btn' });
-      fwdBtn.innerHTML = svgIcon('corner-up-right', 13) + ' Forward';
+      fwdBtn.innerHTML = svgIcon('corner-up-right', 13) + ' ' + _t('apps.email.reader.forward');
       const delBtn = createEl('button', { className: 'em-btn danger' });
-      delBtn.innerHTML = svgIcon('x', 13) + ' Delete';
+      delBtn.innerHTML = svgIcon('x', 13) + ' ' + _t('apps.email.reader.delete');
       acts.append(replyBtn, fwdBtn, delBtn);
       hdr.appendChild(acts);
       readerEl.appendChild(hdr);
@@ -1298,7 +1298,7 @@ registerApp({
         const hasDoc = /^<!doctype/i.test(sanitized.trimStart()) || /^<html[\s>]/i.test(sanitized.trimStart());
         const iframe = createEl('iframe', {
           sandbox: 'allow-popups allow-popups-to-escape-sandbox',
-          title: 'Email body',
+          title: _t('apps.email.reader.bodyTitle'),
           referrerpolicy: 'no-referrer',
         });
         iframe.srcdoc = hasDoc
@@ -1309,7 +1309,7 @@ registerApp({
       } else {
         bodyEl.appendChild(createEl('div', {
           className: 'em-text-body',
-          textContent: full.text || '(empty message)',
+          textContent: full.text || _t('apps.email.reader.emptyBody'),
         }));
         readerEl.appendChild(bodyEl);
       }
@@ -1319,7 +1319,7 @@ registerApp({
         const row = createEl('div', { className: 'em-attachments' });
         full.attachments.forEach(a => {
           const chip = createEl('div', { className: 'em-attach-chip' });
-          chip.appendChild(document.createTextNode('📄 ' + (a.filename || 'attachment')));
+          chip.appendChild(document.createTextNode('📄 ' + (a.filename || _t('apps.email.reader.attachmentFallback'))));
           if (a.size) {
             const sz = createEl('span', { textContent: ' ' + fmtSize(a.size) });
             sz.style.opacity = '0.6';
@@ -1365,7 +1365,7 @@ registerApp({
           activeMsgUid = null;
           showEmpty();
         }
-        notify('Deleted.');
+        notify(_t('apps.email.notify.deleted'));
       } catch (e) {
         notify(e.message, 'error');
       }
@@ -1379,7 +1379,7 @@ registerApp({
         await api('POST', '/batch', { op: 'move', uids: [msg.uid], folder: activeFolder, dest: 'Archive' });
         animateRowRemoval(rowEl, -40);
         messages = messages.filter(m => m.uid !== msg.uid);
-        notify('Archived.');
+        notify(_t('apps.email.notify.archived'));
       } catch (e) {
         notify(e.message, 'error');
       }
@@ -1408,14 +1408,14 @@ registerApp({
         className: 'em-compose-win',
         role: 'dialog',
         'aria-modal': 'true',
-        'aria-label': 'New Message',
+        'aria-label': _t('apps.email.compose.newMessage'),
       });
 
       // Header
-      const hdr = createEl('div', { className: 'em-compose-hdr', title: 'Drag to move' });
-      hdr.appendChild(createEl('span', { textContent: 'New Message', style: 'flex:1' }));
-      const minBtn = createEl('button', { className: 'em-tb-btn', textContent: '−', title: 'Minimize' });
-      const closeXB = createEl('button', { className: 'em-tb-btn', textContent: '✕', title: 'Close' });
+      const hdr = createEl('div', { className: 'em-compose-hdr', title: _t('apps.email.compose.dragToMove') });
+      hdr.appendChild(createEl('span', { textContent: _t('apps.email.compose.newMessage'), style: 'flex:1' }));
+      const minBtn = createEl('button', { className: 'em-tb-btn', textContent: '−', title: _t('apps.email.compose.minimize') });
+      const closeXB = createEl('button', { className: 'em-tb-btn', textContent: '✕', title: _t('common.close') });
       hdr.append(minBtn, closeXB);
 
       let minimized = false;
@@ -1472,7 +1472,7 @@ registerApp({
             body,
             savedAt: new Date().toISOString(),
           });
-          if (saved) notify('Draft saved.');
+          if (saved) notify(_t('apps.email.notify.draftSaved'));
         }
         composeOverlays.delete(overlay);
         overlay.remove();
@@ -1481,10 +1481,10 @@ registerApp({
 
       // Fields
       const fieldsEl = createEl('div', { style: 'flex-shrink:0;' });
-      const { row: toRow, inp: toInp } = makeComposeField('To', 'email', 'recipient@example.com');
-      const { row: ccRow, inp: ccInp } = makeComposeField('Cc', 'email', '');
-      const { row: bccRow, inp: bccInp } = makeComposeField('Bcc', 'email', '');
-      const { row: subjRow, inp: subjInp } = makeComposeField('Subject', 'text', 'Subject');
+      const { row: toRow, inp: toInp } = makeComposeField(_t('apps.email.compose.to'), 'email', 'recipient@example.com');
+      const { row: ccRow, inp: ccInp } = makeComposeField(_t('apps.email.compose.cc'), 'email', '');
+      const { row: bccRow, inp: bccInp } = makeComposeField(_t('apps.email.compose.bcc'), 'email', '');
+      const { row: subjRow, inp: subjInp } = makeComposeField(_t('apps.email.compose.subject'), 'text', _t('apps.email.compose.subjectPlaceholder'));
 
       if (prefill.to) toInp.value = prefill.to;
       if (prefill.subject) subjInp.value = prefill.subject;
@@ -1494,7 +1494,7 @@ registerApp({
       bccRow.style.display = 'none';
       const ccToggle = createEl('button', {
         className: 'em-btn',
-        textContent: 'Cc/Bcc',
+        textContent: _t('apps.email.compose.ccBccToggle'),
         style: 'font-size:10px;padding:2px 6px;',
       });
       toRow.appendChild(ccToggle);
@@ -1512,7 +1512,7 @@ registerApp({
         className: 'em-cbody',
         id: 'email-body-input',
         name: 'email-body',
-        placeholder: 'Write your message…',
+        placeholder: _t('apps.email.compose.bodyPlaceholder'),
         value: (prefill.body || '') + sig,
       });
 
@@ -1525,7 +1525,7 @@ registerApp({
       // Picked through SystemDialogs; wrapped as File objects so the
       // FormData upload below works the same as before.
       async function pickAttachments() {
-        const picked = await SystemDialogs.open({ title: 'Attach Files', multiple: true });
+        const picked = await SystemDialogs.open({ title: _t('apps.email.compose.attachFilesTitle'), multiple: true });
         if (!picked?.length) return;
         attachedFiles = picked.map(f => new File([f.content], f.name, { type: f.mimeType }));
         attachListEl.replaceChildren();
@@ -1540,23 +1540,23 @@ registerApp({
       // Footer
       const foot = createEl('div', { className: 'em-compose-foot' });
       const sendBtn = createEl('button', {
-        textContent: 'Send',
+        textContent: _t('apps.email.compose.send'),
         style: 'background:var(--accent);color:#fff;border:none;border-radius:7px;padding:6px 16px;font-size:13px;font-weight:600;cursor:pointer;',
       });
       const attachBtn = createEl('button', {
         className: 'em-btn',
         innerHTML: '&#128206;',
-        title: 'Attach file',
+        title: _t('apps.email.compose.attachFileTitle'),
       });
       const errSpan = createEl('span', { style: 'font-size:11px;color:#e55;flex:1;' });
       attachBtn.addEventListener('click', pickAttachments, { signal: appSignal });
 
       sendBtn.addEventListener('click', async () => {
         const to = toInp.value.trim();
-        if (!to) { errSpan.textContent = 'Recipient required.'; return; }
-        if (!acct) { errSpan.textContent = 'No account selected.'; return; }
+        if (!to) { errSpan.textContent = _t('apps.email.compose.recipientRequired'); return; }
+        if (!acct) { errSpan.textContent = _t('apps.email.compose.noAccount'); return; }
         errSpan.textContent = '';
-        sendBtn.textContent = 'Sending…';
+        sendBtn.textContent = _t('apps.email.compose.sending');
         sendBtn.disabled = true;
         try {
           const smtpPort = parseInt(acct.smtpPort, 10) || (acct.ssl ? 465 : 587);
@@ -1584,12 +1584,12 @@ registerApp({
           } else {
             await api('POST', '/send', baseFields);
           }
-          notify('Sent.', 'success');
+          notify(_t('apps.email.notify.sent'), 'success');
           composeOverlays.delete(overlay);
           overlay.remove();
         } catch (e) {
           errSpan.textContent = e.message;
-          sendBtn.textContent = 'Send';
+          sendBtn.textContent = _t('apps.email.compose.send');
           sendBtn.disabled = false;
         }
       }, { signal: appSignal });
@@ -1662,12 +1662,12 @@ registerApp({
       const newUnread = (d.messages || []).filter(m => !m.seen);
       if (!newUnread.length) return;
       if (Notification.permission === 'granted') {
-        new Notification(acct.name || acct.email + ' — ' + newUnread.length + ' new', {
+        new Notification(acct.name || _t('apps.email.notify.newMailTitle', { email: acct.email, count: newUnread.length }), {
           body: decodeEntities(newUnread[0].subject),
           icon: '/assets/apple-touch-icon.svg',
         });
       }
-      notify(newUnread.length + ' new in ' + (acct.name || acct.email));
+      notify(_t('apps.email.notify.newIn', { count: newUnread.length, account: acct.name || acct.email }));
       if (activeAcctId === acct.id && activeFolder === 'INBOX') loadMessages();
     }
 

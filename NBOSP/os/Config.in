@@ -5,5 +5,9 @@ source "$BR2_EXTERNAL_NBOSP_PATH/package/nbosp-kiosk/Config.in"
 source "$BR2_EXTERNAL_NBOSP_PATH/package/nbosp-power/Config.in"
 source "$BR2_EXTERNAL_NBOSP_PATH/package/nbosp-install/Config.in"
 source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-emoji/Config.in"
+source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-sans/Config.in"
+source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-cjk/Config.in"
+source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-arabic/Config.in"
+source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-devanagari/Config.in"
 
 endmenu

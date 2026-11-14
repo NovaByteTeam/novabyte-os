@@ -13,7 +13,7 @@ registerApp({
       const msg = createEl('div', { style: 'font-size:14px;text-align:center' });
       const bold = createEl('b');
       bold.textContent = 'com.nbosp.gallery';
-      msg.append(bold, document.createElement('br'), 'App data directory missing.', document.createElement('br'), 'This app requires NovaByte OS.');
+      msg.append(bold, document.createElement('br'), _t('apps.gallery.appDataMissing'), document.createElement('br'), _t('apps.gallery.requiresNovaByte'));
       content.append(warn, msg);
       return;
     }
@@ -28,9 +28,9 @@ registerApp({
 
     // ── Toolbar ─────────────────────────────────────────────────────────────
     const toolbar = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;background:var(--bg-elevated);' });
-    const titleEl = createEl('span', { textContent: 'Gallery', style: 'font-size:13px;font-weight:600;flex:1;color:var(--text-primary);' });
+    const titleEl = createEl('span', { textContent: _t('apps.gallery.title'), style: 'font-size:13px;font-weight:600;flex:1;color:var(--text-primary);' });
     const countEl = createEl('span', { style: 'font-size:11px;color:var(--text-muted);' });
-    const refreshBtn = createEl('button', { className: 'browser-nav-btn', title: 'Refresh' });
+    const refreshBtn = createEl('button', { className: 'browser-nav-btn', title: _t('common.refresh') });
     refreshBtn.innerHTML = svgIcon('refresh', 15);
     toolbar.append(titleEl, countEl, refreshBtn);
     root.appendChild(toolbar);
@@ -46,7 +46,7 @@ registerApp({
       style: 'display:none;position:absolute;inset:0;background:rgba(0,0,0,0.93);z-index:200;align-items:center;justify-content:center;flex-direction:column;',
       role: 'dialog',
       'aria-modal': 'true',
-      'aria-label': 'Image viewer',
+      'aria-label': _t('apps.gallery.viewerAria'),
     });
     const lbImg = createEl('img', {
       style: 'max-width:88%;max-height:82%;object-fit:contain;border-radius:6px;box-shadow:0 8px 48px rgba(0,0,0,0.8);user-select:none;',
@@ -55,17 +55,17 @@ registerApp({
     });
     const lbClose = createEl('button', {
       style: 'position:absolute;top:10px;right:14px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#fff;border-radius:6px;width:30px;height:30px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;',
-      'aria-label': 'Close',
+      'aria-label': _t('common.close'),
     });
     lbClose.innerHTML = svgIcon('x', 14);
     const lbPrev = createEl('button', {
       style: 'position:absolute;left:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:50%;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;',
-      'aria-label': 'Previous image',
+      'aria-label': _t('apps.gallery.previousImageAria'),
     });
     lbPrev.innerHTML = svgIcon('chevron-left', 18);
     const lbNext = createEl('button', {
       style: 'position:absolute;right:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:50%;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;',
-      'aria-label': 'Next image',
+      'aria-label': _t('apps.gallery.nextImageAria'),
     });
     lbNext.innerHTML = svgIcon('chevron-right', 18);
     const lbCaption = createEl('div', {
@@ -189,14 +189,14 @@ registerApp({
       const loadVersion = ++imageLoadVersion;
       lbImg.alt = f.name;
       lbImg.src = '';
-      lbCaption.textContent = f.name + '  (' + (lbIdx + 1) + ' / ' + images.length + ')';
+      lbCaption.textContent = _t('apps.gallery.imagePosition', { name: f.name, index: lbIdx + 1, count: images.length });
       setLbNavState();
       lb.style.display = 'flex';
       lbClose.focus();
       const url = await getUrl(f);
       if (loadVersion !== imageLoadVersion || lb.style.display === 'none') return;
       if (!url) {
-        Notify.show({ title: 'Gallery', body: 'Could not load ' + f.name, type: 'error', appName: 'Gallery' });
+        Notify.show({ title: _t('apps.gallery.title'), body: _t('apps.gallery.couldNotLoad', { name: f.name }), type: 'error', appName: 'Gallery' });
         return;
       }
       lbImg.src = url;
@@ -253,7 +253,7 @@ registerApp({
         ) && !next.some(file => file.id === openedFile.id)) next.push(openedFile);
       } catch (error) {
         console.error('[Gallery] Image scan failed:', error);
-        Notify.show({ title: 'Gallery', body: 'Could not read the Pictures folder: ' + error.message, type: 'error', appName: 'Gallery' });
+        Notify.show({ title: _t('apps.gallery.title'), body: _t('apps.gallery.couldNotReadPictures', { message: error.message }), type: 'error', appName: 'Gallery' });
       }
       if (version !== renderVersion) return;
 
@@ -280,16 +280,16 @@ registerApp({
       const frag = document.createDocumentFragment();
 
       countEl.textContent = images.length
-        ? images.length + ' image' + (images.length > 1 ? 's' : '')
+        ? _t(images.length > 1 ? 'apps.gallery.imageCountPlural' : 'apps.gallery.imageCount', { count: images.length })
         : '';
 
       if (!images.length) {
         const empty = createEl('div', { style: 'grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px 24px;color:var(--text-muted);gap:8px;text-align:center;' });
         empty.innerHTML = svgIcon('image', 38);
         const noImg = createEl('div', { style: 'font-size:13px;margin-top:10px;color:var(--text-secondary);' });
-        noImg.textContent = 'No images found';
+        noImg.textContent = _t('apps.gallery.noImagesFound');
         const hint = createEl('div', { style: 'font-size:11px;margin-top:4px;' });
-        hint.textContent = 'Save image files via Files to view them here';
+        hint.textContent = _t('apps.gallery.emptyHint');
         empty.append(noImg, hint);
         frag.appendChild(empty);
         grid.textContent = '';  // fast clear

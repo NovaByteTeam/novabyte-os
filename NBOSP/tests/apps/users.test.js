@@ -8,12 +8,19 @@ import { JSDOM } from 'jsdom';
 const read = rel => readFile(new URL(rel, import.meta.url), 'utf8');
 
 async function mountUsersApp(users, { events = [], save = vi.fn(async () => null), writeFile = vi.fn() } = {}) {
-  const [baseUtils, appSource] = await Promise.all([
+  const [baseUtils, appSource, i18nSource, enCatalogue] = await Promise.all([
     read('../../js/core/utils/base-utils.js'),
     read('../../js/apps/users/app.js'),
+    read('../../js/core/core/i18n.js'),
+    read('../../js/apps/localisation/locales/en.json'),
   ]);
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>', { runScripts: 'outside-only' });
   const { window } = dom;
+
+  // Bring the NovaI18n engine online exactly like the app harness does, so
+  // the app's _t() calls resolve the genuine shipped English catalogue.
+  window.eval(i18nSource);
+  window.NovaI18n.registerResources({ en: JSON.parse(enCatalogue) });
 
   let config;
   window.registerApp = cfg => { config = cfg; };

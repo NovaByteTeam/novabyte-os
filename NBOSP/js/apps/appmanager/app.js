@@ -195,16 +195,16 @@ function showSystemImpersonationDialog(appData) {
     const box = document.createElement('div');
     box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.55);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.65),0 0 0 1px rgba(255,255,255,0.04) inset,0 0 50px rgba(248,81,73,0.12);animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
-    const safeName = escapeHtml(appData?.name || appData?.id || 'This package');
-    const safeId = escapeHtml(appData?.id || '(none)');
+    const safeName = escapeHtml(appData?.name || appData?.id || _t('apps.appmanager.fallbackPackageName'));
+    const safeId = escapeHtml(appData?.id || _t('apps.appmanager.idNone'));
 
     box.innerHTML = `
       <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
         <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.14);border:1px solid rgba(248,81,73,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDEAB</div>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">Blocked — Suspected System Impersonation</div>
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">${_t('apps.appmanager.impersonationTitle')}</div>
           <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
-            <b>${safeName}</b> <span style="color:var(--text-muted,#888);">(${safeId})</span> declares itself a NovaByte System package but does not hold a valid, matching System signature and intact contents.
+            <b>${safeName}</b> <span style="color:var(--text-muted,#888);">(${safeId})</span> ${_t('apps.appmanager.impersonationBody')}
           </div>
         </div>
       </div>
@@ -212,13 +212,13 @@ function showSystemImpersonationDialog(appData) {
         <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.4);border-radius:8px;">
           <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
           <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
-            <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">Why this is blocked, not just a warning</div>
-            A real NovaByte System package has no legitimate reason to fail signature or integrity verification. This combination — claiming the System badge while failing that check — is a defining sign of an attempt to impersonate a trusted system component rather than an ordinary publishing mistake. NovaByte OS does not offer an override for this case.
+            <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${_t('apps.appmanager.impersonationWhyTitle')}</div>
+            ${_t('apps.appmanager.impersonationWhyBody')}
           </div>
         </div>
       </div>
       <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;">
-        <button id="nb-impersonation-ack-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.4);color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:600;">Okay</button>
+        <button id="nb-impersonation-ack-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.4);color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:600;">${_t('apps.appmanager.okayBtn')}</button>
       </div>
     `;
 
@@ -252,46 +252,43 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         const box = document.createElement('div');
         box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid var(--border,#333);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
-        const safeName = escapeHtml(appData.name || appData.id || 'This app');
+        const safeName = escapeHtml(appData.name || appData.id || _t('apps.appmanager.fallbackAppName'));
         const safeId = escapeHtml(appData.id || '');
-        const safeVersion = escapeHtml(appData.version || 'unknown');
+        const safeVersion = escapeHtml(appData.version || _t('apps.appmanager.versionUnknown'));
         const isRevoked = !!appData.revoked;
         const hasSignature = !!appData.signature;
         const integrityStatus = appData.integrityStatus || 'unavailable';
-        const integrityLabel = integrityStatus === 'ok' ? 'passed — contents match build-time hash'
-          : integrityStatus === 'failed' ? '\u26A0\uFE0F failed — contents do not match build-time hash'
-          : 'not available — package has no integrity hash to check against';
+        const integrityLabel = integrityStatus === 'ok' ? _t('apps.appmanager.integrityPassed')
+          : integrityStatus === 'failed' ? _t('apps.appmanager.integrityFailed')
+          : _t('apps.appmanager.integrityUnavailable');
         const integrityColor = integrityStatus === 'failed' ? '#f85149' : 'var(--text-primary,#eee)';
 
         let title, summary, cautionText, cautionBorderColor, cautionBgColor, cautionDotColor, cautionTitle, iconEmoji;
 
         if (isRevoked) {
           iconEmoji = '\uD83D\uDD34';
-          title = 'Revoked Package — Do Not Install';
-          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} carries a signature that has been individually revoked by NovaByte OS.
-            This package was previously verified as signed by a trusted authority, but was subsequently pulled from the trust list — most likely because it was found to be harmful, deceptive, or non-compliant after review.`;
-          cautionTitle = 'Why this is serious';
-          cautionText = 'A revoked signature means NovaByte OS once recognised the publisher, but has since decided this specific package should not be trusted. Other packages from the same publisher may still be trusted, but this one is not. Installing it bypasses an explicit security decision.';
+          title = _t('apps.appmanager.untrustedRevokedTitle');
+          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.untrustedRevokedSummary')}`;
+          cautionTitle = _t('apps.appmanager.whySeriousTitle');
+          cautionText = _t('apps.appmanager.untrustedRevokedCaution');
           cautionBorderColor = 'rgba(248,81,73,0.35)';
           cautionBgColor = 'rgba(248,81,73,0.1)';
           cautionDotColor = '#f85149';
         } else if (hasSignature) {
           iconEmoji = '\u26A0\uFE0F';
-          title = 'Untrusted App — Unknown Publisher';
-          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} is signed, but the signer is not in NovaByte OS's trust store.
-            This usually means the app is self-signed by an individual developer, or signed by an authority that hasn't been reviewed and added to the system trust list.`;
-          cautionTitle = 'What this means';
-          cautionText = `NovaByte OS cannot confirm the identity of the publisher or guarantee that the package has not been modified since it was signed. This doesn't prove the app is malicious — it just means nobody vetted the publisher on your behalf. Proceed only if you obtained the package directly from a developer or source you personally trust.`;
+          title = _t('apps.appmanager.untrustedUnknownTitle');
+          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.untrustedUnknownSummary')}`;
+          cautionTitle = _t('apps.appmanager.whatThisMeansTitle');
+          cautionText = _t('apps.appmanager.untrustedUnknownCaution');
           cautionBorderColor = 'rgba(210,153,34,0.3)';
           cautionBgColor = 'rgba(210,153,34,0.08)';
           cautionDotColor = '#d29922';
         } else {
           iconEmoji = '\u26A0\uFE0F';
-          title = 'Untrusted App — Not Signed';
-          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} is not digitally signed.
-            NovaByte OS cannot verify who created the package, when it was built, or whether it has been altered since distribution.`;
-          cautionTitle = 'What this means';
-          cautionText = 'An unsigned package provides no cryptographic proof of origin. Anyone could have created or modified it. Only proceed if you inspected the package yourself and trust its source completely.';
+          title = _t('apps.appmanager.untrustedUnsignedTitle');
+          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.untrustedUnsignedSummary')}`;
+          cautionTitle = _t('apps.appmanager.whatThisMeansTitle');
+          cautionText = _t('apps.appmanager.untrustedUnsignedCaution');
           cautionBorderColor = 'rgba(210,153,34,0.25)';
           cautionBgColor = 'rgba(210,153,34,0.06)';
           cautionDotColor = '#d29922';
@@ -316,25 +313,25 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             </div>
 
             <div id="nb-untrusted-more" style="display:none;padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;animation:nb-fade-in 150ms ease-out;">
-              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">Package Details</div>
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">${_t('apps.appmanager.packageDetails')}</div>
               <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Signature</span><span style="font-weight:500;color:var(--text-primary,#eee);">${isRevoked ? 'present, but revoked by NovaByte OS' : hasSignature ? 'present, but not from a recognised signer' : 'none — package is not signed'}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Integrity</span><span style="font-weight:500;color:${integrityColor};text-align:right;">${integrityLabel}</span></div>
-                ${isRevoked ? '<div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Revocation reason</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;">Removed from trust list by NovaByte OS</span></div>' : ''}
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailPackageId')}</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || _t('apps.appmanager.versionUnknown')}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailVersion')}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailSignature')}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${isRevoked ? _t('apps.appmanager.sigRevoked') : hasSignature ? _t('apps.appmanager.sigUnrecognised') : _t('apps.appmanager.sigNone')}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailIntegrity')}</span><span style="font-weight:500;color:${integrityColor};text-align:right;">${integrityLabel}</span></div>
+                ${isRevoked ? `<div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailRevocationReason')}</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;">${_t('apps.appmanager.revocationReasonValue')}</span></div>` : ''}
               </div>
               <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));font-size:12px;color:var(--text-muted,#999);line-height:1.6;">
-                Only install or run apps obtained from sources you trust. A missing or unrecognised signature means NovaByte OS cannot confirm who published this app or guarantee it has not been modified since distribution.${isRevoked ? ' A revoked signature means NovaByte OS reviewed this package and explicitly decided it should no longer be trusted — installing it overrides that decision.' : ''} If you do not trust the source, cancel this operation and remove the package.
+                ${_t('apps.appmanager.moreInfoTrustNote')}${isRevoked ? ' ' + _t('apps.appmanager.moreInfoRevokedNote') : ''} ${_t('apps.appmanager.moreInfoFooter')}
               </div>
             </div>
           </div>
 
           <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-            <button id="nb-untrusted-more-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text-muted,#ccc);padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;transition:all 0.12s;font-weight:500;">More Info</button>
+            <button id="nb-untrusted-more-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text-muted,#ccc);padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;transition:all 0.12s;font-weight:500;">${_t('apps.appmanager.moreInfoBtn')}</button>
             <div style="display:flex;gap:8px;">
-              <button id="nb-untrusted-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">Cancel</button>
-              <button id="nb-untrusted-launch-btn" style="display:none;background:rgba(248,81,73,0.15);border:1px solid ${isRevoked ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.3)'};color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:${isRevoked ? 700 : 600};">${isRevoked ? 'Install Despite Revocation' : 'Install Anyway'}</button>
+              <button id="nb-untrusted-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">${_t('common.cancel')}</button>
+              <button id="nb-untrusted-launch-btn" style="display:none;background:rgba(248,81,73,0.15);border:1px solid ${isRevoked ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.3)'};color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:${isRevoked ? 700 : 600};">${isRevoked ? _t('apps.appmanager.installDespiteRevocation') : _t('apps.appmanager.installAnyway')}</button>
             </div>
           </div>
         `;
@@ -363,7 +360,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           const panel = box.querySelector('#nb-untrusted-more');
           const isHidden = panel.style.display === 'none';
           panel.style.display = isHidden ? 'block' : 'none';
-          box.querySelector('#nb-untrusted-more-btn').textContent = isHidden ? 'Less Info' : 'More Info';
+          box.querySelector('#nb-untrusted-more-btn').textContent = isHidden ? _t('apps.appmanager.lessInfoBtn') : _t('apps.appmanager.moreInfoBtn');
           box.querySelector('#nb-untrusted-launch-btn').style.display = isHidden ? 'inline-block' : 'none';
         });
         box.querySelector('#nb-untrusted-cancel-btn').addEventListener('click', () => {
@@ -412,20 +409,19 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         const box = document.createElement('div');
         box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.4);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
-        const safeName = escapeHtml(appData.name || appData.id || 'This app');
+        const safeName = escapeHtml(appData.name || appData.id || _t('apps.appmanager.fallbackAppName'));
         const safeId = escapeHtml(appData.id || '');
-        const safeVersion = escapeHtml(appData.version || 'unknown');
+        const safeVersion = escapeHtml(appData.version || _t('apps.appmanager.versionUnknown'));
         const fileList = mismatchedFiles.slice(0, 8).map(f => escapeHtml(f)).join(', ')
-          + (mismatchedFiles.length > 8 ? `, and ${mismatchedFiles.length - 8} more` : '');
+          + (mismatchedFiles.length > 8 ? ', ' + _t('apps.appmanager.andMoreFiles', { count: mismatchedFiles.length - 8 }) : '');
 
         box.innerHTML = `
           <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
             <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
             <div style="flex:1;min-width:0;">
-              <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">Tamper Detected — Package Modified</div>
+              <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">${_t('apps.appmanager.tamperTitle')}</div>
               <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
-                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} failed its integrity check.
-                The package's contents no longer match the hash that was recorded when it was built. This is true regardless of whether the package is signed by a trusted publisher — a valid signature only proves who signed the <i>original</i> file, not that these are still its unmodified contents.
+                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.tamperSummary')}
               </div>
             </div>
           </div>
@@ -434,30 +430,30 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
               <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
               <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
-                <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">Why this is serious</div>
-                A mismatch here usually means the file was altered after it was packaged — by corruption in transit, or by someone modifying it deliberately. NovaByte OS cannot tell which. Installing this package means running code that is provably different from what its integrity hash says it should be.
+                <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${_t('apps.appmanager.whySeriousTitle')}</div>
+                ${_t('apps.appmanager.tamperWhyBody')}
               </div>
             </div>
 
             <div style="padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;">
-              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">Package Details</div>
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">${_t('apps.appmanager.packageDetails')}</div>
               <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Integrity</span><span style="font-weight:500;color:#f85149;text-align:right;">\u26A0\uFE0F failed — contents do not match build-time hash</span></div>
-                ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">Affected file(s)</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailPackageId')}</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || _t('apps.appmanager.versionUnknown')}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailVersion')}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailIntegrity')}</span><span style="font-weight:500;color:#f85149;text-align:right;">${_t('apps.appmanager.integrityFailed')}</span></div>
+                ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailAffectedFiles')}</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
               </div>
             </div>
 
             <div style="display:flex;flex-direction:column;gap:6px;">
-              <label for="nb-tamper-confirm-input" style="font-size:12px;color:var(--text-muted,#999);">To install anyway, type <b style="color:var(--text-primary,#ddd);">install tampered</b> below:</label>
+              <label for="nb-tamper-confirm-input" style="font-size:12px;color:var(--text-muted,#999);">${_t('apps.appmanager.tamperConfirmLabel', { phrase: 'install tampered' })}</label>
               <input id="nb-tamper-confirm-input" type="text" autocomplete="off" spellcheck="false" style="background:var(--bg-inset,rgba(255,255,255,0.04));border:1px solid var(--border,#444);border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--text-primary,#eee);font-family:inherit;outline:none;" placeholder="install tampered" />
             </div>
           </div>
 
           <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
-            <button id="nb-tamper-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">Cancel</button>
-            <button id="nb-tamper-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">Install Despite Tampering</button>
+            <button id="nb-tamper-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">${_t('common.cancel')}</button>
+            <button id="nb-tamper-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">${_t('apps.appmanager.installDespiteTampering')}</button>
           </div>
         `;
 
@@ -526,18 +522,18 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         const box = document.createElement('div');
         box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.5);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.04) inset,0 0 40px rgba(248,81,73,0.08);animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
-        const safeName = escapeHtml(appData?.name || appData?.id || 'This app');
+        const safeName = escapeHtml(appData?.name || appData?.id || _t('apps.appmanager.fallbackAppName'));
         const safeId = escapeHtml(appData?.id || '');
-        const safeFile = escapeHtml(fileName || 'a file in this package');
-        const safeReason = escapeHtml(reason || 'It matched a pattern associated with malicious files.');
+        const safeFile = escapeHtml(fileName || _t('apps.appmanager.fallbackFileName'));
+        const safeReason = escapeHtml(reason || _t('apps.appmanager.maliciousDefaultReason'));
 
         box.innerHTML = `
           <div style="padding:20px 24px 16px;background:linear-gradient(180deg,rgba(248,81,73,0.12),transparent);border-bottom:1px solid rgba(248,81,73,0.25);display:flex;align-items:flex-start;gap:14px;">
             <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
             <div style="flex:1;min-width:0;">
-              <div style="font-size:15px;font-weight:700;color:#f85149;margin-bottom:5px;letter-spacing:-0.01em;">Malicious File</div>
+              <div style="font-size:15px;font-weight:700;color:#f85149;margin-bottom:5px;letter-spacing:-0.01em;">${_t('apps.appmanager.maliciousTitle')}</div>
               <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
-                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} was blocked before install. This application may cause damage to your device, steal data, or behave in ways you didn't authorize — installation cannot continue.
+                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.maliciousSummary')}
               </div>
             </div>
           </div>
@@ -546,20 +542,20 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
               <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
               <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
-                <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">What was found</div>
+                <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${_t('apps.appmanager.maliciousFoundTitle')}</div>
                 <span style="color:var(--text-primary,#eee);font-weight:500;">${safeFile}</span> — ${safeReason}
               </div>
             </div>
 
             <div style="padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;">
               <div style="font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.55;">
-                This scan is a heuristic check, not a full antivirus — it looks for known red flags like disguised executables, hidden scripts inside files that shouldn't have any, and obfuscated or packed code. A block here means something concrete tripped that check. If you trust the source and believe this is a false positive, get an updated package from the publisher rather than forcing this one through — NovaByte OS won't install a file that fails this check.
+                ${_t('apps.appmanager.maliciousHeuristicNote')}
               </div>
             </div>
           </div>
 
           <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
-            <button id="nb-malware-ok-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);color:#f85149;padding:7px 18px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:700;">Cancel Install</button>
+            <button id="nb-malware-ok-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);color:#f85149;padding:7px 18px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:700;">${_t('apps.appmanager.cancelInstallBtn')}</button>
           </div>
         `;
 
@@ -611,45 +607,45 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         const box = document.createElement('div');
         box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.4);border-radius:14px;max-width:540px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
-        const safeName = escapeHtml(appData.name || appData.id || 'This app');
+        const safeName = escapeHtml(appData.name || appData.id || _t('apps.appmanager.fallbackAppName'));
         const safeId = escapeHtml(appData.id || '');
-        const safeVersion = escapeHtml(appData.version || 'unknown');
+        const safeVersion = escapeHtml(appData.version || _t('apps.appmanager.versionUnknown'));
         const isRevoked = !!appData.revoked;
         const hasSignature = !!appData.signature;
         const fileList = mismatchedFiles.slice(0, 8).map(f => escapeHtml(f)).join(', ')
-          + (mismatchedFiles.length > 8 ? `, and ${mismatchedFiles.length - 8} more` : '');
+          + (mismatchedFiles.length > 8 ? ', ' + _t('apps.appmanager.andMoreFiles', { count: mismatchedFiles.length - 8 }) : '');
 
         // Same 3-way trust sub-state branch as showUntrustedAppDialog,
         // reused here for the top section's copy only.
         let trustTitle, trustSummary, trustSignatureLabel;
         if (isRevoked) {
-          trustTitle = 'Revoked Signature';
-          trustSummary = `This package's signature was individually revoked by NovaByte OS — it was previously trusted, but has since been pulled from the trust list, most likely because it was found to be harmful, deceptive, or non-compliant after review.`;
-          trustSignatureLabel = 'present, but revoked by NovaByte OS';
+          trustTitle = _t('apps.appmanager.comboTrustRevokedTitle');
+          trustSummary = _t('apps.appmanager.comboRevokedSummary');
+          trustSignatureLabel = _t('apps.appmanager.sigRevoked');
         } else if (hasSignature) {
-          trustTitle = 'Unknown Publisher';
-          trustSummary = `This package is signed, but the signer is not in NovaByte OS's trust store. NovaByte OS cannot confirm the identity of the publisher.`;
-          trustSignatureLabel = 'present, but not from a recognised signer';
+          trustTitle = _t('apps.appmanager.comboTrustUnknownTitle');
+          trustSummary = _t('apps.appmanager.comboUnknownSummary');
+          trustSignatureLabel = _t('apps.appmanager.sigUnrecognised');
         } else {
-          trustTitle = 'Not Signed';
-          trustSummary = `This package is not digitally signed. NovaByte OS cannot verify who created it or whether it has been altered since distribution.`;
-          trustSignatureLabel = 'none — package is not signed';
+          trustTitle = _t('apps.appmanager.comboTrustUnsignedTitle');
+          trustSummary = _t('apps.appmanager.comboUnsignedSummary');
+          trustSignatureLabel = _t('apps.appmanager.sigNone');
         }
 
         box.innerHTML = `
           <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
             <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
             <div style="flex:1;min-width:0;">
-              <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">Two Problems Found — ${escapeHtml(trustTitle)} &amp; Tamper Detected</div>
+              <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">${escapeHtml(_t('apps.appmanager.twoProblemsTitle', { trust: trustTitle }))}</div>
               <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
-                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} failed two independent checks: NovaByte OS cannot confirm who published it, <i>and</i> its contents no longer match the hash recorded at build time. These are separate risks — either one alone would be worth pausing on; together, proceed only if you're certain of both the source and the copy you have.
+                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.comboSummary')}
               </div>
             </div>
           </div>
 
           <div style="padding:16px 24px;display:flex;flex-direction:column;gap:12px;flex:1;min-height:0;overflow-y:auto;">
             <div style="display:flex;flex-direction:column;gap:6px;">
-              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);">Trust issue — ${escapeHtml(trustTitle)}</div>
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);">${escapeHtml(_t('apps.appmanager.trustIssueLabel', { trust: trustTitle }))}</div>
               <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(210,153,34,0.08);border:1px solid rgba(210,153,34,0.3);border-radius:8px;">
                 <div style="width:6px;height:6px;border-radius:50%;background:#d29922;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #d29922;"></div>
                 <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">${trustSummary}</div>
@@ -657,35 +653,35 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             </div>
 
             <div style="display:flex;flex-direction:column;gap:6px;">
-              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);">Integrity issue — Tamper Detected</div>
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);">${_t('apps.appmanager.integrityIssueLabel')}</div>
               <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
                 <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
                 <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
-                  The package's contents no longer match the hash recorded when it was built. This is true regardless of who signed it — a valid signature only proves who signed the <i>original</i> file, not that these are still its unmodified contents.
+                  ${_t('apps.appmanager.comboIntegrityBody')}
                 </div>
               </div>
             </div>
 
             <div style="padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;">
-              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">Package Details</div>
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">${_t('apps.appmanager.packageDetails')}</div>
               <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Signature</span><span style="font-weight:500;color:var(--text-primary,#eee);">${trustSignatureLabel}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Integrity</span><span style="font-weight:500;color:#f85149;text-align:right;">\u26A0\uFE0F failed — contents do not match build-time hash</span></div>
-                ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">Affected file(s)</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailPackageId')}</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || _t('apps.appmanager.versionUnknown')}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailVersion')}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailSignature')}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${trustSignatureLabel}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailIntegrity')}</span><span style="font-weight:500;color:#f85149;text-align:right;">${_t('apps.appmanager.integrityFailed')}</span></div>
+                ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailAffectedFiles')}</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
               </div>
             </div>
 
             <div style="display:flex;flex-direction:column;gap:6px;">
-              <label for="nb-combo-confirm-input" style="font-size:12px;color:var(--text-muted,#999);">To install anyway, type <b style="color:var(--text-primary,#ddd);">install tampered</b> below:</label>
+              <label for="nb-combo-confirm-input" style="font-size:12px;color:var(--text-muted,#999);">${_t('apps.appmanager.tamperConfirmLabel', { phrase: 'install tampered' })}</label>
               <input id="nb-combo-confirm-input" type="text" autocomplete="off" spellcheck="false" style="background:var(--bg-inset,rgba(255,255,255,0.04));border:1px solid var(--border,#444);border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--text-primary,#eee);font-family:inherit;outline:none;" placeholder="install tampered" />
             </div>
           </div>
 
           <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
-            <button id="nb-combo-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">Cancel</button>
-            <button id="nb-combo-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">Install Despite Both</button>
+            <button id="nb-combo-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">${_t('common.cancel')}</button>
+            <button id="nb-combo-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">${_t('apps.appmanager.installDespiteBoth')}</button>
           </div>
         `;
 
@@ -909,7 +905,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           const entryB64 = appData.files?.[entryKey];
 
           if (!entryB64) {
-            contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Entry file not found in package.</div>';
+            contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">' + _t('apps.appmanager.entryNotFound') + '</div>';
             return;
           }
 
@@ -925,7 +921,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             //    Obfuscated packages that aren't valid JSON are now rejected outright. ──
             if (appData._wasObfuscated) {
                 if (typeof contentEl?.innerHTML === 'string') {
-                    contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">\uD83D\uDD12 App blocked: obfuscated packages cannot be loaded. Install only apps from trusted sources.</div>';
+                    contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">' + _t('apps.appmanager.obfuscatedBlocked') + '</div>';
                 }
                 console.warn('[AppManager] Obfuscated package blocked:', appId);
                 return;
@@ -985,7 +981,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
                 const proceeded = await showCombinedTrustIntegrityDialog(appData, { mismatchedFiles: launchMismatchedFiles });
                 if (!proceeded) {
                     if (typeof contentEl?.innerHTML === 'string') {
-                        contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">Launch cancelled.</div>';
+                        contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">' + _t('apps.appmanager.launchCancelled') + '</div>';
                     }
                     return;
                 }
@@ -1005,7 +1001,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
                 const proceeded = await showUntrustedAppDialog({ ...appData, integrityStatus: launchIntegrityStatus });
                 if (!proceeded) {
                     if (typeof contentEl?.innerHTML === 'string') {
-                        contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">Launch cancelled.</div>';
+                        contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">' + _t('apps.appmanager.launchCancelled') + '</div>';
                     }
                     return;
                 }
@@ -1028,7 +1024,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
                 const proceeded = await showTamperDetectedDialog(appData, { mismatchedFiles: launchMismatchedFiles });
                 if (!proceeded) {
                     if (typeof contentEl?.innerHTML === 'string') {
-                        contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">Launch cancelled.</div>';
+                        contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">' + _t('apps.appmanager.launchCancelled') + '</div>';
                     }
                     return;
                 }
@@ -1216,7 +1212,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             }, { once: true, signal: ac.signal });
 
           } catch (e) {
-            contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Failed to load app: ' + escapeHtml(e.message) + '</div>';
+            contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">' + _t('apps.appmanager.failedToLoadApp', { message: escapeHtml(e.message) }) + '</div>';
           }
         }
       };
@@ -1245,7 +1241,7 @@ registerApp({
   async onDrop(file, state) {
     if (!file || typeof file.name !== 'string') return;
     if (!file.name.endsWith('.novaapp')) {
-      Notify.show({ title: 'Invalid File', body: 'Please select a valid .novaapp package.', type: 'error', appName: 'App Manager' });
+      Notify.show({ title: _t('apps.appmanager.invalidFileTitle'), body: _t('apps.appmanager.invalidFileBody'), type: 'error', appName: 'App Manager' });
       return;
     }
     const processFile = state?.content?._novaAppProcessFile;
@@ -1254,14 +1250,14 @@ registerApp({
     } else {
       // App Manager window isn't fully initialized yet (rare timing edge,
       // e.g. dropping mid-boot) — fail loudly rather than silently no-op.
-      Notify.show({ title: 'Not Ready', body: 'App Manager is still loading — try the drop again in a moment.', type: 'error', appName: 'App Manager' });
+      Notify.show({ title: _t('apps.appmanager.notReadyTitle'), body: _t('apps.appmanager.notReadyBody'), type: 'error', appName: 'App Manager' });
     }
   },
   async init(content) {
     // ── NovaByte runtime guard — refuses to launch without AppDirs ──
     if (!window.AppDirs?.getAppDataPath(APP_MANAGER_ID, 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">\u26A0\uFE0F</div><div style="font-size:14px;text-align:center"><b>com.nbosp.appmanager</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">\u26A0\uFE0F</div><div style="font-size:14px;text-align:center"><b>com.nbosp.appmanager</b><br>' + _t('apps.appmanager.appDataMissing') + '<br>' + _t('apps.appmanager.requiresNovaByte') + '</div>';
       return;
     }
 
@@ -1554,8 +1550,8 @@ registerApp({
     });
 
     const TABS = [
-      { id: 'packages', label: 'Apps', icon: 'package' },
-      { id: 'webapps', label: 'Web Apps', icon: 'globe' }
+      { id: 'packages', label: _t('apps.appmanager.tabApps'), icon: 'package' },
+      { id: 'webapps', label: _t('apps.appmanager.tabWebApps'), icon: 'globe' }
     ];
     const tabBtns = {};
 
@@ -1606,13 +1602,13 @@ registerApp({
       const toolbar = createEl('div', { style: 'padding:10px;display:flex;gap:6px;border-bottom:1px solid var(--border-subtle);' });
       const searchEl = createEl('input', {
         type: 'text', id: 'app-installer-search-input', name: 'app-installer-search',
-        placeholder: 'Search\u2026',
+        placeholder: _t('apps.appmanager.searchPlaceholder'),
         style: 'flex:1;padding:5px 9px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;'
       });
       const installBtn = createEl('button', {
         style: 'padding:5px 10px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;'
       });
-      installBtn.innerHTML = svgIcon('plus', 12) + ' Install';
+      installBtn.innerHTML = svgIcon('plus', 12) + ' ' + _t('apps.appmanager.installBtnLabel');
       toolbar.append(searchEl, installBtn);
       sidebar.appendChild(toolbar);
 
@@ -1626,7 +1622,7 @@ registerApp({
       // full file contents here duplicates large package buffers in the UI.
       installBtn.addEventListener('click', async () => {
         const picked = await SystemDialogs.open({
-          title: 'Install .novaapp',
+          title: _t('apps.appmanager.installDialogTitle'),
           multiple: true,
           pathOnly: true,
           filter: (name, isDir) => isDir || name.endsWith('.novaapp'),
@@ -1648,7 +1644,7 @@ registerApp({
       const showHiddenLbl = createEl('label', {
         'for': 'app-manager-show-hidden',
         style: 'font-size:11px;color:var(--text-secondary);cursor:pointer;white-space:nowrap;',
-        textContent: 'Show hidden apps'
+        textContent: _t('apps.appmanager.showHiddenApps')
       });
       showHiddenChk.checked = showHiddenApps;
       showHiddenChk.addEventListener('change', () => {
@@ -1690,16 +1686,16 @@ registerApp({
         // trust-store entry does. Shown independent of tampered/revoked state below
         // since a system app can still be tampered or have its signer revoked.
         if (isSystemSigned) {
-          badges.push(`<span title="Signed by the NovaByte System key" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-accent,#5b9dff);background:rgba(91,157,255,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">\u2699\uFE0F System</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeSystemTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-accent,#5b9dff);background:rgba(91,157,255,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeSystem')}</span>`);
         }
         if (app.tampered) {
-          badges.push(`<span title="Files no longer match what was signed — this app may have been modified since install" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">\u26A0\uFE0F Tampered</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeTamperedTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeTampered')}</span>`);
         }
         if (app.revoked) {
-          badges.push(`<span title="Signature revoked by NovaByte OS — this app is no longer trusted" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">\u2715 Revoked</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeRevokedTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeRevoked')}</span>`);
         }
         if (app.verified && !app.revoked) {
-          badges.push(`<span title="${escapeHtml('Signed by ' + (app.signer || 'a trusted signer'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-success,#3fb950);background:var(--bg-success-muted,rgba(63,185,80,0.12));padding:${pad};border-radius:5px;white-space:nowrap;">\u2713 Verified</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeVerifiedTitle', { signer: app.signer || _t('apps.appmanager.badgeVerifiedFallbackSigner') }))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-success,#3fb950);background:var(--bg-success-muted,rgba(63,185,80,0.12));padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeVerified')}</span>`);
         } else if (!app.revoked) {
           // Not verified and not revoked (revoked already implies "not a
           // trusted signer" via its own pill above, so don't also stack
@@ -1709,7 +1705,7 @@ registerApp({
           // status, so a tampered+unverified app must show BOTH, and a
           // length-based fallback would never fire once tampered pushed
           // something into the array first.
-          badges.push(`<span title="Not signed by a trusted signer" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.06));padding:${pad};border-radius:5px;white-space:nowrap;">\u26A0 Unverified</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeUnverifiedTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.06));padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeUnverified')}</span>`);
         } else {
           // Revoked, and this WAS verified at install time (app.verified
           // is still true underneath — see the comment above this
@@ -1719,7 +1715,7 @@ registerApp({
           // history, so a revoked signer shows as Unverified here even
           // though the underlying data still remembers it was once
           // legitimately signed.
-          badges.push(`<span title="Signature revoked — no longer treated as a trusted signer" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.06));padding:${pad};border-radius:5px;white-space:nowrap;">\u26A0 Unverified</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeUnverifiedRevokedTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.06));padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeUnverified')}</span>`);
         }
         return badges.join(compact ? '' : ' ');
       }
@@ -1745,10 +1741,10 @@ registerApp({
         if (!sorted.length) {
           const msg = createEl('div', { style: 'padding:24px 12px;text-align:center;color:var(--text-muted);line-height:1.8;' });
           msg.innerHTML = q
-            ? '<div style="font-size:13px;">No apps match.</div>'
+            ? '<div style="font-size:13px;">' + _t('apps.appmanager.noAppsMatch') + '</div>'
             : showHiddenApps
-              ? '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No packages installed.<br>Click <strong style="color:var(--text-primary);">Install</strong> or drop a <code style="color:var(--accent);">.novaapp</code> file.</div>'
-              : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No apps match.<br>Enable <strong style="color:var(--text-primary);">Show hidden apps</strong> to include developer tools and hidden system apps.</div>';
+              ? '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">' + _t('apps.appmanager.emptyNoPackages') + '<br>' + _t('apps.appmanager.emptyClickInstall') + '</div>'
+              : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">' + _t('apps.appmanager.emptyHiddenHint') + '</div>';
           listEl.appendChild(msg);
           return;
         }
@@ -1775,7 +1771,7 @@ registerApp({
           }
           const meta = createEl('div', { style: 'flex:1;min-width:0;' });
           // SECURITY: Use escapeHtml for user-controlled app.name
-          meta.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${isDis ? 'var(--text-muted)' : 'var(--text-primary)'};">${escapeHtml(app.name)}</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;display:flex;align-items:center;gap:5px;">v${escapeHtml(app.version || '1.0.0')}${isDis ? ' \u00B7 disabled' : ''} ${verifyBadgeHtml(app, { compact: true })}</div>`;
+          meta.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${isDis ? 'var(--text-muted)' : 'var(--text-primary)'};">${escapeHtml(app.name)}</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;display:flex;align-items:center;gap:5px;">v${escapeHtml(app.version || '1.0.0')}${isDis ? _t('apps.appmanager.disabledTag') : ''} ${verifyBadgeHtml(app, { compact: true })}</div>`;
           item.append(iconWrap, meta);
 
           item.addEventListener('mouseenter', () => { if (!isSel) item.style.background = 'var(--bg-elevated)'; }, listenerOpts);
@@ -1797,7 +1793,7 @@ registerApp({
           const dropBox = createEl('div', { style: 'width:110px;height:110px;border:2px dashed var(--border-default);border-radius:24px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;' });
           dropBox.innerHTML = svgIcon('package', 44);
           const dropLabel = createEl('div', { style: 'text-align:center;line-height:1.9;' });
-          dropLabel.innerHTML = '<div style="font-size:16px;font-weight:600;color:var(--text-secondary);">Install a .novaapp Package</div><div style="font-size:12px;margin-top:4px;">Drop a <code style="color:var(--accent);">.novaapp</code> file here,<br>or click <strong style="color:var(--text-primary);">Install</strong>.</div>';
+          dropLabel.innerHTML = '<div style="font-size:16px;font-weight:600;color:var(--text-secondary);">' + _t('apps.appmanager.dropZoneTitle') + '</div><div style="font-size:12px;margin-top:4px;">' + _t('apps.appmanager.dropZoneBody') + '</div>';
           drop.append(dropBox, dropLabel);
 
           drop.addEventListener('dragover', e => {
@@ -1868,7 +1864,7 @@ registerApp({
         }
         const hMeta = createEl('div', { style: 'flex:1;min-width:0;' });
         // SECURITY: escapeHtml for app.name and app.author (user-controlled)
-        hMeta.innerHTML = `<div style="font-size:18px;font-weight:700;color:var(--text-primary);">${escapeHtml(app.name)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;align-items:center;gap:7px;">v${escapeHtml(app.version || '1.0.0')} \u00B7 ${escapeHtml(app.author || 'Unknown')} ${verifyBadgeHtml(app)}</div>`;
+        hMeta.innerHTML = `<div style="font-size:18px;font-weight:700;color:var(--text-primary);">${escapeHtml(app.name)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;align-items:center;gap:7px;">v${escapeHtml(app.version || '1.0.0')} \u00B7 ${escapeHtml(app.author || _t('apps.appmanager.unknownAuthor'))} ${verifyBadgeHtml(app)}</div>`;
         header.append(hIcon, hMeta);
         detail.appendChild(header);
 
@@ -1905,7 +1901,7 @@ registerApp({
           }
           const closeBtn = createEl('button', {
             type: 'button',
-            textContent: 'Close',
+            textContent: _t('common.close'),
             style: 'padding:5px 10px;background:transparent;border:1px solid var(--border-default);border-radius:7px;color:var(--text-secondary);cursor:pointer;font-size:12px;'
           });
           const close = () => overlay.remove();
@@ -1942,17 +1938,17 @@ registerApp({
         function openPermissionsDialog() {
           const manager = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
           const permissions = getEffectivePermissions();
-          const { body: dialogBody } = makeDetailDialog('Permissions', `Manage permissions for ${app.name}.`);
+          const { body: dialogBody } = makeDetailDialog(_t('apps.appmanager.permissionsLabel'), _t('apps.appmanager.permissionsDialogDesc', { app: app.name }));
           if (!manager) {
             dialogBody.appendChild(createEl('div', {
-              textContent: 'The permission manager is unavailable.',
+              textContent: _t('apps.appmanager.permissionsManagerUnavailable'),
               style: 'color:var(--text-warning);font-size:13px;'
             }));
             return;
           }
           if (!permissions.length) {
             dialogBody.appendChild(createEl('div', {
-              textContent: 'This app has no declared or recorded permissions.',
+              textContent: _t('apps.appmanager.noPermissions'),
               style: 'color:var(--text-muted);font-size:13px;'
             }));
             return;
@@ -1966,7 +1962,7 @@ registerApp({
             const granted = manager.isGranted(permission, app.id);
             const denied = manager.isDenied(permission, app.id);
             row.input.checked = granted;
-            row.input.setAttribute('aria-label', `${manager.PERMISSION_CATEGORIES[permission]?.label || permission} for ${app.name}`);
+            row.input.setAttribute('aria-label', _t('apps.appmanager.permissionAria', { permission: manager.PERMISSION_CATEGORIES[permission]?.label || permission, app: app.name }));
             row.slider.style.background = granted ? 'var(--accent)' : denied ? 'rgba(248,81,73,0.3)' : 'var(--bg-sunken)';
             row.knob.style.left = granted ? '20px' : '2px';
           }
@@ -1994,12 +1990,12 @@ registerApp({
                   if (permission === manager.PERMISSION_TYPES.SYSTEM_ROOT) {
                     await manager.requestPermission(permission, app.id, {
                       appName: app.name,
-                      reason: 'Allow this app to use NovaByte root-level capabilities.',
+                      reason: _t('apps.appmanager.rootPermissionReason'),
                     });
                   } else {
                     await manager.grantPermission(permission, app.id, {
                       permanent: true,
-                      reason: 'Manually granted via App Manager',
+                      reason: _t('apps.appmanager.manualGrantReason'),
                       grantedBy: 'user',
                     });
                   }
@@ -2009,7 +2005,7 @@ registerApp({
                 refreshPermission(permission);
               } catch (error) {
                 refreshPermission(permission);
-                Notify.show({ title: 'Permission Not Changed', body: error?.message || String(error), type: 'error', appName: 'App Manager' });
+                Notify.show({ title: _t('apps.appmanager.permissionNotChangedTitle'), body: error?.message || String(error), type: 'error', appName: 'App Manager' });
               } finally {
                 input.disabled = false;
               }
@@ -2020,7 +2016,7 @@ registerApp({
           dialogBody.appendChild(list);
           const resetBtn = createEl('button', {
             type: 'button',
-            textContent: 'Reset All Permissions',
+            textContent: _t('apps.appmanager.resetAllPermissions'),
             style: 'margin-top:14px;padding:7px 12px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-secondary);cursor:pointer;font-size:12px;font-weight:600;'
           });
           resetBtn.addEventListener('click', async () => {
@@ -2028,9 +2024,9 @@ registerApp({
             try {
               await Promise.all(permissions.map(permission => manager.resetPermission(permission, app.id)));
               permissions.forEach(refreshPermission);
-              Notify.show({ title: 'Permissions Reset', body: `${app.name} will be asked again next launch.`, type: 'info', appName: 'App Manager' });
+              Notify.show({ title: _t('apps.appmanager.permissionsResetTitle'), body: _t('apps.appmanager.permissionsResetBody', { app: app.name }), type: 'info', appName: 'App Manager' });
             } catch (error) {
-              Notify.show({ title: 'Permissions Not Reset', body: error?.message || String(error), type: 'error', appName: 'App Manager' });
+              Notify.show({ title: _t('apps.appmanager.permissionsNotResetTitle'), body: error?.message || String(error), type: 'error', appName: 'App Manager' });
             } finally {
               resetBtn.disabled = false;
             }
@@ -2039,7 +2035,7 @@ registerApp({
         }
 
         function openAppInfoDialog() {
-          const { body: dialogBody } = makeDetailDialog('App Info', app.name);
+          const { body: dialogBody } = makeDetailDialog(_t('apps.appmanager.appInfoTitle'), app.name);
           const files = app.files || app._files;
           let packageBytes = 0;
           if (files && typeof files === 'object') {
@@ -2050,7 +2046,7 @@ registerApp({
             }
           }
           const formatBytes = bytes => {
-            if (!bytes) return app.size || 'Not available';
+            if (!bytes) return app.size || _t('apps.appmanager.notAvailable');
             const units = ['B', 'KB', 'MB', 'GB'];
             let amount = bytes;
             let unit = 0;
@@ -2061,28 +2057,28 @@ registerApp({
             return `${amount.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
           };
           const formatTime = value => {
-            if (!value) return 'Not available';
+            if (!value) return _t('apps.appmanager.notAvailable');
             const date = new Date(value);
-            return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
+            return Number.isNaN(date.getTime()) ? _t('apps.appmanager.notAvailable') : date.toLocaleString();
           };
           const sourceName = value => ({
-            store: 'App Store',
-            file: 'App Manager',
-            'app-manager': 'App Manager',
-            local: 'App Manager',
-            system: 'System',
-          }[value] || (typeof value === 'string' && value ? value : 'Not available'));
+            store: _t('apps.appmanager.sourceStore'),
+            file: _t('apps.appmanager.sourceAppManager'),
+            'app-manager': _t('apps.appmanager.sourceAppManager'),
+            local: _t('apps.appmanager.sourceAppManager'),
+            system: _t('apps.appmanager.sourceSystem'),
+          }[value] || (typeof value === 'string' && value ? value : _t('apps.appmanager.notAvailable')));
           const details = [
-            ['App name', app.name || 'Not available'],
-            ['App version', app.version || 'Not available'],
-            ['Package ID', app.id],
-            ['Size', formatBytes(packageBytes)],
-            ['Installation source', sourceName(app.source || (app.system ? 'system' : null))],
-            ['Installed', formatTime(app.installedAt)],
-            ['Last update source', sourceName(app.lastUpdateSource)],
-            ['Last updated', formatTime(app.lastUpdatedAt)],
-            ['Developer', app.author || 'Not available'],
-            ['Description', app.description || 'Not available'],
+            [_t('apps.appmanager.infoAppName'), app.name || _t('apps.appmanager.notAvailable')],
+            [_t('apps.appmanager.infoAppVersion'), app.version || _t('apps.appmanager.notAvailable')],
+            [_t('apps.appmanager.infoPackageId'), app.id],
+            [_t('apps.appmanager.infoSize'), formatBytes(packageBytes)],
+            [_t('apps.appmanager.infoInstallSource'), sourceName(app.source || (app.system ? 'system' : null))],
+            [_t('apps.appmanager.infoInstalled'), formatTime(app.installedAt)],
+            [_t('apps.appmanager.infoLastUpdateSource'), sourceName(app.lastUpdateSource)],
+            [_t('apps.appmanager.infoLastUpdated'), formatTime(app.lastUpdatedAt)],
+            [_t('apps.appmanager.infoDeveloper'), app.author || _t('apps.appmanager.notAvailable')],
+            [_t('apps.appmanager.infoDescription'), app.description || _t('apps.appmanager.notAvailable')],
           ];
           const list = createEl('dl', { style: 'display:grid;grid-template-columns:minmax(120px,0.8fr) minmax(0,1.5fr);gap:10px 16px;margin:0;' });
           for (const [label, value] of details) {
@@ -2106,21 +2102,21 @@ registerApp({
             window.AppSandbox.terminateBackground(sandbox.sandboxId);
           }
           if (notifyUser) {
-            Notify.show({ title: 'App Stopped', body: `${app.name} was force-stopped.`, type: 'success', appName: 'App Manager' });
+            Notify.show({ title: _t('apps.appmanager.appStoppedTitle'), body: _t('apps.appmanager.appStoppedBody', { app: app.name }), type: 'success', appName: 'App Manager' });
           }
         }
 
         async function clearAppData() {
           if (app.id === APP_MANAGER_ID) return;
           const result = await showModal(
-            'Clear App Data',
-            `This will permanently delete ${app.name}'s files, settings, and stored app data. The app will remain installed.`,
-            [{ label: 'Cancel' }, { label: 'Clear App Data', value: 'confirm', primary: true }]
+            _t('apps.appmanager.clearDataLabel'),
+            _t('apps.appmanager.clearDataBody', { app: app.name }),
+            [{ label: _t('common.cancel') }, { label: _t('apps.appmanager.clearDataLabel'), value: 'confirm', primary: true }]
           );
           if (result !== 'confirm') return;
           await forceStopApp({ notifyUser: false });
           if (!window.AppSandbox?.clearAppPartition || !window.AppSandbox?.storageClear) {
-            throw new Error('The app storage service is unavailable.');
+            throw new Error(_t('apps.appmanager.errorStorageUnavailable'));
           }
           await window.AppSandbox.clearAppPartition(app.id);
           await window.AppSandbox.storageClear(app.id);
@@ -2128,7 +2124,7 @@ registerApp({
           try { window.AppSandbox.storageLedger?.resetForApp(app.id); } catch (e) { console.warn('[AppManager] ledger reset failed:', e); }
           if (window.AppDirs?.clearAppData) {
             const cleared = await window.AppDirs.clearAppData(app.id);
-            if (!cleared) throw new Error('The app files could not be cleared.');
+            if (!cleared) throw new Error(_t('apps.appmanager.errorFilesNotCleared'));
           } else if (window.AppDirs?.removeAppData) {
             await window.AppDirs.removeAppData(app.id);
             await window.AppDirs.ensureAppDataFolder?.(app.id);
@@ -2136,19 +2132,19 @@ registerApp({
           for (const [storageKey, metadata] of Object.entries(window.AppDirs?.LS_MAP || {})) {
             if (metadata.pkg === app.id) localStorage.removeItem(storageKey);
           }
-          Notify.show({ title: 'App Data Cleared', body: `${app.name}'s data has been removed.`, type: 'success', appName: 'App Manager' });
+          Notify.show({ title: _t('apps.appmanager.dataClearedTitle'), body: _t('apps.appmanager.dataClearedBody', { app: app.name }), type: 'success', appName: 'App Manager' });
         }
 
         const managedService = isManagedSystemPackage(app);
         const firstBootOnly = app.id === 'com.nbosp.setup';
         const launchBtn = makeActionBtn(
           managedService
-            ? 'Managed by OS'
+            ? _t('apps.appmanager.managedByOs')
             : firstBootOnly
-              ? 'First-boot only'
+              ? _t('apps.appmanager.firstBootOnly')
               : app.id === 'com.nbosp.launcher'
-              ? 'Open (Managed Home)'
-              : (app.id === APP_MANAGER_ID) ? 'Already Running' : (isDis ? 'Disabled' : 'Launch'),
+              ? _t('apps.appmanager.openManagedHome')
+              : (app.id === APP_MANAGER_ID) ? _t('apps.appmanager.alreadyRunning') : (isDis ? _t('apps.appmanager.launchDisabled') : _t('apps.appmanager.launchLabel')),
           'play',
           (managedService || firstBootOnly || app.id === 'com.nbosp.launcher' || app.id === APP_MANAGER_ID || isDis)
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;'
@@ -2159,9 +2155,9 @@ registerApp({
             if ((app.devOnly === true || app.manifest?.devOnly === true || DEV_ONLY_APP_IDS.has(app.id)) &&
                 OS.settings.get('devMode') !== true) {
               window.showModal(
-                'Developer Mode Required',
-                `Enable Developer Mode in Settings before opening ${app.name}.`,
-                [{ label: 'OK', primary: true, value: true }]
+                _t('apps.appmanager.devModeRequiredTitle'),
+                _t('apps.appmanager.devModeRequiredBody', { app: app.name }),
+                [{ label: _t('common.ok'), primary: true, value: true }]
               );
               return;
             }
@@ -2173,7 +2169,7 @@ registerApp({
         }
 
         const toggleBtn = makeActionBtn(
-          managedService ? 'Managed by OS' : isDis ? 'Enable' : 'Disable',
+          managedService ? _t('apps.appmanager.managedByOs') : isDis ? _t('apps.appmanager.enableLabel') : _t('apps.appmanager.disableLabel'),
           isDis ? 'done' : 'no-entry',
           managedService || app.id === APP_MANAGER_ID
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;opacity:0.5;'
@@ -2189,15 +2185,15 @@ registerApp({
                 renderList();
                 renderDetail();
                 Notify.show({
-                  title: isDis ? 'App Enabled' : 'App Disabled',
-                  body: `${app.name} ${isDis ? 'enabled' : 'disabled'}`,
+                  title: isDis ? _t('apps.appmanager.appEnabledTitle') : _t('apps.appmanager.appDisabledTitle'),
+                  body: isDis ? _t('apps.appmanager.appEnabledBody', { app: app.name }) : _t('apps.appmanager.appDisabledBody', { app: app.name }),
                   type: 'success', appName: 'App Manager'
                 });
               }
         );
 
         const uninstBtn = makeActionBtn(
-          app.system ? 'System App' : 'Uninstall',
+          app.system ? _t('apps.appmanager.systemAppLabel') : _t('apps.appmanager.uninstallLabel'),
           app.system ? 'lock' : 'trash',
           app.system
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;'
@@ -2205,53 +2201,53 @@ registerApp({
           () => doUninstall(app.id)
         );
         uninstBtn.disabled = app.system === true;
-        if (uninstBtn.disabled) uninstBtn.title = 'System apps cannot be uninstalled.';
+        if (uninstBtn.disabled) uninstBtn.title = _t('apps.appmanager.systemAppNoUninstallTitle');
 
         const permissionsBtn = makeActionBtn(
-          'Permissions',
+          _t('apps.appmanager.permissionsLabel'),
           'shield',
           'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);',
           openPermissionsDialog
         );
         const appInfoBtn = makeActionBtn(
-          'App Info',
+          _t('apps.appmanager.appInfoTitle'),
           'info',
           'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);',
           openAppInfoDialog
         );
         const clearDataBtn = makeActionBtn(
-          'Clear App Data',
+          _t('apps.appmanager.clearDataLabel'),
           'trash',
           'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:var(--text-warning);',
           async () => {
             try {
               await clearAppData();
             } catch (error) {
-              Notify.show({ title: 'Could Not Clear App Data', body: error?.message || String(error), type: 'error', appName: 'App Manager' });
+              Notify.show({ title: _t('apps.appmanager.couldNotClearDataTitle'), body: error?.message || String(error), type: 'error', appName: 'App Manager' });
             }
           }
         );
         const clearDefaultsBtn = makeActionBtn(
-          'Clear Defaults',
+          _t('apps.appmanager.clearDefaultsLabel'),
           'refresh',
           'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);',
           () => {
             if (typeof DefaultApps === 'undefined' || !DefaultApps.clearDefaultsForApp(app.id)) {
-              Notify.show({ title: 'Defaults Not Cleared', body: 'The default app settings could not be updated.', type: 'error', appName: 'App Manager' });
+              Notify.show({ title: _t('apps.appmanager.defaultsNotClearedTitle'), body: _t('apps.appmanager.defaultsNotClearedBody'), type: 'error', appName: 'App Manager' });
               return;
             }
-            Notify.show({ title: 'Defaults Cleared', body: `${app.name} is no longer a selected default app.`, type: 'success', appName: 'App Manager' });
+            Notify.show({ title: _t('apps.appmanager.defaultsClearedTitle'), body: _t('apps.appmanager.defaultsClearedBody', { app: app.name }), type: 'success', appName: 'App Manager' });
           }
         );
         const forceStopBtn = makeActionBtn(
-          'Force Stop',
+          _t('apps.appmanager.forceStopLabel'),
           'no-entry',
           'background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);color:#f85149;',
           async () => {
             try {
               await forceStopApp();
             } catch (error) {
-              Notify.show({ title: 'Could Not Stop App', body: error?.message || String(error), type: 'error', appName: 'App Manager' });
+              Notify.show({ title: _t('apps.appmanager.couldNotStopTitle'), body: error?.message || String(error), type: 'error', appName: 'App Manager' });
             }
           }
         );
@@ -2259,19 +2255,19 @@ registerApp({
           clearDataBtn.disabled = true;
           clearDataBtn.style.opacity = '0.5';
           clearDataBtn.title = managedService
-            ? 'System-managed services do not have user app data.'
-            : 'App Manager cannot clear its own installation data.';
+            ? _t('apps.appmanager.tooltipServiceNoData')
+            : _t('apps.appmanager.tooltipCannotClearOwn');
         }
         if (app.id === APP_MANAGER_ID || managedService) {
           forceStopBtn.disabled = true;
           forceStopBtn.style.opacity = '0.5';
           forceStopBtn.title = managedService
-            ? 'System-managed services cannot be force-stopped here.'
-            : 'App Manager cannot force-stop itself.';
+            ? _t('apps.appmanager.tooltipServiceNoStop')
+            : _t('apps.appmanager.tooltipCannotStopSelf');
         }
 
         const bootBtn = makeActionBtn(
-          isBoot ? 'Starts at Boot' : 'Start at Boot',
+          isBoot ? _t('apps.appmanager.startsAtBoot') : _t('apps.appmanager.startAtBoot'),
           isBoot ? 'done' : 'shutdown',
           isBoot
             ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
@@ -2286,7 +2282,7 @@ registerApp({
               selectedPkgId = app.id;
               renderList();
               renderDetail();
-              Notify.show({ title: 'Removed from Boot', body: `${app.name} will no longer start automatically.`, type: 'success', appName: 'App Manager' });
+              Notify.show({ title: _t('apps.appmanager.removedFromBootTitle'), body: _t('apps.appmanager.removedFromBootBody', { app: app.name }), type: 'success', appName: 'App Manager' });
               return;
             }
 
@@ -2301,18 +2297,18 @@ registerApp({
             if (mgr && !granted) {
               granted = await mgr.requestPermission('system:autostart', app.id, {
                 appName: app.name,
-                reason: 'Launch automatically when NovaByte starts, with no need to open it first.',
+                reason: _t('apps.appmanager.autostartPermissionReason'),
               });
             }
             if (!granted) {
-              Notify.show({ title: 'Permission Required', body: `${app.name} needs the "Start automatically" permission to boot with NovaByte.`, type: 'warn', appName: 'App Manager' });
+              Notify.show({ title: _t('apps.appmanager.permissionRequiredTitle'), body: _t('apps.appmanager.permissionRequiredBody', { app: app.name }), type: 'warn', appName: 'App Manager' });
               return;
             }
             setBootApps([...getBootApps().filter(id => id !== app.id), app.id]);
             selectedPkgId = app.id;
             renderList();
             renderDetail();
-            Notify.show({ title: 'Added to Boot', body: `${app.name} will start automatically next time.`, type: 'success', appName: 'App Manager' });
+            Notify.show({ title: _t('apps.appmanager.addedToBootTitle'), body: _t('apps.appmanager.addedToBootBody', { app: app.name }), type: 'success', appName: 'App Manager' });
           }
         );
 
@@ -2340,7 +2336,7 @@ registerApp({
         if (managedService) {
           bodyEl.appendChild(createEl('div', {
             style: 'color:var(--text-muted);line-height:1.65;font-size:12px;',
-            textContent: 'This system package runs as part of the OS and is managed by NovaByte.'
+            textContent: _t('apps.appmanager.managedServiceNote')
           }));
         }
 
@@ -2352,7 +2348,7 @@ registerApp({
 
         if (allPerms.length) {
           const s = createEl('div');
-          s.innerHTML = '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin-bottom:8px;">Permissions</div>';
+          s.innerHTML = '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin-bottom:8px;">' + _t('apps.appmanager.permissionsLabel') + '</div>';
           const row = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;' });
 
           function permStyle(p) {
@@ -2367,7 +2363,7 @@ registerApp({
 
           allPerms.forEach(({ p, req }) => {
             const t = createEl('span', { style: `font-size:11px;padding:3px 9px;border-radius:6px;${permStyle(p)}` });
-            t.textContent = p + (req ? '' : ' (opt)');
+            t.textContent = p + (req ? '' : _t('apps.appmanager.optionalSuffix'));
             row.appendChild(t);
           });
           s.appendChild(row);
@@ -2379,14 +2375,14 @@ registerApp({
 
       async function processFile(file, { quietSuccess = false } = {}) {
         if (!file.name.endsWith('.novaapp')) {
-          Notify.show({ title: 'Invalid File', body: 'Please select a valid .novaapp package.', type: 'error', appName: 'App Manager' });
+          Notify.show({ title: _t('apps.appmanager.invalidFileTitle'), body: _t('apps.appmanager.invalidFileBody'), type: 'error', appName: 'App Manager' });
           return 'failed';
         }
 
         try {
             let raw;
             if (typeof file.path === 'string') {
-              if (typeof require !== 'function') throw new Error('Native package file access is unavailable.');
+              if (typeof require !== 'function') throw new Error(_t('apps.appmanager.errorNativeAccess'));
               raw = await require('fs').promises.readFile(file.path, 'utf8');
             } else if (typeof file.text === 'function') {
               raw = await file.text();
@@ -2394,7 +2390,7 @@ registerApp({
               raw = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);
-                reader.onerror = () => reject(reader.error || new Error('Could not read package file.'));
+                reader.onerror = () => reject(reader.error || new Error(_t('apps.appmanager.errorCouldNotRead')));
                 reader.readAsText(file);
               });
             }
@@ -2406,11 +2402,11 @@ registerApp({
               // SECURITY: Removed require('vm').runInThisContext() — this was executing
               // arbitrary untrusted code in the main context (equivalent to eval()).
               // Obfuscated packages must now be in valid JSON format.
-              throw new Error('Package is not valid JSON. Obfuscated .novaapp files are no longer supported for security reasons.');
+              throw new Error(_t('apps.appmanager.errorNotValidJson'));
             }
 
             if (!pkg.manifest?.id || !pkg.manifest?.name || !pkg.manifest?.version) {
-              throw new Error('Missing required manifest fields (id, name, version).');
+              throw new Error(_t('apps.appmanager.errorMissingManifestFields'));
             }
 
             // ── Malware/heuristic scan ──
@@ -2550,13 +2546,13 @@ registerApp({
             const idx = installedApps.findIndex(a => a.id === pkg.manifest.id);
             const previousInstall = idx > -1 ? installedApps[idx] : null;
             if (previousInstall?.builtin) {
-              throw new Error('System apps cannot be replaced by package installs.');
+              throw new Error(_t('apps.appmanager.errorCannotReplaceSystem'));
             }
             if (idx > -1) {
               const replaceResult = await showModal(
-                'App Already Installed',
-                `"${pkg.manifest.name}" is already installed (v${installedApps[idx].version}). Replace with v${pkg.manifest.version}?`,
-                [{ label: 'Cancel' }, { label: 'Replace', value: 'confirm', primary: true }]
+                _t('apps.appmanager.alreadyInstalledTitle'),
+                _t('apps.appmanager.alreadyInstalledBody', { name: pkg.manifest.name, current: installedApps[idx].version, next: pkg.manifest.version }),
+                [{ label: _t('common.cancel') }, { label: _t('apps.appmanager.replaceLabel'), value: 'confirm', primary: true }]
               );
               if (replaceResult !== 'confirm') return;
               delete OS.apps[pkg.manifest.id];
@@ -2617,11 +2613,11 @@ registerApp({
             if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
             if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
             if (!quietSuccess) {
-              Notify.show({ title: 'App Installed', body: `${appData.name} v${appData.version} installed successfully.`, type: 'success', appName: 'App Manager' });
+              Notify.show({ title: _t('apps.appmanager.appInstalledTitle'), body: _t('apps.appmanager.appInstalledBody', { app: appData.name, version: appData.version }), type: 'success', appName: 'App Manager' });
             }
             return 'installed';
         } catch (err) {
-            Notify.show({ title: 'Install Failed', body: String(err.message || err), type: 'error', appName: 'App Manager' });
+            Notify.show({ title: _t('apps.appmanager.installFailedTitle'), body: String(err.message || err), type: 'error', appName: 'App Manager' });
             return 'failed';
         }
       }
@@ -2645,11 +2641,11 @@ registerApp({
           installBtn.style.opacity = '';
           installBtn.style.cursor = '';
         }
-        const parts = [`${installed} installed`];
-        if (failed) parts.push(`${failed} failed`);
-        if (skipped) parts.push(`${skipped} skipped`);
+        const parts = [_t('apps.appmanager.batchInstalled', { count: installed })];
+        if (failed) parts.push(_t('apps.appmanager.batchFailed', { count: failed }));
+        if (skipped) parts.push(_t('apps.appmanager.batchSkipped', { count: skipped }));
         Notify.show({
-          title: 'Batch Install Complete',
+          title: _t('apps.appmanager.batchCompleteTitle'),
           body: parts.join(', ') + '.',
           type: failed ? 'error' : 'success',
           appName: 'App Manager'
@@ -2674,17 +2670,17 @@ registerApp({
         // holds regardless of what calls doUninstall.
         if (app.system) {
           Notify.show({
-            title: 'Cannot Uninstall',
-            body: `${app.name} is a system app and cannot be removed.`,
+            title: _t('apps.appmanager.cannotUninstallTitle'),
+            body: _t('apps.appmanager.cannotUninstallBody', { app: app.name }),
             type: 'error', appName: 'App Manager'
           });
           return;
         }
 
         const uninstallResult = await showModal(
-          'Uninstall App',
-          `Uninstall "${app.name}" v${app.version}? This cannot be undone.`,
-          [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
+          _t('apps.appmanager.uninstallDialogTitle'),
+          _t('apps.appmanager.uninstallDialogBody', { app: app.name, version: app.version }),
+          [{ label: _t('common.cancel') }, { label: _t('apps.appmanager.uninstallLabel'), value: 'confirm', danger: true }]
         );
         if (uninstallResult !== 'confirm') return;
 
@@ -2705,14 +2701,14 @@ registerApp({
             removedByAppRegistry = await AppRegistry.uninstallApp(appId);
           }
           if (!removedByAppRegistry) {
-            if (!PackageStore?.removeApp) throw new Error('Package storage is not available.');
+            if (!PackageStore?.removeApp) throw new Error(_t('apps.appmanager.errorPackageStorage'));
             const removed = await PackageStore.removeApp(appId, { updateRegistry: false });
-            if (!removed) throw new Error(`Package storage refused to remove ${appId}`);
+            if (!removed) throw new Error(_t('apps.appmanager.errorStorageRefused', { appId }));
           }
         } catch (e) {
           console.error('[AppManager] Failed to remove app package and registry entry for', appId, e);
           Notify.show({
-            title: 'Uninstall Failed',
+            title: _t('apps.appmanager.uninstallFailedTitle'),
             body: e?.message || String(e),
             type: 'error',
             appName: 'App Manager',
@@ -2795,7 +2791,7 @@ registerApp({
         renderList();
         renderDetail();
         if (typeof refreshStats === 'function') refreshStats();
-        Notify.show({ title: 'App Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'App Manager' });
+        Notify.show({ title: _t('apps.appmanager.appUninstalledTitle'), body: _t('apps.appmanager.appUninstalledBody', { app: app.name }), type: 'success', appName: 'App Manager' });
         return true;
       }
 
@@ -2844,13 +2840,13 @@ registerApp({
       const toolbar = createEl('div', { style: 'padding:9px;display:flex;gap:6px;border-bottom:1px solid var(--border-subtle);' });
       const searchEl = createEl('input', {
         type: 'text', id: 'notes-tasks-search-input', name: 'notes-tasks-search',
-        placeholder: 'Search\u2026',
+        placeholder: _t('apps.appmanager.searchPlaceholder'),
         style: 'flex:1;padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;min-width:0;'
       });
       const addBtn = createEl('button', {
         style: 'padding:5px 10px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;'
       });
-      addBtn.innerHTML = svgIcon('plus', 12) + ' Add';
+      addBtn.innerHTML = svgIcon('plus', 12) + ' ' + _t('apps.appmanager.addLabel');
       toolbar.append(searchEl, addBtn);
       sidebar.appendChild(toolbar);
 
@@ -2889,8 +2885,8 @@ registerApp({
         if (!apps.length) {
           const msg = createEl('div', { style: 'padding:24px 12px;text-align:center;color:var(--text-muted);line-height:1.9;' });
           msg.innerHTML = q
-            ? '<div style="font-size:13px;">No matches found.</div>'
-            : '<div style="font-size:34px;margin-bottom:10px;">\uD83C\uDF10</div><div style="font-size:12px;">No web apps yet.<br>Click <strong style="color:var(--text-primary);">+ Add</strong> to get started.</div>';
+            ? '<div style="font-size:13px;">' + _t('apps.appmanager.webNoMatches') + '</div>'
+            : '<div style="font-size:34px;margin-bottom:10px;">\uD83C\uDF10</div><div style="font-size:12px;">' + _t('apps.appmanager.webEmptyHint') + '</div>';
           listEl.appendChild(msg);
           return;
         }
@@ -2942,7 +2938,7 @@ registerApp({
           const wrap = createEl('div', { style: 'flex:1;overflow-y:auto;padding:28px;display:flex;align-items:flex-start;justify-content:center;' });
           const card = createEl('div', { style: 'width:100%;max-width:420px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:14px;overflow:hidden;' });
           const hdr = createEl('div', { style: 'padding:16px 18px;border-bottom:1px solid var(--border-subtle);background:var(--bg-sunken);' });
-          hdr.innerHTML = `<div style="font-size:14px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px;">${svgIcon('plus', 15)} Add Web App</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Pin any website as an app.</div>`;
+          hdr.innerHTML = `<div style="font-size:14px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px;">${svgIcon('plus', 15)} ${_t('apps.appmanager.addWebAppTitle')}</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${_t('apps.appmanager.addWebAppSub')}</div>`;
           card.appendChild(hdr);
 
           const cbody = createEl('div', { style: 'padding:16px 18px;display:flex;flex-direction:column;gap:12px;' });
@@ -2964,8 +2960,8 @@ registerApp({
             return { w, inp };
           }
 
-          const { w: wUrl, inp: urlInp } = mkField('URL *', 'url', 'https://example.com', 'web-app-url-input', 'web-app-url');
-          const { w: wName, inp: nameInp } = mkField('Name *', 'text', 'My App', 'web-app-name-input', 'web-app-name');
+          const { w: wUrl, inp: urlInp } = mkField(_t('apps.appmanager.urlLabel'), 'url', 'https://example.com', 'web-app-url-input', 'web-app-url');
+          const { w: wName, inp: nameInp } = mkField(_t('apps.appmanager.nameLabel'), 'text', _t('apps.appmanager.namePlaceholder'), 'web-app-name-input', 'web-app-name');
 
           // ── Custom icon (optional) ──────────────────────────────
           // Icons are stored inline as a data: URL string (see
@@ -2978,7 +2974,7 @@ registerApp({
           const wIcon = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
           const iconLabel = createEl('label', {
             style: 'font-size:11px;font-weight:600;color:var(--text-muted);',
-            textContent: 'Icon (optional)'
+            textContent: _t('apps.appmanager.iconOptionalLabel')
           });
           const iconRow = createEl('div', { style: 'display:flex;align-items:center;gap:10px;' });
 
@@ -2990,11 +2986,11 @@ registerApp({
           const iconPickBtn = createEl('button', {
             style: 'padding:7px 10px;background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);cursor:pointer;font-size:12px;'
           });
-          iconPickBtn.textContent = 'Choose image\u2026';
+          iconPickBtn.textContent = _t('apps.appmanager.chooseImageBtn');
           const iconClearBtn = createEl('button', {
             style: 'padding:7px 10px;background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:12px;display:none;'
           });
-          iconClearBtn.textContent = 'Remove';
+          iconClearBtn.textContent = _t('common.remove');
 
           const iconErrEl = createEl('div', { style: 'font-size:11px;color:var(--text-danger);min-height:14px;' });
 
@@ -3004,7 +3000,7 @@ registerApp({
           function processIconFile(file) {
             iconErrEl.textContent = '';
             if (!file.type.startsWith('image/')) {
-              iconErrEl.textContent = 'Please choose an image file.';
+              iconErrEl.textContent = _t('apps.appmanager.iconNotImageError');
               return;
             }
             const MAX_ICON_LEN = 2048; // mirrors WebAppManager.LIMITS.MAX_ICON_LENGTH
@@ -3029,7 +3025,7 @@ registerApp({
                 if (dataUrl.length <= MAX_ICON_LEN) { result = dataUrl; break; }
               }
               if (!result) {
-                iconErrEl.textContent = 'Image is too complex to fit as an icon. Try a simpler image.';
+                iconErrEl.textContent = _t('apps.appmanager.iconTooComplexError');
                 return;
               }
               customIconDataUrl = result;
@@ -3040,14 +3036,14 @@ registerApp({
             };
             img.onerror = () => {
               URL.revokeObjectURL(objectUrl);
-              iconErrEl.textContent = 'Could not read that image.';
+              iconErrEl.textContent = _t('apps.appmanager.iconUnreadableError');
             };
             img.src = objectUrl;
           }
 
           iconPickBtn.addEventListener('click', async () => {
             const picked = await SystemDialogs.open({
-              title: 'Choose Icon',
+              title: _t('apps.appmanager.chooseIconTitle'),
               filter: (name, isDir) => isDir || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name),
             });
             if (!picked) return;
@@ -3067,19 +3063,19 @@ registerApp({
           const saveBtn = createEl('button', {
             style: 'padding:10px;background:var(--accent);color:#fff;border:none;border-radius:9px;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:7px;'
           });
-          saveBtn.innerHTML = svgIcon('plus', 13) + ' Add Web App';
+          saveBtn.innerHTML = svgIcon('plus', 13) + ' ' + _t('apps.appmanager.addWebAppTitle');
           saveBtn.addEventListener('click', () => {
             const url = urlInp.value.trim();
             const name = nameInp.value.trim();
             errEl.textContent = '';
 
-            if (!url) { errEl.textContent = 'URL is required.'; return; }
-            try { new URL(url); } catch { errEl.textContent = 'Please enter a valid URL.'; return; }
-            if (!name) { errEl.textContent = 'Name is required.'; return; }
+            if (!url) { errEl.textContent = _t('apps.appmanager.urlRequiredError'); return; }
+            try { new URL(url); } catch { errEl.textContent = _t('apps.appmanager.invalidUrlError'); return; }
+            if (!name) { errEl.textContent = _t('apps.appmanager.nameRequiredError'); return; }
 
             const addedApp = wam ? wam.addApp({ name, url, icon: customIconDataUrl || undefined }) : null;
             if (addedApp) {
-              Notify.show({ title: 'App Added', body: `"${name}" is now available.`, type: 'success', appName: 'App Manager' });
+              Notify.show({ title: _t('apps.appmanager.appAddedTitle'), body: _t('apps.appmanager.appAddedBody', { name }), type: 'success', appName: 'App Manager' });
               selectedWebId = addedApp.id;
               renderList();
               renderDetail();
@@ -3133,12 +3129,12 @@ registerApp({
           return b;
         }
 
-        mkBtn('Open', 'external-link', 'background:var(--accent);border:1px solid transparent;color:#fff;', () => launchWebApp(wa));
-        mkBtn('Remove', 'trash', 'background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);color:#f85149;', async () => {
+        mkBtn(_t('common.open'), 'external-link', 'background:var(--accent);border:1px solid transparent;color:#fff;', () => launchWebApp(wa));
+        mkBtn(_t('common.remove'), 'trash', 'background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);color:#f85149;', async () => {
           const removeResult = await showModal(
-            'Remove Web App',
-            `Remove "${wa.name}"?`,
-            [{ label: 'Cancel' }, { label: 'Remove', value: 'confirm', danger: true }]
+            _t('apps.appmanager.removeWebAppTitle'),
+            _t('apps.appmanager.removeWebAppBody', { name: wa.name }),
+            [{ label: _t('common.cancel') }, { label: _t('common.remove'), value: 'confirm', danger: true }]
           );
           if (removeResult !== 'confirm') return;
           // removeWebApp (registry.js) also unpins from taskbar and deletes
@@ -3152,7 +3148,7 @@ registerApp({
           selectedWebId = null;
           renderList();
           renderDetail();
-          Notify.show({ title: 'Removed', body: `"${wa.name}" removed`, type: 'success', appName: 'App Manager' });
+          Notify.show({ title: _t('apps.appmanager.removedTitle'), body: _t('apps.appmanager.removedBody', { name: wa.name }), type: 'success', appName: 'App Manager' });
         });
 
         right.appendChild(abar);
@@ -3169,6 +3165,19 @@ registerApp({
     // ── Boot ────────────────────────────────────────────────────────
     refreshTabStyles();
     switchTab('packages');
+
+    // Live language switching: rebuild the active panel so labels resolve
+    // through _t() in the new language. Guarded so only one App Manager
+    // window registers a listener.
+    if (!window.__appmanagerLocaleWired && OS.events?.on) {
+      window.__appmanagerLocaleWired = true;
+      OS.events.on('languageChanged', () => {
+        try {
+          window.NovaI18n?.applyStaticDom?.(document);
+          switchTab(activeTab);
+        } catch (e) { console.warn('[App Manager] Language change re-render failed:', e); }
+      });
+    }
   }
 });
 })();

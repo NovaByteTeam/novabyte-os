@@ -11,13 +11,13 @@ registerApp({
   init(content, state, options) {
     if (!window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>' + _t('apps.inspector.appDataMissing') + '<br>' + _t('apps.inspector.requiresNovaByteOS') + '</div>';
       return;
     }
 
     if (!OS.settings.get('devMode')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">Enable Developer Mode in Settings to use Inspector.</div>';
+      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">' + _t('apps.inspector.devModeRequired') + '</div>';
       return;
     }
 
@@ -31,8 +31,8 @@ registerApp({
     state.cleanups.push(() => ac.abort());
 
     const filterRow = createEl('div', { style: 'margin-bottom:12px;flex-shrink:0;display:flex;gap:8px;' });
-    const filterInput = createEl('input', { placeholder: 'Filter by app id, name, or window id…', style: 'flex:1;box-sizing:border-box;padding:7px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;' });
-    const exportBtn = createEl('button', { textContent: 'Export', title: 'Download the currently filtered apps + windows as JSON', style: 'padding:6px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;flex-shrink:0;' });
+    const filterInput = createEl('input', { placeholder: _t('apps.inspector.filterPlaceholder'), style: 'flex:1;box-sizing:border-box;padding:7px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;' });
+    const exportBtn = createEl('button', { textContent: _t('apps.inspector.export'), title: _t('apps.inspector.exportTitle'), style: 'padding:6px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;flex-shrink:0;' });
     filterRow.appendChild(filterInput);
     filterRow.appendChild(exportBtn);
     content.appendChild(filterRow);
@@ -59,7 +59,7 @@ registerApp({
       scroll.innerHTML = '';
 
       const appsSection = createEl('div', { style: 'margin-bottom:24px;' });
-      appsSection.appendChild(createEl('h3', { textContent: `Registered Apps (${filteredApps.length})`, style: 'margin:0 0 8px;font-size:14px;color:var(--accent);' }));
+      appsSection.appendChild(createEl('h3', { textContent: _t('apps.inspector.registeredApps', { count: filteredApps.length }), style: 'margin:0 0 8px;font-size:14px;color:var(--accent);' }));
       const appsList = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
 
       filteredApps.forEach(app => {
@@ -70,8 +70,8 @@ registerApp({
         titleWrap.appendChild(createEl('strong', { textContent: app.name || app.id }));
         header.appendChild(titleWrap);
         const badges = [];
-        if (app.verified) badges.push(createEl('span', { textContent: '✓ verified', style: 'font-size:11px;color:#3fb950;' }));
-        if (app.permissions?.length) badges.push(createEl('span', { textContent: app.permissions.length + ' perms', style: 'font-size:11px;color:var(--text-muted);' }));
+        if (app.verified) badges.push(createEl('span', { textContent: _t('apps.inspector.verifiedBadge'), style: 'font-size:11px;color:#3fb950;' }));
+        if (app.permissions?.length) badges.push(createEl('span', { textContent: _t('apps.inspector.permsCount', { count: app.permissions.length }), style: 'font-size:11px;color:var(--text-muted);' }));
         badges.forEach(b => header.appendChild(b));
         header.addEventListener('click', () => {
           if (expandedApps.has(app.id)) expandedApps.delete(app.id); else expandedApps.add(app.id);
@@ -88,7 +88,7 @@ registerApp({
         const appWinIds = wins.filter(w => w.appId === app.id).map(w => w.id);
         if (appWinIds.length) {
           const closeAllBtn = createEl('button', {
-            textContent: `Close All (${appWinIds.length})`,
+            textContent: _t('apps.inspector.closeAll', { count: appWinIds.length }),
             style: 'padding:2px 8px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:10px;margin-top:6px;'
           });
           closeAllBtn.addEventListener('click', (e) => {
@@ -99,12 +99,12 @@ registerApp({
         }
 
         const meta = createEl('div', { style: 'font-size:11px;color:var(--text-muted);margin-top:4px;font-family:monospace;' });
-        meta.textContent = `id: ${app.id} · version: ${app.version || '?'} · launchCount: ${app.launchCount || 0}`;
+        meta.textContent = _t('apps.inspector.appMeta', { id: app.id, version: app.version || '?', launchCount: app.launchCount || 0 });
         row.appendChild(meta);
 
         if (app.permissions?.length) {
           const permStr = app.permissions.map(p => typeof p === 'string' ? p : p.permission || p).join(', ');
-          row.appendChild(createEl('div', { textContent: 'Permissions: ' + permStr, style: 'font-size:11px;color:var(--text-muted);margin-top:4px;' }));
+          row.appendChild(createEl('div', { textContent: _t('apps.inspector.permissionsLine', { permissions: permStr }), style: 'font-size:11px;color:var(--text-muted);margin-top:4px;' }));
         }
 
         // Detail panel — fields that exist on every registerApp() call in
@@ -115,12 +115,12 @@ registerApp({
         if (expandedApps.has(app.id)) {
           const detail = createEl('div', { style: 'margin-top:8px;padding:8px;background:var(--bg-default);border-radius:4px;font-size:11px;font-family:monospace;display:flex;flex-direction:column;gap:4px;' });
           const rows = [
-            ['description', app.description || '(none)'],
-            ['category', app.category || '(none)'],
+            ['description', app.description || _t('apps.inspector.noneValue')],
+            ['category', app.category || _t('apps.inspector.noneValue')],
             ['devOnly', String(!!app.devOnly)],
             ['autoGrant', String(!!app.autoGrant)],
-            ['defaultSize', app.defaultSize ? app.defaultSize.join(' x ') : '(none)'],
-            ['minSize', app.minSize ? app.minSize.join(' x ') : '(none)'],
+            ['defaultSize', app.defaultSize ? app.defaultSize.join(' x ') : _t('apps.inspector.noneValue')],
+            ['minSize', app.minSize ? app.minSize.join(' x ') : _t('apps.inspector.noneValue')],
           ];
           rows.forEach(([label, val]) => {
             const r = createEl('div', { style: 'display:flex;gap:8px;' });
@@ -129,7 +129,7 @@ registerApp({
             detail.appendChild(r);
           });
           if (app.permissions?.length) {
-            const rawLabel = createEl('div', { textContent: 'raw permissions:', style: 'color:var(--text-muted);margin-top:2px;' });
+            const rawLabel = createEl('div', { textContent: _t('apps.inspector.rawPermissions'), style: 'color:var(--text-muted);margin-top:2px;' });
             detail.appendChild(rawLabel);
             const rawBox = createEl('div', { textContent: JSON.stringify(app.permissions, null, 2), style: 'white-space:pre-wrap;word-break:break-all;font-size:10px;' });
             detail.appendChild(rawBox);
@@ -141,14 +141,14 @@ registerApp({
       });
 
       if (!filteredApps.length) {
-        appsList.appendChild(createEl('div', { textContent: apps.length ? 'No apps match filter' : 'No apps registered', style: 'color:var(--text-muted);padding:8px;' }));
+        appsList.appendChild(createEl('div', { textContent: apps.length ? _t('apps.inspector.noAppsMatch') : _t('apps.inspector.noAppsRegistered'), style: 'color:var(--text-muted);padding:8px;' }));
       }
       appsSection.appendChild(appsList);
       scroll.appendChild(appsSection);
 
       // Windows section
       const winsSection = createEl('div');
-      winsSection.appendChild(createEl('h3', { textContent: `Open Windows (${filteredWins.length})`, style: 'margin:0 0 8px;font-size:14px;color:var(--accent);' }));
+      winsSection.appendChild(createEl('h3', { textContent: _t('apps.inspector.openWindows', { count: filteredWins.length }), style: 'margin:0 0 8px;font-size:14px;color:var(--accent);' }));
       const winsList = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
 
       filteredWins.forEach(win => {
@@ -156,11 +156,11 @@ registerApp({
         const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;' });
         const titleWrap = createEl('div', { style: 'min-width:0;overflow:hidden;display:flex;align-items:center;gap:8px;' });
         titleWrap.appendChild(createEl('span', { textContent: expandedWins.has(win.id) ? '▾' : '▸', style: 'color:var(--text-muted);font-size:10px;width:10px;display:inline-block;flex-shrink:0;' }));
-        titleWrap.appendChild(createEl('strong', { textContent: appNameById.get(win.appId) || win.appId || 'unknown' }));
+        titleWrap.appendChild(createEl('strong', { textContent: appNameById.get(win.appId) || win.appId || _t('apps.inspector.unknownApp') }));
         titleWrap.appendChild(createEl('span', { textContent: win.appId, style: 'font-size:10px;color:var(--text-muted);opacity:0.7;' }));
         titleWrap.appendChild(createEl('span', { textContent: win.id, style: 'font-size:11px;color:var(--text-muted);font-family:monospace;' }));
         if (OS.focusedWindowId === win.id) {
-          titleWrap.appendChild(createEl('span', { textContent: 'focused', style: 'font-size:10px;color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:1px 5px;' }));
+          titleWrap.appendChild(createEl('span', { textContent: _t('apps.inspector.focusedBadge'), style: 'font-size:10px;color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:1px 5px;' }));
         }
         header.appendChild(titleWrap);
         // Clicking the row toggles detail, but the Focus/Close buttons
@@ -183,13 +183,13 @@ registerApp({
         // impossible for the id to go stale regardless of how often/when
         // render() re-runs relative to when the click actually fires.
         const btns = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
-        const focusBtn = createEl('button', { textContent: 'Focus', style: 'padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
+        const focusBtn = createEl('button', { textContent: _t('apps.inspector.focus'), style: 'padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
         focusBtn.dataset.windowId = win.id;
         focusBtn.addEventListener('click', (e) => {
           e.stopPropagation(); // don't also toggle the detail panel
           window.WM?.focusWindow?.(e.currentTarget.dataset.windowId);
         }, { signal: ac.signal });
-        const closeBtn = createEl('button', { textContent: 'Close', style: 'padding:3px 10px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;' });
+        const closeBtn = createEl('button', { textContent: _t('common.close'), style: 'padding:3px 10px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;' });
         closeBtn.dataset.windowId = win.id;
         closeBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -218,14 +218,14 @@ registerApp({
           const known = new Set(['appId', 'id', 'x', 'y', 'width', 'height', 'minimized', 'maximized', 'content', 'cleanups']);
           const otherKeys = Object.keys(win).filter(k => !known.has(k));
           if (otherKeys.length) {
-            const rawLabel = createEl('div', { textContent: 'other fields on this window state:', style: 'color:var(--text-muted);' });
+            const rawLabel = createEl('div', { textContent: _t('apps.inspector.otherFields'), style: 'color:var(--text-muted);' });
             detail.appendChild(rawLabel);
             otherKeys.forEach(k => {
               let val;
               try {
                 val = typeof win[k] === 'object' ? JSON.stringify(win[k]) : String(win[k]);
               } catch {
-                val = '(unserializable)';
+                val = _t('apps.inspector.unserializable');
               }
               const r = createEl('div', { style: 'display:flex;gap:8px;' });
               r.appendChild(createEl('span', { textContent: k, style: 'color:var(--text-muted);width:90px;flex-shrink:0;' }));
@@ -233,10 +233,10 @@ registerApp({
               detail.appendChild(r);
             });
           } else {
-            detail.appendChild(createEl('div', { textContent: 'No additional fields beyond those shown above.', style: 'color:var(--text-muted);' }));
+            detail.appendChild(createEl('div', { textContent: _t('apps.inspector.noAdditionalFields'), style: 'color:var(--text-muted);' }));
           }
           if (Array.isArray(win.cleanups)) {
-            detail.appendChild(createEl('div', { textContent: `cleanups registered: ${win.cleanups.length}`, style: 'color:var(--text-muted);margin-top:2px;' }));
+            detail.appendChild(createEl('div', { textContent: _t('apps.inspector.cleanupsRegistered', { count: win.cleanups.length }), style: 'color:var(--text-muted);margin-top:2px;' }));
           }
           row.appendChild(detail);
         }
@@ -245,7 +245,7 @@ registerApp({
       });
 
       if (!filteredWins.length) {
-        winsList.appendChild(createEl('div', { textContent: wins.length ? 'No windows match filter' : 'No windows open', style: 'color:var(--text-muted);padding:8px;' }));
+        winsList.appendChild(createEl('div', { textContent: wins.length ? _t('apps.inspector.noWindowsMatch') : _t('apps.inspector.noWindowsOpen'), style: 'color:var(--text-muted);padding:8px;' }));
       }
       winsSection.appendChild(winsList);
       scroll.appendChild(winsSection);

@@ -41,7 +41,7 @@ function _promptRegionSelect(frameCanvas) {
     });
 
     const hint = createEl('div', {
-      textContent: 'Drag to select a region · Esc to cancel',
+      textContent: _t('apps.screenshots.regionSelectHint'),
       style: 'position:absolute;top:-32px;left:0;color:#fff;font-size:12px;font-family:var(--font-ui, sans-serif);opacity:0.85;'
     });
 
@@ -200,10 +200,10 @@ async function captureScreenshot(mode) {
     const name = FS.uniqueName(screenshotsId, `screenshot-${Date.now()}.png`);
     await FS.createFile(screenshotsId, name, base64, 'image/png');
 
-    Notify.show({ title: 'Screenshot Saved', body: `Saved to Pictures/Screenshots as ${name}`, type: 'success', appName: 'System' });
+    Notify.show({ title: _t('apps.screenshots.savedTitle'), body: _t('apps.screenshots.savedBody', { name }), type: 'success', appName: 'System' });
     EventLog?.log?.({ app: 'System', category: 'system', severity: 'info', message: `Screenshot captured (${mode})`, data: { mode, name } });
   } catch (err) {
-    Notify.show({ title: 'Screenshot Failed', body: 'Could not capture screenshot', type: 'error', appName: 'System' });
+    Notify.show({ title: _t('apps.screenshots.failedTitle'), body: _t('apps.screenshots.failedBody'), type: 'error', appName: 'System' });
     EventLog?.log?.({ app: 'System', category: 'system', severity: 'error', message: `Screenshot capture failed (${mode}): ${err?.message || err}`, data: { mode } });
   } finally {
     // Always stop tracks — never leave the screen-capture indicator dangling,

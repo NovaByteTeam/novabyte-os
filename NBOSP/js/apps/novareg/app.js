@@ -16,99 +16,101 @@
 // ── friendly names for well-known paths ────────────────────────────────
 // The editor keeps raw paths everywhere (regedit parity); this catalog adds
 // the plain-language layer on top: an info strip under the values header,
-// plus tooltips in the tree and the find dialog. Paths outside the catalog
-// still resolve: HKNA/<appId> and HKNU/software/<appId> take their display
-// name from the installed-app inventory (HKNS/apps/installed), and
-// HKNU/settings/<key> humanizes the camelCase setting name — so
-// third-party config gets a friendly name too.
+// plus tooltips in the tree and the find dialog. Entries store i18n keys
+// (apps.novareg.keys.*) that keyInfo() resolves through _t() at render
+// time, so a live language switch re-renders in the new language. Paths
+// outside the catalog still resolve: HKNA/<appId> and HKNU/software/<appId>
+// take their display name from the installed-app inventory
+// (HKNS/apps/installed), and HKNU/settings/<key> humanizes the camelCase
+// setting name — so third-party config gets a friendly name too.
 const KEY_INFO = [
   // ── hives ──
-  { path: 'HKNS', label: 'System (machine)', description: 'Machine-wide configuration that applies to every user.' },
-  { path: 'HKNU', label: 'Current user', description: 'Per-user preferences and shell state.' },
-  { path: 'HKNA', label: 'Per-app config', description: 'One subtree per installed app — its supported config surface.' },
-  { path: 'HKND', label: 'Developer scratch', description: 'Dev-only hive; wiped in production builds.' },
+  { path: 'HKNS', labelKey: 'apps.novareg.keys.hiveSystem', descriptionKey: 'apps.novareg.keys.hiveSystemDesc' },
+  { path: 'HKNU', labelKey: 'apps.novareg.keys.hiveCurrentUser', descriptionKey: 'apps.novareg.keys.hiveCurrentUserDesc' },
+  { path: 'HKNA', labelKey: 'apps.novareg.keys.hivePerAppConfig', descriptionKey: 'apps.novareg.keys.hivePerAppConfigDesc' },
+  { path: 'HKND', labelKey: 'apps.novareg.keys.hiveDeveloperScratch', descriptionKey: 'apps.novareg.keys.hiveDeveloperScratchDesc' },
   // ── HKNS ──
-  { path: 'HKNS/shell', label: 'Shell look & feel', description: 'Theme, accent color and wallpaper the desktop renders.' },
-  { path: 'HKNS/shell/theme', label: 'Desktop theme' },
-  { path: 'HKNS/shell/accentColor', label: 'Accent color' },
-  { path: 'HKNS/shell/wallpaper', label: 'Desktop wallpaper' },
-  { path: 'HKNS/system', label: 'System state', description: 'OS version, Developer Mode flag and boot machine state.' },
-  { path: 'HKNS/system/devMode', label: 'Developer Mode' },
-  { path: 'HKNS/system/osVersion', label: 'OS version' },
-  { path: 'HKNS/system/boot', label: 'Boot machine state', description: 'Safe-mode and recovery flags consumed by the next boot (Windows: HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot).' },
-  { path: 'HKNS/system/boot/safeMode', label: 'Boot into safe mode next start' },
-  { path: 'HKNS/system/boot/forceRecovery', label: 'Force recovery on next boot', description: 'Set by the boot watchdog when the machine hangs.' },
-  { path: 'HKNS/system/boot/manualRecovery', label: 'Manual recovery requested', description: 'Set by Settings > Boot to Recovery.' },
-  { path: 'HKNS/system/boot/showRecovery', label: 'Show recovery menu next boot' },
-  { path: 'HKNS/system/boot/attempts', label: 'Recent boot attempts', description: 'Cleared automatically once subsystems come up cleanly.' },
-  { path: 'HKNS/system/boot/timeoutFlag', label: 'Boot watchdog state' },
-  { path: 'HKNS/system/boot/homeLaunchPending', label: 'Home app launch in progress', description: 'Handoff id; a stale id resets the default Home app.' },
-  { path: 'HKNS/env', label: 'Environment', description: 'Where NovaByte keeps its data.' },
-  { path: 'HKNS/env/novaRoot', label: 'Nova root' },
-  { path: 'HKNS/settings', label: 'System settings', description: 'Machine-scoped settings mirrors (settings shim).' },
-  { path: 'HKNS/security', label: 'Security & policy', description: 'Credentials, permission grants and machine policy.' },
-  { path: 'HKNS/security/policy', label: 'Machine policy', description: 'Restrictions applied to every user.' },
-  { path: 'HKNS/security/policy/prohibitWallpaperChange', label: 'Prohibit wallpaper changes' },
-  { path: 'HKNS/security/appPermissions', label: 'App permission grants' },
-  { path: 'HKNS/security/meta', label: 'Security bookkeeping' },
-  { path: 'HKNS/security/meta/lastSweep', label: 'Last permission sweep', description: 'The unused-permission sweeper runs at most once a day.' },
-  { path: 'HKNS/security/bootPassword', label: 'Boot password' },
-  { path: 'HKNS/security/lockPin', label: 'Screen-lock PIN' },
-  { path: 'HKNS/security/pinSalt', label: 'Lock PIN salt' },
-  { path: 'HKNS/security/biometricCredentialId', label: 'Biometric credential' },
-  { path: 'HKNS/security/rootAccessEnabled', label: 'Root access' },
-  { path: 'HKNS/apps', label: 'Applications', description: 'Machine-scoped app services: inventory, alarms, push, store.' },
-  { path: 'HKNS/apps/installed', label: 'Installed app inventory' },
-  { path: 'HKNS/apps/alarms', label: 'Background alarm registry' },
-  { path: 'HKNS/apps/push', label: 'Push tokens + replay queues' },
-  { path: 'HKNS/apps/pushDeviceId', label: 'Push device id' },
-  { path: 'HKNS/apps/store', label: 'App Store service' },
-  { path: 'HKNS/apps/store/updateIntervalMinutes', label: 'Store update-check interval' },
-  { path: 'HKNS/apps/store/lastNotifiedAt', label: 'Update notifications sent', description: 'Per-app record of which version the user was already told about.' },
-  { path: 'HKNS/apps/webapps', label: 'Installed web apps', description: 'PWA/web-app package payload for the web-app manager.' },
-  { path: 'HKNS/apps/builtin', label: 'Built-in app cache', description: 'AppRegistry records for the built-in apps.' },
-  { path: 'HKNS/apps/share', label: 'Share service' },
-  { path: 'HKNS/apps/share/inbound', label: 'Inbound share queue', description: 'Handoff entries waiting for a closed share target to reopen.' },
+  { path: 'HKNS/shell', labelKey: 'apps.novareg.keys.shellLookFeel', descriptionKey: 'apps.novareg.keys.shellLookFeelDesc' },
+  { path: 'HKNS/shell/theme', labelKey: 'apps.novareg.keys.shellTheme' },
+  { path: 'HKNS/shell/accentColor', labelKey: 'apps.novareg.keys.shellAccentColor' },
+  { path: 'HKNS/shell/wallpaper', labelKey: 'apps.novareg.keys.shellWallpaper' },
+  { path: 'HKNS/system', labelKey: 'apps.novareg.keys.systemState', descriptionKey: 'apps.novareg.keys.systemStateDesc' },
+  { path: 'HKNS/system/devMode', labelKey: 'apps.novareg.keys.systemDevMode' },
+  { path: 'HKNS/system/osVersion', labelKey: 'apps.novareg.keys.systemOsVersion' },
+  { path: 'HKNS/system/boot', labelKey: 'apps.novareg.keys.systemBoot', descriptionKey: 'apps.novareg.keys.systemBootDesc' },
+  { path: 'HKNS/system/boot/safeMode', labelKey: 'apps.novareg.keys.bootSafeMode' },
+  { path: 'HKNS/system/boot/forceRecovery', labelKey: 'apps.novareg.keys.bootForceRecovery', descriptionKey: 'apps.novareg.keys.bootForceRecoveryDesc' },
+  { path: 'HKNS/system/boot/manualRecovery', labelKey: 'apps.novareg.keys.bootManualRecovery', descriptionKey: 'apps.novareg.keys.bootManualRecoveryDesc' },
+  { path: 'HKNS/system/boot/showRecovery', labelKey: 'apps.novareg.keys.bootShowRecovery' },
+  { path: 'HKNS/system/boot/attempts', labelKey: 'apps.novareg.keys.bootAttempts', descriptionKey: 'apps.novareg.keys.bootAttemptsDesc' },
+  { path: 'HKNS/system/boot/timeoutFlag', labelKey: 'apps.novareg.keys.bootWatchdog' },
+  { path: 'HKNS/system/boot/homeLaunchPending', labelKey: 'apps.novareg.keys.bootHomeLaunch', descriptionKey: 'apps.novareg.keys.bootHomeLaunchDesc' },
+  { path: 'HKNS/env', labelKey: 'apps.novareg.keys.env', descriptionKey: 'apps.novareg.keys.envDesc' },
+  { path: 'HKNS/env/novaRoot', labelKey: 'apps.novareg.keys.envNovaRoot' },
+  { path: 'HKNS/settings', labelKey: 'apps.novareg.keys.settingsSystem', descriptionKey: 'apps.novareg.keys.settingsSystemDesc' },
+  { path: 'HKNS/security', labelKey: 'apps.novareg.keys.security', descriptionKey: 'apps.novareg.keys.securityDesc' },
+  { path: 'HKNS/security/policy', labelKey: 'apps.novareg.keys.securityPolicy', descriptionKey: 'apps.novareg.keys.securityPolicyDesc' },
+  { path: 'HKNS/security/policy/prohibitWallpaperChange', labelKey: 'apps.novareg.keys.policyProhibitWallpaper' },
+  { path: 'HKNS/security/appPermissions', labelKey: 'apps.novareg.keys.securityAppPermissions' },
+  { path: 'HKNS/security/meta', labelKey: 'apps.novareg.keys.securityMeta' },
+  { path: 'HKNS/security/meta/lastSweep', labelKey: 'apps.novareg.keys.securityLastSweep', descriptionKey: 'apps.novareg.keys.securityLastSweepDesc' },
+  { path: 'HKNS/security/bootPassword', labelKey: 'apps.novareg.keys.securityBootPassword' },
+  { path: 'HKNS/security/lockPin', labelKey: 'apps.novareg.keys.securityLockPin' },
+  { path: 'HKNS/security/pinSalt', labelKey: 'apps.novareg.keys.securityPinSalt' },
+  { path: 'HKNS/security/biometricCredentialId', labelKey: 'apps.novareg.keys.securityBiometric' },
+  { path: 'HKNS/security/rootAccessEnabled', labelKey: 'apps.novareg.keys.securityRootAccess' },
+  { path: 'HKNS/apps', labelKey: 'apps.novareg.keys.appsCatalog', descriptionKey: 'apps.novareg.keys.appsCatalogDesc' },
+  { path: 'HKNS/apps/installed', labelKey: 'apps.novareg.keys.appsInstalled' },
+  { path: 'HKNS/apps/alarms', labelKey: 'apps.novareg.keys.appsAlarms' },
+  { path: 'HKNS/apps/push', labelKey: 'apps.novareg.keys.appsPush' },
+  { path: 'HKNS/apps/pushDeviceId', labelKey: 'apps.novareg.keys.appsPushDeviceId' },
+  { path: 'HKNS/apps/store', labelKey: 'apps.novareg.keys.appsStore' },
+  { path: 'HKNS/apps/store/updateIntervalMinutes', labelKey: 'apps.novareg.keys.appsStoreUpdateInterval' },
+  { path: 'HKNS/apps/store/lastNotifiedAt', labelKey: 'apps.novareg.keys.appsStoreLastNotified', descriptionKey: 'apps.novareg.keys.appsStoreLastNotifiedDesc' },
+  { path: 'HKNS/apps/webapps', labelKey: 'apps.novareg.keys.appsWebapps', descriptionKey: 'apps.novareg.keys.appsWebappsDesc' },
+  { path: 'HKNS/apps/builtin', labelKey: 'apps.novareg.keys.appsBuiltin', descriptionKey: 'apps.novareg.keys.appsBuiltinDesc' },
+  { path: 'HKNS/apps/share', labelKey: 'apps.novareg.keys.appsShare' },
+  { path: 'HKNS/apps/share/inbound', labelKey: 'apps.novareg.keys.appsShareInbound', descriptionKey: 'apps.novareg.keys.appsShareInboundDesc' },
   // ── HKNU ──
-  { path: 'HKNU/desktop', label: 'User desktop' },
-  { path: 'HKNU/desktop/pins', label: 'Pinned desktop apps' },
-  { path: 'HKNU/shell', label: 'User shell prefs' },
-  { path: 'HKNU/shell/bags', label: 'Shell Bags', description: 'Explorer-\"Bags\"-style remembers: window placement and folder view state.' },
-  { path: 'HKNU/shell/bags/windows', label: 'Window placement', description: 'Last on-screen geometry per app, restored on the next open.' },
-  { path: 'HKNU/shell/bags/files', label: 'Files view state', description: 'View mode and sort order the Files app reopens with.' },
-  { path: 'HKNU/shell/defaultApps', label: 'Default apps', description: 'File-type associations — which app opens what.' },
-  { path: 'HKNU/shell/notifications', label: 'Notification channels' },
-  { path: 'HKNU/shell/notifications/channels', label: 'Channel definitions' },
-  { path: 'HKNU/shell/notifications/channelOverrides', label: 'Per-app channel overrides' },
-  { path: 'HKNU/shell/shortcuts', label: 'Keyboard shortcuts' },
-  { path: 'HKNU/settings', label: 'User settings', description: 'The Settings app store — mirrored live to OS.settings.' },
-  { path: 'HKNU/apps', label: 'Per-user app state' },
-  { path: 'HKNU/apps/disabled', label: 'Disabled apps' },
-  { path: 'HKNU/apps/boot', label: 'Auto-start apps' },
-  { path: 'HKNU/apps/showHidden', label: 'Show hidden apps' },
-  { path: 'HKNU/legacy', label: 'Legacy settings snapshot', description: 'Forensic copy from the pre-registry era — safe to ignore.' },
+  { path: 'HKNU/desktop', labelKey: 'apps.novareg.keys.userDesktop' },
+  { path: 'HKNU/desktop/pins', labelKey: 'apps.novareg.keys.userDesktopPins' },
+  { path: 'HKNU/shell', labelKey: 'apps.novareg.keys.userShellPrefs' },
+  { path: 'HKNU/shell/bags', labelKey: 'apps.novareg.keys.userShellBags', descriptionKey: 'apps.novareg.keys.userShellBagsDesc' },
+  { path: 'HKNU/shell/bags/windows', labelKey: 'apps.novareg.keys.userShellBagsWindows', descriptionKey: 'apps.novareg.keys.userShellBagsWindowsDesc' },
+  { path: 'HKNU/shell/bags/files', labelKey: 'apps.novareg.keys.userShellBagsFiles', descriptionKey: 'apps.novareg.keys.userShellBagsFilesDesc' },
+  { path: 'HKNU/shell/defaultApps', labelKey: 'apps.novareg.keys.userDefaultApps', descriptionKey: 'apps.novareg.keys.userDefaultAppsDesc' },
+  { path: 'HKNU/shell/notifications', labelKey: 'apps.novareg.keys.userNotifications' },
+  { path: 'HKNU/shell/notifications/channels', labelKey: 'apps.novareg.keys.userNotificationChannels' },
+  { path: 'HKNU/shell/notifications/channelOverrides', labelKey: 'apps.novareg.keys.userNotificationOverrides' },
+  { path: 'HKNU/shell/shortcuts', labelKey: 'apps.novareg.keys.userShortcuts' },
+  { path: 'HKNU/settings', labelKey: 'apps.novareg.keys.userSettings', descriptionKey: 'apps.novareg.keys.userSettingsDesc' },
+  { path: 'HKNU/apps', labelKey: 'apps.novareg.keys.userApps' },
+  { path: 'HKNU/apps/disabled', labelKey: 'apps.novareg.keys.userAppsDisabled' },
+  { path: 'HKNU/apps/boot', labelKey: 'apps.novareg.keys.userAppsBoot' },
+  { path: 'HKNU/apps/showHidden', labelKey: 'apps.novareg.keys.userAppsShowHidden' },
+  { path: 'HKNU/legacy', labelKey: 'apps.novareg.keys.userLegacy', descriptionKey: 'apps.novareg.keys.userLegacyDesc' },
   // ── HKND ──
-  { path: 'HKND/_migration', label: 'Migration markers', description: 'One-time adoption guards — resetting one re-adopts legacy data.' },
-  { path: 'HKND/_migration/registrySourceDone', label: 'Legacy settings adopted' },
-  { path: 'HKND/_migration/sysStateDone', label: 'System state adopted' },
-  { path: 'HKND/_migration/appConfig', label: 'App configs adopted' },
-  { path: 'HKND/_migration/prefsDone', label: 'Registry prefs adopted' },
-  { path: 'HKND/_migration/legacySettingsDone', label: 'Legacy snapshot written' },
-  { path: 'HKND/_migration/bootFlags', label: 'Boot flags adopted' },
-  { path: 'HKND/_migration/permsBootstrapped', label: 'Permissions seeded', description: 'First-boot normal-permission pre-grant already ran.' },
-  { path: 'HKND/events', label: 'Events app config' },
-  { path: 'HKND/events/filters', label: 'Events — saved filters' },
-  { path: 'HKND/events/views', label: 'Events — saved views' },
-  { path: 'HKND/events/alerts', label: 'Events — alert rules' },
-  { path: 'HKND/events/sessions', label: 'Events — session history' },
-  { path: 'HKND/console', label: 'Dev Console' },
-  { path: 'HKND/console/history', label: 'Console command history' },
-  { path: 'HKND/appmanager', label: 'App Manager' },
-  { path: 'HKND/appmanager/log', label: 'App install log' },
-  { path: 'HKND/com.nbosp.permissions/logCutoff', label: 'Consent-log cutoff', description: 'Client-side timestamp hiding consent-log entries before it.' },
-  { path: 'HKND/overlay', label: 'Debug overlay' },
-  { path: 'HKND/overlay/position', label: 'Debug overlay position' },
-  { path: 'HKND/com.nbosp.novareg', label: 'NovaReg editor state', description: "This editor's favorites and jump history." },
+  { path: 'HKND/_migration', labelKey: 'apps.novareg.keys.devMigration', descriptionKey: 'apps.novareg.keys.devMigrationDesc' },
+  { path: 'HKND/_migration/registrySourceDone', labelKey: 'apps.novareg.keys.devMigrationLegacySettings' },
+  { path: 'HKND/_migration/sysStateDone', labelKey: 'apps.novareg.keys.devMigrationSysState' },
+  { path: 'HKND/_migration/appConfig', labelKey: 'apps.novareg.keys.devMigrationAppConfig' },
+  { path: 'HKND/_migration/prefsDone', labelKey: 'apps.novareg.keys.devMigrationPrefs' },
+  { path: 'HKND/_migration/legacySettingsDone', labelKey: 'apps.novareg.keys.devMigrationLegacySnapshot' },
+  { path: 'HKND/_migration/bootFlags', labelKey: 'apps.novareg.keys.devMigrationBootFlags' },
+  { path: 'HKND/_migration/permsBootstrapped', labelKey: 'apps.novareg.keys.devMigrationPerms', descriptionKey: 'apps.novareg.keys.devMigrationPermsDesc' },
+  { path: 'HKND/events', labelKey: 'apps.novareg.keys.devEvents' },
+  { path: 'HKND/events/filters', labelKey: 'apps.novareg.keys.devEventsFilters' },
+  { path: 'HKND/events/views', labelKey: 'apps.novareg.keys.devEventsViews' },
+  { path: 'HKND/events/alerts', labelKey: 'apps.novareg.keys.devEventsAlerts' },
+  { path: 'HKND/events/sessions', labelKey: 'apps.novareg.keys.devEventsSessions' },
+  { path: 'HKND/console', labelKey: 'apps.novareg.keys.devConsole' },
+  { path: 'HKND/console/history', labelKey: 'apps.novareg.keys.devConsoleHistory' },
+  { path: 'HKND/appmanager', labelKey: 'apps.novareg.keys.devAppManager' },
+  { path: 'HKND/appmanager/log', labelKey: 'apps.novareg.keys.devAppManagerLog' },
+  { path: 'HKND/com.nbosp.permissions/logCutoff', labelKey: 'apps.novareg.keys.devConsentLogCutoff', descriptionKey: 'apps.novareg.keys.devConsentLogCutoffDesc' },
+  { path: 'HKND/overlay', labelKey: 'apps.novareg.keys.devOverlay' },
+  { path: 'HKND/overlay/position', labelKey: 'apps.novareg.keys.devOverlayPosition' },
+  { path: 'HKND/com.nbosp.novareg', labelKey: 'apps.novareg.keys.devNovaReg', descriptionKey: 'apps.novareg.keys.devNovaRegDesc' },
 ];
 
 function humanizeSettingName(name) {
@@ -129,22 +131,22 @@ function keyInfo(path, resolveAppName) {
   const seg = path.split('/');
   if (seg[0] === 'HKNU' && seg[1] === 'software') {
     const appName = seg[2] && resolveAppName ? resolveAppName(seg[2]) : null;
-    const root = !seg[2] ? 'App user data'
-      : appName ? 'App user data — ' + appName
-      : 'App user data (' + seg[2] + ')';
+    const root = !seg[2] ? _t('apps.novareg.keys.appUserData')
+      : appName ? _t('apps.novareg.keys.appUserDataNamed', { app: appName })
+      : _t('apps.novareg.keys.appUserDataId', { id: seg[2] });
     const label = seg.length > 3 ? root + ' → ' + seg.slice(3).join(' / ') : root;
-    return { label, description: "The app's user-scoped slice (the default registryScopes.write area)." };
+    return { label, description: _t('apps.novareg.keys.appUserDataDesc') };
   }
   if (seg[0] === 'HKNA' && seg[1]) {
     const appName = resolveAppName ? resolveAppName(seg[1]) : null;
-    const root = appName ? 'App config — ' + appName : 'App config (' + seg[1] + ')';
+    const root = appName ? _t('apps.novareg.keys.appConfigNamed', { app: appName }) : _t('apps.novareg.keys.appConfigId', { id: seg[1] });
     return {
       label: seg.length > 2 ? root + ' → ' + seg.slice(2).join(' / ') : root,
-      description: "The app's own config subtree — persists across updates and is visible here to the user.",
+      description: _t('apps.novareg.keys.appConfigDesc'),
     };
   }
   if (seg[0] === 'HKNU' && seg[1] === 'settings' && seg[2]) {
-    return { label: humanizeSettingName(seg.slice(2).join(' ')), description: 'User setting (Settings app mirror).' };
+    return { label: humanizeSettingName(seg.slice(2).join(' ')), description: _t('apps.novareg.keys.userSettingDesc') };
   }
   let best = null;
   for (const entry of KEY_INFO) {
@@ -153,9 +155,11 @@ function keyInfo(path, resolveAppName) {
     }
   }
   if (best) {
-    if (best.path === path) return { label: best.label, description: best.description || '' };
+    const label = _t(best.labelKey);
+    const description = best.descriptionKey ? _t(best.descriptionKey) : '';
+    if (best.path === path) return { label, description };
     const rest = path.slice(best.path.length + 1);
-    return { label: best.label + ' → ' + rest.split('/').join(' / '), description: best.description || '' };
+    return { label: label + ' → ' + rest.split('/').join(' / '), description };
   }
   return null;
 }
@@ -174,13 +178,13 @@ registerApp({
   init(content, state, options) {
     if (!window.NovaRegistry || typeof window.NovaRegistry.get !== 'function') {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:14px;text-align:center">NovaByte Registry engine not available.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:14px;text-align:center">' + _t('apps.novareg.engineUnavailable') + '<br>' + _t('apps.novareg.requiresNovaByte') + '</div>';
       return;
     }
 
     if (!OS.settings.get('devMode')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">Enable Developer Mode in Settings to use NovaReg.</div>';
+      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">' + _t('apps.novareg.devModeRequired') + '</div>';
       return;
     }
 
@@ -200,7 +204,7 @@ registerApp({
     let selectedValue = null;
     let expanded = { HKNS: true };     // key path -> bool
     let treeCache = {};                // key path -> { keys: [...], values: {...} }
-    let statusMessage = 'NovaReg ready.';
+    let statusMessage = _t('apps.novareg.statusReady');
     let filterText = '';
     let auditVisible = false;
     let dwordRadix = 10;               // 10 | 16 — editor radix for DWORD/QWORD
@@ -298,7 +302,7 @@ registerApp({
     }
     function parseHexToB64(text) {
       const clean = text.replace(/0x/gi, ' ').replace(/[^0-9a-fA-F]/g, '');
-      if (clean.length % 2 !== 0) throw new Error('hex input must have an even number of digits');
+      if (clean.length % 2 !== 0) throw new Error(_t('apps.novareg.errOddHexDigits'));
       const bytes = new Uint8Array(clean.length / 2);
       for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
       return bytesToB64(bytes);
@@ -319,11 +323,11 @@ registerApp({
     }
 
     const jumpInput = el('input', 'flex:1;min-width:180px;padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;box-sizing:border-box;');
-    jumpInput.placeholder = 'Jump to path — e.g. HKNS/shell/wallpaper';
+    jumpInput.placeholder = _t('apps.novareg.jumpPlaceholder');
     jumpInput.setAttribute('list', historyDatalist.id);
-    const jumpBtn = el('button', btnStyle(true), 'Go');
+    const jumpBtn = el('button', btnStyle(true), _t('apps.novareg.goBtn'));
     const filterInput = el('input', 'width:130px;padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;box-sizing:border-box;');
-    filterInput.placeholder = 'Filter keys…';
+    filterInput.placeholder = _t('apps.novareg.filterPlaceholder');
 
     function btnStyle(primary) {
       return 'padding:5px 10px;' + (primary
@@ -331,19 +335,19 @@ registerApp({
         : 'background:transparent;color:var(--text-muted,#9aa4b2);border:1px solid var(--border-subtle,#2a2f3a);') +
         'border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;';
     }
-    const newKeyBtn = el('button', btnStyle(false), '+ Key');
-    const newValueBtn = el('button', btnStyle(false), '+ Value');
-    const newLinkBtn = el('button', btnStyle(false), '+ Link');
-    const renameBtn = el('button', btnStyle(false), 'Rename');
-    const deleteBtn = el('button', btnStyle(false), 'Delete');
-    const copyPathBtn = el('button', btnStyle(false), 'Copy Path');
-    const findBtn = el('button', btnStyle(false), 'Find');
-    const favBtn = el('button', btnStyle(false), '★ Fav');
-    const permBtn = el('button', btnStyle(false), 'Permissions');
-    const snapBtn = el('button', btnStyle(false), 'Snapshots');
-    const auditBtn = el('button', btnStyle(false), 'Audit');
-    const exportBtn = el('button', btnStyle(false), 'Export');
-    const importBtn = el('button', btnStyle(false), 'Import');
+    const newKeyBtn = el('button', btnStyle(false), _t('apps.novareg.newKeyBtn'));
+    const newValueBtn = el('button', btnStyle(false), _t('apps.novareg.newValueBtn'));
+    const newLinkBtn = el('button', btnStyle(false), _t('apps.novareg.newLinkBtn'));
+    const renameBtn = el('button', btnStyle(false), _t('common.rename'));
+    const deleteBtn = el('button', btnStyle(false), _t('apps.novareg.deleteBtn'));
+    const copyPathBtn = el('button', btnStyle(false), _t('apps.novareg.copyPathBtn'));
+    const findBtn = el('button', btnStyle(false), _t('apps.novareg.findBtn'));
+    const favBtn = el('button', btnStyle(false), _t('apps.novareg.favBtn'));
+    const permBtn = el('button', btnStyle(false), _t('apps.novareg.permBtn'));
+    const snapBtn = el('button', btnStyle(false), _t('apps.novareg.snapBtn'));
+    const auditBtn = el('button', btnStyle(false), _t('apps.novareg.auditBtn'));
+    const exportBtn = el('button', btnStyle(false), _t('apps.novareg.exportBtn'));
+    const importBtn = el('button', btnStyle(false), _t('apps.novareg.importBtn'));
     const importFile = el('input');
     importFile.type = 'file';
     importFile.accept = '.json,.nvreg,application/json,text/plain';
@@ -366,8 +370,8 @@ registerApp({
     const auditPane = el('div', 'display:none;flex-direction:column;border-top:1px solid var(--border-subtle,#2a2f3a);height:180px;flex-shrink:0;');
     const auditHeader = el('div', 'display:flex;align-items:center;gap:8px;padding:4px 10px;color:var(--text-muted,#9aa4b2);font-weight:600;flex-shrink:0;');
     const auditTable = el('div', 'flex:1;overflow:auto;padding:2px 10px;font-family:monospace;font-size:10px;');
-    auditHeader.appendChild(el('span', null, 'Write audit (newest first)'));
-    const auditRefreshBtn = el('button', btnStyle(false), 'Refresh');
+    auditHeader.appendChild(el('span', null, _t('apps.novareg.auditTitle')));
+    const auditRefreshBtn = el('button', btnStyle(false), _t('common.refresh'));
     auditHeader.appendChild(auditRefreshBtn);
     auditPane.append(auditHeader, auditTable);
 
@@ -400,7 +404,7 @@ registerApp({
         expanded[path] = !expanded[path];
         selectedPath = path;
         selectedValue = null;
-        refresh().then(() => setStatus('Browsing ' + path));
+        refresh().then(() => setStatus(_t('apps.novareg.statusBrowsing', { path })));
       }, { signal: ac.signal });
       return row;
     }
@@ -431,16 +435,16 @@ registerApp({
     function makeValueRow(name, entry, isDefault) {
       const row = el('div', 'display:grid;grid-template-columns:1.1fr 0.9fr 2fr auto;gap:8px;padding:5px 6px;border-radius:4px;cursor:pointer;align-items:baseline;');
       if (selectedValue === name) row.style.background = 'var(--accent-muted,rgba(88,166,255,0.15))';
-      const displayName = isDefault ? '(Default)' : name;
+      const displayName = isDefault ? _t('apps.novareg.defaultValueName') : name;
       const nameSpan = el('span', 'font-family:monospace;color:var(--text-primary);' + (isDefault ? 'font-weight:600;' : ''), displayName);
       const typeSpan = el('span', 'color:var(--text-muted,#9aa4b2);font-size:10px;', entry ? entry.type : 'REG_SZ');
-      let dataText = entry ? preview(entry.data) : '(value not set)';
+      let dataText = entry ? preview(entry.data) : _t('apps.novareg.valueNotSet');
       if (entry && entry.type === 'REG_EXPAND_SZ') dataText += '  → ' + preview(Reg.expand(entry.data));
       const dataSpan = el('span', 'font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:' + (entry ? 'var(--text-primary)' : 'var(--text-muted,#9aa4b2)') + ';', dataText);
       const modSpan = el('span', 'color:var(--text-muted,#9aa4b2);font-size:10px;', entry && entry.lastModified ? new Date(entry.lastModified).toLocaleTimeString() : '');
       row.append(nameSpan, typeSpan, dataSpan, modSpan);
-      row.title = 'Double-click to edit · ' + selectedPath + '/' + name;
-      row.addEventListener('click', () => { selectedValue = name; renderTree(); refreshValues(); setStatus('Selected ' + displayName); }, { signal: ac.signal });
+      row.title = _t('apps.novareg.rowEditHint', { path: selectedPath + '/' + name });
+      row.addEventListener('click', () => { selectedValue = name; renderTree(); refreshValues(); setStatus(_t('apps.novareg.statusSelected', { name: displayName })); }, { signal: ac.signal });
       row.addEventListener('dblclick', () => openValueEditor(isDefault ? DEFAULT_NAME : name, entry, isDefault), { signal: ac.signal });
       return row;
     }
@@ -449,7 +453,7 @@ registerApp({
       const listing = treeCache[selectedPath];
       const values = listing ? listing.values : {};
       const names = Object.keys(values).filter((n) => n !== DEFAULT_NAME).sort();
-      valueHeader.textContent = selectedPath + '  (' + names.length + ' value' + (names.length === 1 ? '' : 's') + (listing && listing.link ? ' · link → ' + listing.link : '') + ')';
+      valueHeader.textContent = selectedPath + '  (' + names.length + ' ' + _t(names.length === 1 ? 'apps.novareg.valueSingular' : 'apps.novareg.valuePlural') + (listing && listing.link ? ' · ' + _t('apps.novareg.linkedTo', { target: listing.link }) : '') + ')';
       const info = infoOf(selectedPath);
       valueHeaderInfo.textContent = '';
       if (info) {
@@ -463,7 +467,7 @@ registerApp({
       // The pinned (Default) row — every key owns one, regedit-style.
       valueTable.appendChild(makeValueRow(DEFAULT_NAME, values[DEFAULT_NAME] || null, true));
       if (!names.length) {
-        valueTable.appendChild(el('div', 'color:var(--text-muted,#9aa4b2);padding:8px 0;', '(no other values in this key)'));
+        valueTable.appendChild(el('div', 'color:var(--text-muted,#9aa4b2);padding:8px 0;', _t('apps.novareg.noOtherValues')));
         return;
       }
       for (const name of names) valueTable.appendChild(makeValueRow(name, values[name], false));
@@ -480,7 +484,7 @@ registerApp({
           treeCache[path] = Reg.list(path);
         } catch (err) {
           delete treeCache[path];
-          statusMessage = 'list failed: ' + errorMessage(err);
+          statusMessage = _t('apps.novareg.statusListFailed', { message: errorMessage(err) });
         }
       }
       renderTree();
@@ -496,14 +500,14 @@ registerApp({
       try {
         const listing = Reg.list(raw);
         const normalized = listing ? listing.path : null;
-        if (!normalized) { setStatus('No such key: ' + raw); return; }
+        if (!normalized) { setStatus(_t('apps.novareg.statusNoSuchKey', { path: raw })); return; }
         // Expand every ancestor so the tree shows the jump target.
         const parts = normalized.split('/');
         for (let i = 1; i <= parts.length; i++) expanded[parts.slice(0, i).join('/')] = true;
         selectedPath = normalized;
         selectedValue = null;
         rememberJump(normalized);
-        refresh().then(() => setStatus('Jumped to ' + normalized));
+        refresh().then(() => setStatus(_t('apps.novareg.statusJumpedTo', { path: normalized })));
       } catch (err) { setStatus(errorMessage(err)); }
     }
     jumpBtn.addEventListener('click', jump, { signal: ac.signal });
@@ -515,12 +519,12 @@ registerApp({
     }, { signal: ac.signal });
 
     newKeyBtn.addEventListener('click', () => {
-      openPromptDialog('New key under ' + selectedPath, 'Key name', (name) => {
+      openPromptDialog(_t('apps.novareg.newKeyTitle', { path: selectedPath }), _t('apps.novareg.keyNameLabel'), (name) => {
         try {
           Reg.import(selectedPath, { keys: { [name]: { keys: {}, values: {} } }, values: {} }, { actor: SELF });
           expanded[selectedPath] = true;
           expanded[selectedPath + '/' + name] = true;
-          refresh().then(() => setStatus('Created key ' + selectedPath + '/' + name));
+          refresh().then(() => setStatus(_t('apps.novareg.statusCreatedKey', { path: selectedPath + '/' + name })));
         } catch (err) { setStatus(errorMessage(err)); }
       });
     }, { signal: ac.signal });
@@ -528,37 +532,37 @@ registerApp({
     newValueBtn.addEventListener('click', () => openValueEditor(null, null, false), { signal: ac.signal });
 
     newLinkBtn.addEventListener('click', () => {
-      if (HIVES.includes(selectedPath)) { setStatus('A hive root cannot be a link.'); return; }
-      openPromptDialog('New link under ' + selectedPath, 'Link name', (name) => {
-        openPromptDialog('Link ' + selectedPath + '/' + name + ' → target path', 'Target (e.g. HKNU/desktop)', (target) => {
+      if (HIVES.includes(selectedPath)) { setStatus(_t('apps.novareg.statusHiveNoLink')); return; }
+      openPromptDialog(_t('apps.novareg.newLinkTitle', { path: selectedPath }), _t('apps.novareg.linkNameLabel'), (name) => {
+        openPromptDialog(_t('apps.novareg.linkTargetTitle', { path: selectedPath + '/' + name }), _t('apps.novareg.linkTargetLabel'), (target) => {
           try {
             Reg.setLink(selectedPath + '/' + name, target, { actor: SELF });
             expanded[selectedPath] = true;
-            refresh().then(() => setStatus('Linked ' + selectedPath + '/' + name + ' → ' + target));
+            refresh().then(() => setStatus(_t('apps.novareg.statusLinked', { path: selectedPath + '/' + name, target })));
           } catch (err) { setStatus(errorMessage(err)); }
         });
       });
     }, { signal: ac.signal });
 
     renameBtn.addEventListener('click', () => {
-      if (HIVES.includes(selectedPath) && !selectedValue) { setStatus('Cannot rename a hive root.'); return; }
+      if (HIVES.includes(selectedPath) && !selectedValue) { setStatus(_t('apps.novareg.statusCannotRenameHive')); return; }
       if (selectedValue) {
-        if (selectedValue === DEFAULT_NAME) { setStatus('The (Default) row cannot be renamed.'); return; }
-        openPromptDialog('Rename value "' + selectedValue + '"', 'New name', (name) => {
+        if (selectedValue === DEFAULT_NAME) { setStatus(_t('apps.novareg.statusDefaultNoRename')); return; }
+        openPromptDialog(_t('apps.novareg.renameValueTitle', { name: selectedValue }), _t('apps.novareg.newNameLabel'), (name) => {
           try {
             const result = Reg.rename(selectedPath + '/' + selectedValue, name, { actor: SELF });
             selectedValue = name;
-            refresh().then(() => setStatus('Renamed to ' + result.path));
+            refresh().then(() => setStatus(_t('apps.novareg.statusRenamedTo', { path: result.path })));
           } catch (err) { setStatus(errorMessage(err)); }
         });
         return;
       }
-      openPromptDialog('Rename key "' + selectedPath + '"', 'New name', (name) => {
+      openPromptDialog(_t('apps.novareg.renameKeyTitle', { path: selectedPath }), _t('apps.novareg.newNameLabel'), (name) => {
         try {
           const result = Reg.rename(selectedPath, name, { actor: SELF });
           selectedPath = result.path;
           delete expanded[selectedPath];
-          refresh().then(() => setStatus('Renamed key to ' + result.path));
+          refresh().then(() => setStatus(_t('apps.novareg.statusRenamedKeyTo', { path: result.path })));
         } catch (err) { setStatus(errorMessage(err)); }
       });
     }, { signal: ac.signal });
@@ -567,29 +571,29 @@ registerApp({
       const path = selectedPath + (selectedValue ? '/' + selectedValue : '');
       try {
         await navigator.clipboard.writeText(path);
-        setStatus('Copied ' + path);
-      } catch (err) { setStatus('Clipboard unavailable: ' + errorMessage(err)); }
+        setStatus(_t('apps.novareg.statusCopied', { path }));
+      } catch (err) { setStatus(_t('apps.novareg.statusClipboardUnavailable', { message: errorMessage(err) })); }
     }, { signal: ac.signal });
 
     deleteBtn.addEventListener('click', () => {
       if (selectedValue) {
         const valuePath = selectedPath + '/' + selectedValue;
-        if (!window.confirm('Delete value "' + selectedValue + '"?')) return;
+        if (!window.confirm(_t('apps.novareg.confirmDeleteValue', { name: selectedValue }))) return;
         try {
           Reg.remove(valuePath, { recursive: false, actor: SELF });
           selectedValue = null;
-          refresh().then(() => setStatus('Deleted ' + valuePath));
+          refresh().then(() => setStatus(_t('apps.novareg.statusDeleted', { path: valuePath })));
         } catch (err) { setStatus(errorMessage(err)); }
         return;
       }
-      if (HIVES.includes(selectedPath)) { setStatus('Cannot delete a hive root.'); return; }
-      if (!window.confirm('Delete key "' + selectedPath + '" and EVERYTHING under it?')) return;
+      if (HIVES.includes(selectedPath)) { setStatus(_t('apps.novareg.statusCannotDeleteHive')); return; }
+      if (!window.confirm(_t('apps.novareg.confirmDeleteKey', { path: selectedPath }))) return;
       try {
         Reg.remove(selectedPath, { recursive: true, actor: SELF });
         const parent = keyOf(selectedPath);
         selectedPath = parent || selectedPath.split('/')[0];
         selectedValue = null;
-        refresh().then(() => setStatus('Deleted key ' + selectedPath));
+        refresh().then(() => setStatus(_t('apps.novareg.statusDeletedKey', { path: selectedPath })));
       } catch (err) { setStatus(errorMessage(err)); }
     }, { signal: ac.signal });
 
@@ -597,7 +601,7 @@ registerApp({
       if (isFavorite(selectedPath)) removeFavorite(selectedPath);
       else pushFavorite(selectedPath);
       renderTree();
-      setStatus(isFavorite(selectedPath) ? 'Favorited ' + selectedPath : 'Removed favorite ' + selectedPath);
+      setStatus(isFavorite(selectedPath) ? _t('apps.novareg.statusFavorited', { path: selectedPath }) : _t('apps.novareg.statusRemovedFavorite', { path: selectedPath }));
     }, { signal: ac.signal });
 
     // Favorites + Snapshots dropdowns share a tiny popover helper.
@@ -639,7 +643,7 @@ registerApp({
     function renderFavoritesMenu() { /* rebuilt on open */ }
     favBtn.addEventListener('click', () => {
       openPopover(favBtn, (pop) => {
-        if (!favorites.length) pop.appendChild(el('div', 'padding:5px 10px;color:var(--text-muted,#9aa4b2);', '(no favorites — press ★ Fav)'));
+        if (!favorites.length) pop.appendChild(el('div', 'padding:5px 10px;color:var(--text-muted,#9aa4b2);', _t('apps.novareg.noFavorites')));
         for (const fav of favorites.slice().reverse()) {
           popoverItem(pop, '★ ' + fav.path, () => {
             jumpInput.value = fav.path;
@@ -647,7 +651,7 @@ registerApp({
           });
         }
         if (favorites.some((f) => f.path === selectedPath)) {
-          popoverItem(pop, 'Remove current from favorites', () => { removeFavorite(selectedPath); renderTree(); }, true);
+          popoverItem(pop, _t('apps.novareg.removeCurrentFavorite'), () => { removeFavorite(selectedPath); renderTree(); }, true);
         }
       });
     }, { signal: ac.signal });
@@ -655,33 +659,33 @@ registerApp({
     snapBtn.addEventListener('click', () => {
       const hive = selectedPath.split('/')[0];
       openPopover(snapBtn, (pop) => {
-        popoverItem(pop, 'Take snapshot of ' + hive + '…', () => {
-          openPromptDialog('Snapshot ' + hive, 'Label (optional)', (label) => {
+        popoverItem(pop, _t('apps.novareg.takeSnapshotOf', { hive }), () => {
+          openPromptDialog(_t('apps.novareg.snapshotTitle', { hive }), _t('apps.novareg.snapshotLabelOptional'), (label) => {
             try {
               const snap = Reg.saveSnapshot(hive, label, { actor: SELF });
-              setStatus('Snapshot ' + snap.id + ' saved for ' + hive);
+              setStatus(_t('apps.novareg.snapshotSaved', { id: snap.id, hive }));
             } catch (err) { setStatus(errorMessage(err)); }
           });
         });
         let snaps = [];
         try { snaps = Reg.snapshots(hive); } catch (_) { /* ignore */ }
-        if (!snaps.length) pop.appendChild(el('div', 'padding:5px 10px;color:var(--text-muted,#9aa4b2);', '(no snapshots of ' + hive + ')'));
+        if (!snaps.length) pop.appendChild(el('div', 'padding:5px 10px;color:var(--text-muted,#9aa4b2);', _t('apps.novareg.noSnapshotsOf', { hive })));
         for (const snap of snaps.slice().reverse()) {
           const row = el('div', 'display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:4px;');
           const label = el('span', 'flex:1;white-space:nowrap;', snap.label + ' · ' + new Date(snap.ts).toLocaleString() + ' · ' + Math.round(snap.bytes / 1024) + ' KB');
-          const restoreB = el('button', btnStyle(false), 'Restore');
+          const restoreB = el('button', btnStyle(false), _t('apps.novareg.restoreBtn'));
           const delB = el('button', btnStyle(false), '✕');
           restoreB.addEventListener('click', () => {
             pop.remove();
-            if (!window.confirm('Restore ' + hive + ' from "' + snap.label + '"? Current hive contents are replaced.')) return;
+            if (!window.confirm(_t('apps.novareg.confirmRestore', { hive, label: snap.label }))) return;
             try {
               Reg.restoreSnapshot(hive, snap.id, { actor: SELF });
-              refresh().then(() => setStatus('Restored ' + hive + ' from ' + snap.label));
+              refresh().then(() => setStatus(_t('apps.novareg.statusRestoredFrom', { hive, label: snap.label })));
             } catch (err) { setStatus(errorMessage(err)); }
           }, { signal: ac.signal });
           delB.addEventListener('click', () => {
             pop.remove();
-            try { Reg.deleteSnapshot(hive, snap.id); setStatus('Snapshot deleted.'); }
+            try { Reg.deleteSnapshot(hive, snap.id); setStatus(_t('apps.novareg.snapshotDeleted')); }
             catch (err) { setStatus(errorMessage(err)); }
           }, { signal: ac.signal });
           row.append(label, restoreB, delB);
@@ -696,7 +700,7 @@ registerApp({
       let entries = [];
       try { entries = Reg.audit(150); } catch (_) { /* ignore */ }
       if (!entries.length) {
-        auditTable.appendChild(el('div', 'color:var(--text-muted,#9aa4b2);padding:6px 0;', '(no writes recorded yet)'));
+        auditTable.appendChild(el('div', 'color:var(--text-muted,#9aa4b2);padding:6px 0;', _t('apps.novareg.noWrites')));
         return;
       }
       for (const entry of entries) {
@@ -747,14 +751,15 @@ registerApp({
     }
 
     function openFindDialog() {
-      const { back, box } = dialogShell('Find in Registry (Ctrl+F)');
+      const { back, box } = dialogShell(_t('apps.novareg.findTitle'));
       const query = el('input', fieldStyle());
-      query.placeholder = 'Search text…';
+      query.placeholder = _t('apps.novareg.searchPlaceholder');
       const scopeRow = el('div', 'display:flex;gap:14px;margin-top:8px;color:var(--text-muted,#9aa4b2);align-items:center;');
       const scopeSel = el('select', fieldStyle() + 'width:auto;');
       for (const opt of ['Current key subtree', 'All hives']) {
         const o = document.createElement('option');
-        o.value = opt; o.textContent = opt;
+        o.value = opt;
+        o.textContent = opt === 'All hives' ? _t('apps.novareg.findScopeAll') : _t('apps.novareg.findScopeCurrent');
         scopeSel.appendChild(o);
       }
       const mkCheck = (label, checked) => {
@@ -765,21 +770,21 @@ registerApp({
         wrap.append(cb, el('span', null, label));
         return { wrap, cb };
       };
-      const keysC = mkCheck('Keys', true);
-      const namesC = mkCheck('Value names', true);
-      const dataC = mkCheck('Data', true);
+      const keysC = mkCheck(_t('apps.novareg.findKeys'), true);
+      const namesC = mkCheck(_t('apps.novareg.findValueNames'), true);
+      const dataC = mkCheck(_t('apps.novareg.dataLabel'), true);
       scopeRow.append(scopeSel, keysC.wrap, namesC.wrap, dataC.wrap);
       const resultsBox = el('div', 'margin-top:10px;max-height:220px;overflow:auto;border:1px solid var(--border-subtle,#2a2f3a);border-radius:4px;');
       const info = el('div', 'margin-top:6px;color:var(--text-muted,#9aa4b2);font-size:11px;min-height:14px;');
       const search = () => {
         const q = query.value.trim();
         resultsBox.textContent = '';
-        if (!q) { info.textContent = 'Type a search text.'; return; }
+        if (!q) { info.textContent = _t('apps.novareg.typeSearchText'); return; }
         const opts = { keys: keysC.cb.checked, valueNames: namesC.cb.checked, data: dataC.cb.checked };
         const scopes = scopeSel.value === 'All hives' ? HIVES : [selectedPath];
         let results = [];
         for (const scope of scopes) results = results.concat(searchTree(scope, q, opts));
-        info.textContent = results.length ? results.length + ' match(es)' + (results.length >= 200 ? ' (capped)' : '') : 'No matches.';
+        info.textContent = results.length ? _t('apps.novareg.matchCount', { count: results.length }) + (results.length >= 200 ? _t('apps.novareg.matchesCapped') : '') : _t('apps.novareg.noMatches');
         for (const result of results) {
           const row = el('div', 'padding:4px 8px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;gap:8px;align-items:baseline;');
           row.appendChild(el('span', 'color:var(--text-link);font-size:10px;width:70px;flex-shrink:0;', result.kind));
@@ -801,7 +806,7 @@ registerApp({
       };
       query.addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); }, { signal: ac.signal });
       [keysC.cb, namesC.cb, dataC.cb, scopeSel].forEach((n) => n.addEventListener('change', search, { signal: ac.signal }));
-      const runBtn = el('button', btnStyle(true), 'Search');
+      const runBtn = el('button', btnStyle(true), _t('apps.novareg.searchBtn'));
       runBtn.addEventListener('click', search, { signal: ac.signal });
       box.append(query, scopeRow, runBtn, resultsBox, info);
       content.appendChild(back);
@@ -820,27 +825,27 @@ registerApp({
 
     // ── permissions dialog (engine ACLs) ───────────────────────────────
     permBtn.addEventListener('click', () => {
-      if (HIVES.includes(selectedPath)) { setStatus('ACLs apply to keys, not hive roots.'); return; }
-      const { back, box } = dialogShell('Permissions — ' + selectedPath);
+      if (HIVES.includes(selectedPath)) { setStatus(_t('apps.novareg.statusAclHiveRoot')); return; }
+      const { back, box } = dialogShell(_t('apps.novareg.permissionsTitle', { path: selectedPath }));
 
       let effective = null;
       try { effective = Reg.effectiveAcl(selectedPath); } catch (_) { /* ignore */ }
       const effWrap = el('div', 'font-size:11px;color:var(--text-muted,#9aa4b2);margin-bottom:8px;max-height:70px;overflow:auto;');
-      const effTitle = el('div', 'font-weight:600;margin-bottom:4px;', 'Effective (inherited + own)');
+      const effTitle = el('div', 'font-weight:600;margin-bottom:4px;', _t('apps.novareg.aclEffectiveTitle'));
       effWrap.appendChild(effTitle);
       if (effective && effective.entries.length) {
-        if (effective.owner) effWrap.appendChild(el('div', null, 'Owner: ' + effective.owner));
+        if (effective.owner) effWrap.appendChild(el('div', null, _t('apps.novareg.aclOwner', { owner: effective.owner })));
         for (const entry of effective.entries) {
-          effWrap.appendChild(el('div', null, entry.id + ' → ' + (entry.rights.join(', ') || 'none')));
+          effWrap.appendChild(el('div', null, entry.id + ' → ' + (entry.rights.join(', ') || _t('apps.novareg.aclNoRights'))));
         }
       } else {
-        effWrap.appendChild(el('div', null, 'No ACL on this key chain — base hive rules only.'));
+        effWrap.appendChild(el('div', null, _t('apps.novareg.aclNoAcl')));
       }
 
       const current = Reg.getAcl(selectedPath);
       const ownerInput = el('input', fieldStyle());
       ownerInput.value = current?.owner || '';
-      ownerInput.placeholder = 'Owner (optional)';
+      ownerInput.placeholder = _t('apps.novareg.aclOwnerPlaceholder');
       const rowsWrap = el('div', 'display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:150px;overflow:auto;');
       const entryRows = [];
 
@@ -848,7 +853,7 @@ registerApp({
         const row = el('div', 'display:grid;grid-template-columns:1.4fr auto auto auto auto;gap:6px;align-items:center;');
         const id = el('input', fieldStyle());
         id.value = entry?.id || '';
-        id.placeholder = 'app id or *';
+        id.placeholder = _t('apps.novareg.aclIdPlaceholder');
         const mkCb = (label, checked) => {
           const wrap = el('label', 'display:flex;gap:3px;align-items:center;cursor:pointer;font-size:10px;color:var(--text-muted,#9aa4b2);');
           const cb = el('input');
@@ -859,7 +864,7 @@ registerApp({
         };
         const read = mkCb('R', entry?.rights?.includes('read'));
         const write = mkCb('W', entry?.rights?.includes('write'));
-        const inherit = mkCb('Inherit', entry ? entry.inherit !== false : true);
+        const inherit = mkCb(_t('apps.novareg.aclInherit'), entry ? entry.inherit !== false : true);
         const del = el('button', btnStyle(false), '✕');
         row.append(id, read.wrap, write.wrap, inherit.wrap, del);
         const record = { id, read: read.cb, write: write.cb, inherit: inherit.cb, row };
@@ -869,17 +874,17 @@ registerApp({
       }
       for (const entry of current?.entries || []) addEntryRow(entry);
 
-      const addRowBtn = el('button', btnStyle(false), '+ Entry');
+      const addRowBtn = el('button', btnStyle(false), _t('apps.novareg.addEntryBtn'));
       addRowBtn.addEventListener('click', () => addEntryRow(null), { signal: ac.signal });
       const errorLine = el('div', 'margin-top:6px;color:var(--text-danger);font-size:11px;min-height:14px;');
-      const clearBtn = el('button', btnStyle(false), 'Clear ACL');
+      const clearBtn = el('button', btnStyle(false), _t('apps.novareg.clearAclBtn'));
       const { row: btnRow, save } = closeButtonRow(box);
       btnRow.prepend(clearBtn);
       clearBtn.addEventListener('click', () => {
         try {
           Reg.setAcl(selectedPath, null, { actor: SELF });
           back.remove();
-          refresh().then(() => setStatus('ACL cleared on ' + selectedPath));
+          refresh().then(() => setStatus(_t('apps.novareg.statusAclCleared', { path: selectedPath })));
         } catch (err) { errorLine.textContent = errorMessage(err); }
       }, { signal: ac.signal });
       save.addEventListener('click', () => {
@@ -892,7 +897,7 @@ registerApp({
         try {
           Reg.setAcl(selectedPath, { owner: ownerInput.value.trim() || null, entries }, { actor: SELF });
           back.remove();
-          refresh().then(() => setStatus('ACL saved on ' + selectedPath + ' (' + entries.length + ' entries)'));
+          refresh().then(() => setStatus(_t('apps.novareg.statusAclSaved', { path: selectedPath, count: entries.length })));
         } catch (err) { errorLine.textContent = errorMessage(err); }
       }, { signal: ac.signal });
 
@@ -922,7 +927,7 @@ registerApp({
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
-        setStatus('Exported ' + selectedPath + (useText ? ' (.nvreg)' : ' (json)'));
+        setStatus(useText ? _t('apps.novareg.exportedNvreg', { path: selectedPath }) : _t('apps.novareg.exportedJson', { path: selectedPath }));
       } catch (err) { setStatus(errorMessage(err)); }
     }, { signal: ac.signal });
 
@@ -943,8 +948,8 @@ registerApp({
           try { Reg.saveSnapshot(selectedPath.split('/')[0], 'before-import', { actor: SELF }); } catch (_) {}
           const result = Reg.import(selectedPath, data, { actor: SELF });
           expanded[selectedPath] = true;
-          refresh().then(() => setStatus('Imported ' + result.merged + ' value(s) into ' + selectedPath + ' (pre-import snapshot taken)'));
-        } catch (err) { setStatus('Import failed: ' + errorMessage(err)); }
+          refresh().then(() => setStatus(_t('apps.novareg.statusImported', { count: result.merged, path: selectedPath })));
+        } catch (err) { setStatus(_t('apps.novareg.statusImportFailed', { message: errorMessage(err) })); }
       };
       reader.readAsText(file);
     }, { signal: ac.signal });
@@ -957,6 +962,20 @@ registerApp({
       refreshTimer = setTimeout(() => { refresh(); }, 120);
     });
     state.cleanups.push(() => ac.abort());
+
+    // Live language switching: re-render the tree/values/audit so the
+    // friendly-name layer (resolved through _t() at render time) follows a
+    // languageChanged event. Guarded so multiple NovaReg windows register
+    // exactly one listener.
+    if (!window.__novaregLocaleWired && OS.events?.on) {
+      window.__novaregLocaleWired = true;
+      OS.events.on('languageChanged', () => {
+        try {
+          window.NovaI18n?.applyStaticDom?.(document);
+          refresh();
+        } catch (e) { console.warn('[NovaReg] Language change re-render failed:', e); }
+      });
+    }
 
     // ── dialogs (value editor + prompt) ────────────────────────────────
     function overlay() {
@@ -977,8 +996,8 @@ registerApp({
 
     function closeButtonRow(box, onCancel) {
       const row = el('div', 'display:flex;gap:8px;justify-content:flex-end;margin-top:12px;');
-      const cancel = el('button', btnStyle(false), 'Cancel');
-      const save = el('button', btnStyle(true), 'Save');
+      const cancel = el('button', btnStyle(false), _t('common.cancel'));
+      const save = el('button', btnStyle(true), _t('common.save'));
       cancel.addEventListener('click', () => { backClose(box); onCancel && onCancel(); }, { signal: ac.signal });
       row.append(cancel, save);
       return { row, save };
@@ -989,7 +1008,7 @@ registerApp({
       const { back, box } = dialogShell(titleText);
       const label = el('div', 'margin-bottom:6px;color:var(--text-muted,#9aa4b2);', labelText);
       const input = el('input', fieldStyle());
-      input.placeholder = 'name (letters, digits, dash, dot)';
+      input.placeholder = _t('apps.novareg.namePlaceholder');
       box.append(label, input);
       const { row, save } = closeButtonRow(box);
       box.appendChild(row);
@@ -1012,7 +1031,7 @@ registerApp({
         case 'REG_DWORD': case 'REG_QWORD': {
           const text = rawText.trim();
           const value = dwordRadix === 16 && /^[0-9a-fA-F]+$/.test(text) ? parseInt(text, 16) : Number(text);
-          if (!Number.isFinite(value)) throw new Error('not a number');
+          if (!Number.isFinite(value)) throw new Error(_t('apps.novareg.errNotANumber'));
           return value;
         }
         case 'REG_MULTI_SZ': return rawText.split('\n').filter((line, index, all) => !(line === '' && index === all.length - 1));
@@ -1024,23 +1043,23 @@ registerApp({
 
     function openValueEditor(name, entry, isDefaultRow) {
       const isNew = !name;
-      const title = isNew ? 'New value in ' + selectedPath : 'Edit ' + selectedPath + '/' + name;
+      const title = isNew ? _t('apps.novareg.newValueTitle', { path: selectedPath }) : _t('apps.novareg.editValueTitle', { path: selectedPath + '/' + name });
       const { back, box } = dialogShell(title);
 
-      const nameLabel = el('div', 'margin:6px 0 4px;color:var(--text-muted,#9aa4b2);', isDefaultRow ? 'Name — the key\'s default (unnamed) value' : 'Name');
+      const nameLabel = el('div', 'margin:6px 0 4px;color:var(--text-muted,#9aa4b2);', isDefaultRow ? _t('apps.novareg.nameDefaultLabel') : _t('apps.novareg.nameLabel'));
       const nameInput = el('input', fieldStyle());
       nameInput.value = name === DEFAULT_NAME ? '' : (name || '');
       nameInput.disabled = !isNew;
       if (isDefaultRow) nameInput.value = DEFAULT_NAME;
 
-      const typeLabel = el('div', 'margin:10px 0 4px;color:var(--text-muted,#9aa4b2);', 'Type');
+      const typeLabel = el('div', 'margin:10px 0 4px;color:var(--text-muted,#9aa4b2);', _t('apps.novareg.typeLabel'));
       const typeSelect = el('select', fieldStyle());
       for (const t of TYPES) {
         const opt = document.createElement('option');
         opt.value = t; opt.textContent = t;
         typeSelect.appendChild(opt);
       }
-      const dataLabel = el('div', 'margin:10px 0 4px;color:var(--text-muted,#9aa4b2);', 'Data');
+      const dataLabel = el('div', 'margin:10px 0 4px;color:var(--text-muted,#9aa4b2);', _t('apps.novareg.dataLabel'));
       const dataInput = el('textarea', fieldStyle() + 'min-height:90px;resize:vertical;');
       const boolWrap = el('div');
       const boolSelect = el('select', fieldStyle());
@@ -1055,7 +1074,7 @@ registerApp({
       const radixWrap = el('div', 'display:none;gap:8px;margin-top:6px;align-items:center;color:var(--text-muted,#9aa4b2);font-size:10px;');
       const decBtn = el('button', btnStyle(false), 'dec');
       const hexBtn = el('button', btnStyle(false), 'hex');
-      radixWrap.append(el('span', null, 'Input radix:'), decBtn, hexBtn);
+      radixWrap.append(el('span', null, _t('apps.novareg.inputRadix')), decBtn, hexBtn);
       const paintRadix = () => {
         decBtn.style.color = dwordRadix === 10 ? 'var(--accent,#58a6ff)' : '';
         hexBtn.style.color = dwordRadix === 16 ? 'var(--accent,#58a6ff)' : '';
@@ -1074,7 +1093,7 @@ registerApp({
       }, { signal: ac.signal });
 
       // REG_MULTI_SZ: one string per line.
-      const multiHint = el('div', 'display:none;color:var(--text-muted,#9aa4b2);font-size:10px;margin-top:4px;', 'One string per line.');
+      const multiHint = el('div', 'display:none;color:var(--text-muted,#9aa4b2);font-size:10px;margin-top:4px;', _t('apps.novareg.oneStringPerLine'));
       // REG_EXPAND_SZ: live expanded preview.
       const expandHint = el('div', 'display:none;color:var(--text-muted,#9aa4b2);font-size:10px;margin-top:4px;white-space:pre-wrap;');
       const updateExpandHint = () => {
@@ -1082,28 +1101,28 @@ registerApp({
         expandHint.style.display = 'block';
         let expandedText;
         try { expandedText = Reg.expand(dataInput.value); } catch (_) { expandedText = dataInput.value; }
-        expandHint.textContent = 'Expanded: ' + expandedText;
+        expandHint.textContent = _t('apps.novareg.expandedPreview', { text: expandedText });
       };
       dataInput.addEventListener('input', () => { updateExpandHint(); }, { signal: ac.signal });
 
       // REG_BINARY: hex grid viewer + hex edit mode.
       const binWrap = el('div', 'display:none;flex-direction:column;gap:4px;');
       const hexGrid = el('pre', 'margin:0;padding:8px;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;font-family:monospace;font-size:10px;color:var(--text-success);max-height:140px;overflow:auto;white-space:pre;');
-      const binEditBtn = el('button', btnStyle(false), 'Edit as hex');
+      const binEditBtn = el('button', btnStyle(false), _t('apps.novareg.editAsHex'));
       binEditBtn.addEventListener('click', () => {
         try {
           const bytes = b64ToBytes(dataInput.value.trim() || '');
           const hexOnly = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join(' ');
-          const edited = window.prompt('Hex bytes (spaces optional):', hexOnly);
+          const edited = window.prompt(_t('apps.novareg.hexBytesPrompt'), hexOnly);
           if (edited !== null) dataInput.value = parseHexToB64(edited);
           paintBinary();
-        } catch (err) { window.alert('Hex parse failed: ' + errorMessage(err)); }
+        } catch (err) { window.alert(_t('apps.novareg.hexParseFailed', { message: errorMessage(err) })); }
       }, { signal: ac.signal });
       function paintBinary() {
         try {
           const bytes = b64ToBytes(dataInput.value.trim() || '');
-          hexGrid.textContent = bytes.length ? toHexGrid(bytes) : '(empty)';
-        } catch (_) { hexGrid.textContent = '(invalid base64)'; }
+          hexGrid.textContent = bytes.length ? toHexGrid(bytes) : _t('apps.novareg.binaryEmpty');
+        } catch (_) { hexGrid.textContent = _t('apps.novareg.invalidBase64'); }
       }
       dataInput.addEventListener('input', () => { if (typeSelect.value === 'REG_BINARY') paintBinary(); }, { signal: ac.signal });
       binWrap.append(hexGrid, binEditBtn);
@@ -1114,10 +1133,10 @@ registerApp({
         radixWrap.style.display = (type === 'REG_DWORD' || type === 'REG_QWORD') ? 'flex' : 'none';
         multiHint.style.display = type === 'REG_MULTI_SZ' ? 'block' : 'none';
         binWrap.style.display = type === 'REG_BINARY' ? 'flex' : 'none';
-        dataLabel.textContent = type === 'REG_JSON' ? 'Data (JSON)'
-          : type === 'REG_BINARY' ? 'Data (base64)'
-          : type === 'REG_MULTI_SZ' ? 'Data (one string per line)'
-          : 'Data';
+        dataLabel.textContent = type === 'REG_JSON' ? _t('apps.novareg.dataJson')
+          : type === 'REG_BINARY' ? _t('apps.novareg.dataBase64')
+          : type === 'REG_MULTI_SZ' ? _t('apps.novareg.dataOnePerLine')
+          : _t('apps.novareg.dataLabel');
         if (type === 'REG_BINARY') paintBinary();
         updateExpandHint();
       }
@@ -1148,13 +1167,13 @@ registerApp({
         let valueName = (nameInput.value || '').trim();
         if (isDefaultRow && !valueName) valueName = DEFAULT_NAME;
         if (!valueName || /[\/\\]/.test(valueName) || valueName === '.' || valueName === '..') {
-          errorLine.textContent = 'Invalid value name.'; return;
+          errorLine.textContent = _t('apps.novareg.invalidValueName'); return;
         }
         let value;
         try {
           value = typeSelect.value === 'REG_BOOL' ? (boolSelect.value === 'true') : coerceForType(typeSelect.value, dataInput.value);
         } catch (err) {
-          errorLine.textContent = 'Invalid data for ' + typeSelect.value + ': ' + errorMessage(err); return;
+          errorLine.textContent = _t('apps.novareg.invalidDataFor', { type: typeSelect.value, message: errorMessage(err) }); return;
         }
         try {
           Reg.set(selectedPath + '/' + valueName, value, { type: typeSelect.value, actor: SELF });
@@ -1167,7 +1186,7 @@ registerApp({
           }
           backClose(box);
           selectedValue = valueName;
-          refresh().then(() => setStatus('Saved ' + selectedPath + '/' + valueName));
+          refresh().then(() => setStatus(_t('apps.novareg.statusSavedValue', { path: selectedPath + '/' + valueName })));
         } catch (err) {
           errorLine.textContent = errorMessage(err);
         }

@@ -268,14 +268,14 @@
     if (hasDoubleExtensionTrick(name)) {
       return {
         safe: false,
-        reason: `"${name}" disguises an executable (.${extOf(name)}) behind a second file extension.`,
+        reason: _t('apps.scanner.reasons.doubleExtension', { name, ext: extOf(name) }),
       };
     }
 
     if (EXECUTABLE_EXTENSIONS.has(ext)) {
       return {
         safe: false,
-        reason: `"${name}" is an executable/script file type (.${ext}), which isn't allowed.`,
+        reason: _t('apps.scanner.reasons.executableType', { name, ext }),
       };
     }
 
@@ -283,7 +283,7 @@
     if (magicLabel) {
       return {
         safe: false,
-        reason: `"${name}" claims to be a .${ext || 'unknown'} file but its contents are a ${magicLabel}.`,
+        reason: _t('apps.scanner.reasons.magicMismatch', { name, ext: ext || 'unknown', label: magicLabel }),
       };
     }
 
@@ -313,7 +313,7 @@
         if (htmlHit) {
           return {
             safe: false,
-            reason: `"${name}" contains ${htmlHit}, which isn't allowed.`,
+            reason: _t('apps.scanner.reasons.htmlActiveContent', { name, hit: htmlHit }),
           };
         }
       } else if (RENDERED_TEXT_EXTENSIONS.has(ext) || ext === '') {
@@ -324,7 +324,7 @@
         if (activeHit) {
           return {
             safe: false,
-            reason: `"${name}" contains ${activeHit}, which isn't allowed in a file that gets previewed/rendered.`,
+            reason: _t('apps.scanner.reasons.renderedActiveContent', { name, hit: activeHit }),
           };
         }
       }
@@ -333,7 +333,7 @@
         if (pat.re.test(text)) {
           return {
             safe: false,
-            reason: `"${name}" contains obfuscated code (${pat.label}).`,
+            reason: _t('apps.scanner.reasons.obfuscated', { name, label: pat.label }),
           };
         }
       }
@@ -342,7 +342,7 @@
       if (entropy > 6.5) {
         return {
           safe: false,
-          reason: `"${name}" is declared as text but its content is high-entropy (likely packed/encoded binary), which isn't allowed.`,
+          reason: _t('apps.scanner.reasons.highEntropy', { name }),
         };
       }
     }
@@ -358,7 +358,7 @@
     const warnings = [];
 
     if (!file || typeof file.name !== 'string') {
-      return { safe: false, reason: 'Invalid file object.', warnings };
+      return { safe: false, reason: _t('apps.scanner.reasons.invalidFile'), warnings };
     }
 
     // Only need the head of the file to fingerprint + text-scan it — no
@@ -369,7 +369,7 @@
       const headBuf = await file.slice(0, headSize).arrayBuffer();
       headBytes = new Uint8Array(headBuf);
     } catch (_e) {
-      return { safe: false, reason: `Could not read "${file.name}" to scan it.`, warnings };
+      return { safe: false, reason: _t('apps.scanner.reasons.unreadable', { name: file.name }), warnings };
     }
 
     const verdict = await scanBytes(file.name, headBytes);
@@ -429,7 +429,7 @@
       const sample = value.slice(0, Math.ceil(maxBytes / 3) * 4);
       bytes = base64ToBytes(sample);
     } catch (_e) {
-      return { safe: false, reason: `"${name}" is not valid base64 and could not be scanned.` };
+      return { safe: false, reason: _t('apps.scanner.reasons.invalidBase64', { name }) };
     }
     return scanBytes(name, bytes);
   }

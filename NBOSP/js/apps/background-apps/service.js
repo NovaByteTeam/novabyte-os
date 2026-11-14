@@ -280,8 +280,8 @@
           try {
             if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
               Notify.show({
-                title: al.label || 'Alarm',
-                body: `Alarm for ${al.time}`,
+                title: al.label || _t('apps.backgroundApps.alarm'),
+                body: _t('apps.backgroundApps.alarmFor', { time: al.time }),
                 type: 'info',
                 appName: 'Clock',
                 appId: 'com.nbosp.clock',
@@ -411,7 +411,7 @@
           saveAccounts();
         }
         if (unread > 0 && window.Notify?.show) {
-          Notify.show({ title: 'Email', body: `${unread} new in ${acct.name || acct.email || 'Email'}`, type: 'info', appName: 'Email' });
+          Notify.show({ title: _t('apps.backgroundApps.email'), body: _t('apps.backgroundApps.emailNewMail', { count: unread, account: acct.name || acct.email || _t('apps.backgroundApps.email') }), type: 'info', appName: 'Email' });
         }
         renderHook();
       } catch {

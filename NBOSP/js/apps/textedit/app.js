@@ -12,7 +12,7 @@ function initLinuxTextEdit(content, state, options = {}) {
   const toolbar = createEl('div', { style: 'display:flex;gap:8px;padding:8px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;' });
   const editor = createEl('textarea', {
     className: 'quill-textarea',
-    'aria-label': 'Text editor',
+    'aria-label': _t('apps.textedit.editorAria'),
     spellcheck: 'false',
     // .quill-textarea is absolutely positioned at z-index 10 for the wrapped
     // layout below; here it sits in a flex column, so undo that or it covers the toolbar.
@@ -20,8 +20,8 @@ function initLinuxTextEdit(content, state, options = {}) {
   });
   const status = createEl('div', { role: 'status', style: 'padding:5px 10px;border-top:1px solid var(--border-subtle);font-size:11px;color:var(--text-muted);flex-shrink:0;' });
   const setStatus = () => {
-    const name = currentPath ? path.basename(currentPath) : 'Untitled';
-    status.textContent = `${name}${modified ? ' • Modified' : ''}`;
+    const name = currentPath ? path.basename(currentPath) : _t('apps.textedit.untitled');
+    status.textContent = `${name}${modified ? _t('apps.textedit.modifiedIndicator') : ''}`;
   };
   const addButton = (label, action) => {
     const button = createEl('button', { className: 'btn btn-sm', textContent: label });
@@ -31,10 +31,10 @@ function initLinuxTextEdit(content, state, options = {}) {
   const selectPath = async (saveAs, suggestedName = 'untitled.txt') => {
     const startPath = currentPath ? path.dirname(currentPath) : os.homedir();
     if (saveAs) {
-      const picked = await SystemDialogs.save({ title: 'Save As', suggestedName, startPath });
+      const picked = await SystemDialogs.save({ title: _t('apps.textedit.saveAsDialogTitle'), suggestedName, startPath });
       return picked ? picked.path : null;
     } else {
-      const picked = await SystemDialogs.open({ title: 'Open File', startPath });
+      const picked = await SystemDialogs.open({ title: _t('apps.textedit.openFileDialogTitle'), startPath });
       return picked ? picked.path : null;
     }
   };
@@ -47,9 +47,9 @@ function initLinuxTextEdit(content, state, options = {}) {
       currentPath = target;
       modified = false;
       setStatus();
-      Notify.show({ title: 'Saved', body: path.basename(target), type: 'success', appName: 'TextEdit' });
+      Notify.show({ title: _t('apps.textedit.savedTitle'), body: path.basename(target), type: 'success', appName: 'TextEdit' });
     } catch (error) {
-      Notify.show({ title: 'Save failed', body: error.message, type: 'error', appName: 'TextEdit' });
+      Notify.show({ title: _t('apps.textedit.saveFailedLinux'), body: error.message, type: 'error', appName: 'TextEdit' });
     }
   };
 
@@ -62,13 +62,13 @@ function initLinuxTextEdit(content, state, options = {}) {
       modified = false;
       setStatus();
     } catch (error) {
-      Notify.show({ title: 'Open failed', body: error.message, type: 'error', appName: 'TextEdit' });
+      Notify.show({ title: _t('apps.textedit.openFailedLinux'), body: error.message, type: 'error', appName: 'TextEdit' });
     }
   };
 
-  addButton('Open…', open);
-  addButton('Save', () => save(false));
-  addButton('Save As…', () => save(true));
+  addButton(_t('apps.textedit.openButton'), open);
+  addButton(_t('common.save'), () => save(false));
+  addButton(_t('apps.textedit.saveAsButton'), () => save(true));
   editor.addEventListener('input', () => {
     modified = true;
     setStatus();
@@ -92,7 +92,7 @@ function initLinuxTextEdit(content, state, options = {}) {
       setStatus();
     }).catch(error => {
       console.error('[TextEdit] Could not open requested file:', error);
-      Notify.show({ title: 'Open failed', body: error.message, type: 'error', appName: 'TextEdit' });
+      Notify.show({ title: _t('apps.textedit.openFailedLinux'), body: error.message, type: 'error', appName: 'TextEdit' });
     });
   } else {
     setStatus();
@@ -142,9 +142,9 @@ registerApp({
       msg.append(
         bold,
         document.createElement('br'),
-        'App data directory missing.',
+        _t('apps.textedit.guard.appDataMissing'),
         document.createElement('br'),
-        'This app requires NovaByte OS.'
+        _t('apps.textedit.guard.requiresOs')
       );
       content.append(icon, msg);
       return;
@@ -163,23 +163,23 @@ registerApp({
     const container = createEl('div', { className: 'quill-container' });
     const toolbar = createEl('div', { className: 'quill-toolbar' });
     const saveBtn = createEl('button', {
-      className: 'btn btn-sm btn-primary', textContent: 'Save', title: 'Save (Ctrl+S)'
+      className: 'btn btn-sm btn-primary', textContent: _t('common.save'), title: _t('apps.textedit.saveButtonTitle')
     });
     const saveAsBtn = createEl('button', {
-      className: 'btn btn-sm', textContent: 'Save As…', title: 'Save a copy with a new name'
+      className: 'btn btn-sm', textContent: _t('apps.textedit.saveAsButton'), title: _t('apps.textedit.saveAsButtonTitle')
     });
     const openBtn = createEl('button', {
-      className: 'btn btn-sm', textContent: 'Open…', title: 'Open a file'
+      className: 'btn btn-sm', textContent: _t('apps.textedit.openButton'), title: _t('apps.textedit.openButtonTitle')
     });
     const wrapBtn = createEl('button', {
-      className: 'btn btn-sm', textContent: 'Word Wrap', title: 'Toggle word wrap'
+      className: 'btn btn-sm', textContent: _t('apps.textedit.wordWrap'), title: _t('apps.textedit.wordWrapTitle')
     });
     const editorWrap = createEl('div', { className: 'quill-editor-wrap' });
     const gutter = createEl('div', { className: 'quill-gutter', 'aria-hidden': 'true' });
     const textarea = createEl('textarea', {
       className: 'quill-textarea', id: 'quill-text-editor', name: 'quill-editor',
       spellcheck: 'false', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off',
-      'aria-label': 'Text editor', role: 'textbox', 'aria-multiline': 'true'
+      'aria-label': _t('apps.textedit.editorAria'), role: 'textbox', 'aria-multiline': 'true'
     });
     const statusBar = createEl('div', {
       className: 'quill-statusbar',
@@ -322,7 +322,7 @@ registerApp({
       const col = pos - lastNL;
       const words = countWords(val);
 
-      statusBar.textContent = `Ln ${line}, Col ${col}  ·  ${words} words`;
+      statusBar.textContent = _t('apps.textedit.statusPosition', { line, col, words });
     }
 
     // Batch UI updates into the next animation frame to avoid layout thrashing on fast input
@@ -485,14 +485,14 @@ registerApp({
           await FS.writeFile(file.id, textarea.value);
           file.content = textarea.value;
           file.modified = false;
-          Notify.show({ title: 'Saved', body: file.name, type: 'success', appName: 'TextEdit' });
+          Notify.show({ title: _t('apps.textedit.savedTitle'), body: file.name, type: 'success', appName: 'TextEdit' });
         } else {
           await saveFileAs();
         }
       } catch (err) {
         Notify.show({
-          title: 'Save Failed',
-          body: err?.message ?? 'Unknown error occurred while saving.',
+          title: _t('apps.textedit.saveFailed'),
+          body: err?.message ?? _t('apps.textedit.saveUnknownError'),
           type: 'error',
           appName: 'TextEdit'
         });
@@ -502,7 +502,7 @@ registerApp({
     async function saveFileAs() {
       try {
         const picked = await SystemDialogs.save({
-          title: 'Save As',
+          title: _t('apps.textedit.saveAsDialogTitle'),
           suggestedName: file.name,
           startFolderId: getFilesDir()
         });
@@ -519,11 +519,11 @@ registerApp({
           renderDesktopIcons();
         }
 
-        Notify.show({ title: 'Saved', body: file.name, type: 'success', appName: 'TextEdit' });
+        Notify.show({ title: _t('apps.textedit.savedTitle'), body: file.name, type: 'success', appName: 'TextEdit' });
       } catch (err) {
         Notify.show({
-          title: 'Save Failed',
-          body: err?.message ?? 'Unknown error occurred while saving.',
+          title: _t('apps.textedit.saveFailed'),
+          body: err?.message ?? _t('apps.textedit.saveUnknownError'),
           type: 'error',
           appName: 'TextEdit'
         });
@@ -533,7 +533,7 @@ registerApp({
     async function openFile() {
       try {
         const picked = await SystemDialogs.open({
-          title: 'Open',
+          title: _t('common.open'),
           startFolderId: getFilesDir(),
           filter: (node) => (node.mimeType || '').startsWith('text/') || node.mimeType === 'application/json'
         });
@@ -547,11 +547,11 @@ registerApp({
         textarea.value = file.content;
         syncGutter();
         syncStatus();
-        Notify.show({ title: 'Opened', body: picked.name, type: 'success', appName: 'TextEdit' });
+        Notify.show({ title: _t('apps.textedit.openedTitle'), body: picked.name, type: 'success', appName: 'TextEdit' });
       } catch (err) {
         Notify.show({
-          title: 'Open Failed',
-          body: err?.message ?? 'Unknown error occurred while opening.',
+          title: _t('apps.textedit.openFailedTitle'),
+          body: err?.message ?? _t('apps.textedit.openUnknownError'),
           type: 'error',
           appName: 'TextEdit'
         });
@@ -561,22 +561,22 @@ registerApp({
     function onContextMenu(e) {
       e.preventDefault();
       ContextMenu.show(e.clientX, e.clientY, [
-        { label: 'Cut', icon: 'scissors', shortcut: 'Ctrl+X', action: doCut },
-        { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', action: doCopy },
-        { label: 'Paste', icon: 'documents', shortcut: 'Ctrl+V', action: doPaste },
+        { label: _t('apps.textedit.context.cut'), icon: 'scissors', shortcut: 'Ctrl+X', action: doCut },
+        { label: _t('apps.textedit.context.copy'), icon: 'copy', shortcut: 'Ctrl+C', action: doCopy },
+        { label: _t('apps.textedit.context.paste'), icon: 'documents', shortcut: 'Ctrl+V', action: doPaste },
         { separator: true },
         {
-          label: 'Select All', icon: 'maximize', shortcut: 'Ctrl+A',
+          label: _t('apps.textedit.context.selectAll'), icon: 'maximize', shortcut: 'Ctrl+A',
           action: () => { textarea.focus(); textarea.select(); }
         },
         { separator: true },
         {
-          label: 'Word Count', icon: 'info',
+          label: _t('apps.textedit.context.wordCount'), icon: 'info',
           action: () => {
             const n = countWords(textarea.value);
             Notify.show({
-              title: 'Word Count',
-              body: `${n} word${n !== 1 ? 's' : ''}`,
+              title: _t('apps.textedit.context.wordCount'),
+              body: n !== 1 ? _t('apps.textedit.wordCountMany', { count: n }) : _t('apps.textedit.wordCountOne', { count: n }),
               type: 'info', appName: 'TextEdit'
             });
           }
@@ -630,12 +630,12 @@ registerApp({
         const fs = require('fs').promises;
         const path = require('path');
         if (!droppedFile.name || path.basename(droppedFile.name) !== droppedFile.name) {
-          throw new Error('Dropped file name is not valid.');
+          throw new Error(_t('apps.textedit.invalidDropName'));
         }
         const destination = path.join(require('os').homedir(), droppedFile.name);
         await fs.writeFile(destination, text, { encoding: 'utf8', flag: 'wx' });
         WM.createWindow('com.nbosp.textedit', { path: destination });
-        Notify.show({ title: 'File Opened', body: droppedFile.name, type: 'success', appName: 'TextEdit' });
+        Notify.show({ title: _t('apps.textedit.fileOpened'), body: droppedFile.name, type: 'success', appName: 'TextEdit' });
         return;
       }
       const fileId = globalThis.generateId?.() ?? crypto.randomUUID();
@@ -648,11 +648,11 @@ registerApp({
         mimeType: droppedFile.type || 'text/plain'
       });
       WM.createWindow('com.nbosp.textedit', { fileId });
-      Notify.show({ title: 'File Opened', body: droppedFile.name, type: 'success', appName: 'TextEdit' });
+      Notify.show({ title: _t('apps.textedit.fileOpened'), body: droppedFile.name, type: 'success', appName: 'TextEdit' });
     } catch (err) {
       Notify.show({
-        title: 'Error',
-        body: err?.message ?? 'Failed to open file.',
+        title: _t('common.error'),
+        body: err?.message ?? _t('apps.textedit.failedToOpen'),
         type: 'error',
         appName: 'TextEdit'
       });

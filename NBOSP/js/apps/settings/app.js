@@ -14,7 +14,7 @@ registerApp({
     const systemSettings = window.NovaByteSystem?.settings;
     if (!systemSettings) {
       console.error('[Settings] NovaByte System settings API is unavailable');
-      content.textContent = 'System settings are unavailable. Restart NovaByte OS and try again.';
+      content.textContent = _t('settings.shared.systemUnavailable');
       return;
     }
 
@@ -26,27 +26,27 @@ registerApp({
       const msg = createEl('div', { style: 'font-size:14px;text-align:center' });
       msg.appendChild(createEl('b', { textContent: 'com.nbosp.settings' }));
       msg.appendChild(createEl('br'));
-      msg.appendChild(document.createTextNode('App data directory missing.'));
+      msg.appendChild(document.createTextNode(_t('settings.shared.appDataMissing')));
       msg.appendChild(createEl('br'));
-      msg.appendChild(document.createTextNode('This app requires NovaByte OS.'));
+      msg.appendChild(document.createTextNode(_t('settings.shared.requiresNovaByte')));
       content.append(iconEl, msg);
       return;
     }
 
     // Sidebar sections
     const SECTIONS = [
-      { id: 'appearance',      name: 'Appearance',      icon: 'image'         },
-      { id: 'accessibility',   name: 'Accessibility',   icon: 'eye'           },
-      { id: 'desktop',         name: 'Desktop',         icon: 'layers'        },
-      { id: 'system',          name: 'System',           icon: 'processor'     },
-      { id: 'date-and-region', name: 'Date and Region',  icon: 'calendar'      },
-      { id: 'connectivity',    name: 'Connectivity',     icon: 'globe'         },
-      { id: 'storage',         name: 'Storage',          icon: 'database'      },
-      { id: 'notifications',   name: 'Notifications',    icon: 'bell'          },
-      { id: 'privacy',         name: 'Privacy',          icon: 'lock'          },
-      { id: 'root',            name: 'Root Access',      icon: 'shield'        },
-      { id: 'default-apps',    name: 'Default Apps',     icon: 'default-apps'  },
-      { id: 'about',           name: 'About',            icon: 'info'          }
+      { id: 'appearance',      nameKey: 'settings.sidebar.appearance',     icon: 'image'         },
+      { id: 'accessibility',   nameKey: 'settings.sidebar.accessibility',  icon: 'eye'           },
+      { id: 'desktop',         nameKey: 'settings.sidebar.desktop',        icon: 'layers'        },
+      { id: 'system',          nameKey: 'settings.sidebar.system',         icon: 'processor'     },
+      { id: 'date-and-region', nameKey: 'settings.sidebar.dateAndRegion',  icon: 'calendar'      },
+      { id: 'connectivity',    nameKey: 'settings.sidebar.connectivity',   icon: 'globe'         },
+      { id: 'storage',         nameKey: 'settings.sidebar.storage',        icon: 'database'      },
+      { id: 'notifications',   nameKey: 'settings.sidebar.notifications',  icon: 'bell'          },
+      { id: 'privacy',         nameKey: 'settings.sidebar.privacy',        icon: 'lock'          },
+      { id: 'root',            nameKey: 'settings.sidebar.root',           icon: 'shield'        },
+      { id: 'default-apps',    nameKey: 'settings.sidebar.defaultApps',    icon: 'default-apps'  },
+      { id: 'about',           nameKey: 'settings.sidebar.about',          icon: 'info'          }
     ];
 
     const THEMES      = ['nova-dark', 'nova-light', 'nord', 'dracula', 'catppuccin', 'tokyo-night', 'gruvbox'];
@@ -57,15 +57,15 @@ registerApp({
     const PRESET_WALLPAPERS = window.WallpaperService.getPresets();
 
     const TASKBAR_SIZES = [
-      { value: 'compact', label: 'Compact' },
-      { value: 'normal',  label: 'Normal' },
-      { value: 'large',   label: 'Large' }
+      { value: 'compact', labelKey: 'settings.desktop.sizeCompact' },
+      { value: 'normal',  labelKey: 'settings.desktop.sizeNormal' },
+      { value: 'large',   labelKey: 'settings.desktop.sizeLarge' }
     ];
 
     const ICON_SIZES = [
-      { value: 'normal', label: 'Normal',  transform: 'scale(1)'   },
-      { value: 'large',  label: 'Large',   transform: 'scale(1.5)' },
-      { value: 'xlarge', label: 'X-Large', transform: 'scale(2)'   }
+      { value: 'normal', labelKey: 'settings.desktop.sizeNormal',  transform: 'scale(1)'   },
+      { value: 'large',  labelKey: 'settings.desktop.sizeLarge',   transform: 'scale(1.5)' },
+      { value: 'xlarge', labelKey: 'settings.desktop.sizeXLarge',  transform: 'scale(2)'   }
     ];
 
     const KEYBOARD_LAYOUTS = [
@@ -125,7 +125,7 @@ registerApp({
         role: 'status',
         style: 'padding:10px 12px;margin:0 0 12px;background:var(--accent-muted,rgba(88,166,255,0.12));border:1px solid var(--accent);border-radius:8px;color:var(--text-primary);font-size:12px;'
       });
-      notice.textContent = `${homeApp.name} is your active third-party launcher. These controls only apply to NovaByte Launcher.`;
+      notice.textContent = _t('settings.desktop.thirdPartyLauncherNotice', { app: homeApp.name });
       return notice;
     }
 
@@ -585,7 +585,7 @@ registerApp({
 
     // DOM skeleton
     const container   = createEl('div', { className: 'nook-container' });
-    const sidebar     = createEl('nav', { className: 'nook-sidebar', 'aria-label': 'Settings sections' });
+    const sidebar     = createEl('nav', { className: 'nook-sidebar', 'aria-label': _t('settings.shared.sectionsAria') });
     const mainContent = createEl('div', { className: 'nook-content' });
 
     // Sidebar — built once; only the active class changes on navigation
@@ -596,12 +596,12 @@ registerApp({
       for (const s of SECTIONS) {
         const btn = createEl('button', {
           className: 'nook-section-btn',
-          'aria-label': s.name,
+          'aria-label': _t(s.nameKey),
           'aria-current': currentSection === s.id ? 'true' : 'false'
         });
         const iconSpan = createEl('span', { 'aria-hidden': 'true' });
         iconSpan.innerHTML = svgIcon(s.icon, 16);
-        btn.append(iconSpan, createEl('span', { textContent: s.name }));
+        btn.append(iconSpan, createEl('span', { textContent: _t(s.nameKey) }));
         btn.addEventListener('click', () => {
           currentSection = s.id;
           updateSidebarActive();
@@ -646,13 +646,13 @@ registerApp({
         case 'desktop':           renderDesktop();         break;
         case 'about':             renderAbout();           break;
         default:
-          mainContent.appendChild(createEl('div', { className: 'empty-state', textContent: 'Section coming soon' }));
+          mainContent.appendChild(createEl('div', { className: 'empty-state', textContent: _t('settings.shared.sectionComingSoon') }));
       }
     }
 
     // Appearance
     function renderAppearance() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Appearance', style: { marginBottom: '20px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.appearance'), style: { marginBottom: '20px' } }));
 
       const wallpaperLocked = systemSettings.get('prohibitWallpaperChange');
       const currentTheme    = systemSettings.get('theme');
@@ -660,7 +660,7 @@ registerApp({
 
       // Theme
       const themeGroup = createEl('div', { className: 'nook-group' });
-      themeGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Theme' }));
+      themeGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.appearance.theme') }));
       for (let i = 0; i < THEMES.length; i++) {
         const t = THEMES[i];
         const row = createEl('div', { className: 'nook-row' });
@@ -668,7 +668,7 @@ registerApp({
         const isActive = currentTheme === t;
         const btn = createEl('button', {
           className: 'btn btn-sm' + (isActive ? ' btn-primary' : ''),
-          textContent: isActive ? 'Active' : 'Select',
+          textContent: isActive ? _t('settings.shared.active') : _t('common.select'),
           'aria-pressed': String(isActive)
         });
         btn.addEventListener('click', () => {
@@ -682,11 +682,11 @@ registerApp({
 
       // Accent color
       const accentGroup = createEl('div', { className: 'nook-group' });
-      accentGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Accent Color' }));
+      accentGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.appearance.accentColor') }));
       if (wallpaperLocked) {
         accentGroup.appendChild(createEl('div', {
           style: 'font-size:11px;color:var(--text-warning,#d29922);padding:4px 0;',
-          textContent: '\uD83D\uDD12 Accent colour changes are restricted by policy.'
+          textContent: _t('settings.appearance.accentRestricted')
         }));
       }
       const colorRow = createEl('div', { className: 'nook-row' });
@@ -701,7 +701,7 @@ registerApp({
             opacity: wallpaperLocked ? '0.4' : '1',
             cursor: wallpaperLocked ? 'not-allowed' : 'pointer'
           },
-          'aria-label': 'Color ' + c,
+          'aria-label': _t('settings.appearance.colorAria', { color: c }),
           'aria-pressed': String(selected),
           disabled: !!wallpaperLocked
         });
@@ -718,15 +718,15 @@ registerApp({
 
       // Clock format
       const clockGroup = createEl('div', { className: 'nook-group' });
-      clockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Clock' }));
+      clockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.appearance.clock') }));
       const clockRow = createEl('div', { className: 'nook-row' });
-      clockRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Time Format' }));
+      clockRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.appearance.timeFormat') }));
       const is24h = systemSettings.get('clockFormat') === '24h';
       const clockToggle = createEl('button', {
         className: 'toggle' + (is24h ? ' active' : ''),
         role: 'switch',
         'aria-checked': String(is24h),
-        'aria-label': 'Toggle 24-hour time'
+        'aria-label': _t('settings.appearance.toggle24hAria')
       });
       clockToggle.addEventListener('click', () => {
         const was24 = systemSettings.get('clockFormat') === '24h';
@@ -741,7 +741,7 @@ registerApp({
 
     // System
     function renderSystem() {
-      mainContent.appendChild(createEl('h2', { textContent: 'System', style: { marginBottom: '20px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.system'), style: { marginBottom: '20px' } }));
 
       // Multi-user machines manage accounts and PINs in the Users app; the
       // single-user username/PIN controls only apply while multi-user is off.
@@ -749,10 +749,10 @@ registerApp({
 
       if (multiUser) {
         const accountsGroup = createEl('div', { className: 'nook-group' });
-        accountsGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Accounts' }));
+        accountsGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.accounts') }));
         const accountsRow = createEl('div', { className: 'nook-row' });
-        accountsRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Manage user accounts' }));
-        const usersBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Open Users' });
+        accountsRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.system.manageAccounts') }));
+        const usersBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.system.openUsers') });
         usersBtn.addEventListener('click', () => {
           WM.createWindow('com.nbosp.users');
         }, { signal: lifecycle.signal });
@@ -763,39 +763,39 @@ registerApp({
         // current PIN here; only the forced post-reset flow skips it.
         if (typeof SessionManager !== 'undefined' && SessionManager?.changePin) {
           const myPinRow = createEl('div', { className: 'nook-row' });
-          myPinRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Your PIN' }));
-          const myPinBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Change PIN' });
+          myPinRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.system.yourPin') }));
+          const myPinBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.system.changePin') });
           myPinBtn.addEventListener('click', async () => {
-            const currentPin = await showModal('Change PIN', 'Enter current PIN:', [
-              { label: 'Cancel' }, { label: 'Next', value: 'next' }
+            const currentPin = await showModal(_t('settings.system.changePin'), _t('settings.system.enterCurrentPin'), [
+              { label: _t('common.cancel') }, { label: _t('common.next'), value: 'next' }
             ], 'password');
             if (!isAlive() || !currentPin) return;
 
-            const pin1 = await showModal('New PIN', 'Enter a new PIN (4–6 digits):', [
-              { label: 'Cancel' }, { label: 'Next', value: 'next' }
+            const pin1 = await showModal(_t('settings.system.newPin'), _t('settings.system.enterNewPin'), [
+              { label: _t('common.cancel') }, { label: _t('common.next'), value: 'next' }
             ], 'password');
             if (!isAlive() || !pin1) return;
             if (!/^\d{4,6}$/.test(pin1)) {
-              showModal('Invalid PIN', 'PIN must be 4 to 6 digits.');
+              showModal(_t('settings.system.invalidPin'), _t('settings.system.pinMustBe4to6'));
               return;
             }
 
-            const pin2 = await showModal('Confirm PIN', 'Re-enter your new PIN:', [
-              { label: 'Cancel' }, { label: 'Set PIN', value: 'confirm' }
+            const pin2 = await showModal(_t('settings.system.confirmPin'), _t('settings.system.reenterNewPin'), [
+              { label: _t('common.cancel') }, { label: _t('settings.system.setPin'), value: 'confirm' }
             ], 'password');
             if (!isAlive()) return;
             if (pin1 !== pin2) {
-              showModal('PIN Mismatch', 'The PINs do not match. Please try again.');
+              showModal(_t('settings.system.pinMismatch'), _t('settings.system.pinMismatchBody'));
               return;
             }
 
             const result = await SessionManager.changePin(currentPin, pin1);
             if (!isAlive()) return;
             if (!result?.ok) {
-              showModal('PIN not changed', result?.message || 'PIN change failed.');
+              showModal(_t('settings.system.pinNotChanged'), result?.message || _t('settings.system.pinChangeFailed'));
               return;
             }
-            Notify.show({ title: 'PIN Updated', body: 'Your PIN has been changed', type: 'success', appName: 'Settings' });
+            Notify.show({ title: _t('settings.system.pinUpdated'), body: _t('settings.system.pinUpdatedBody'), type: 'success', appName: 'Settings' });
           }, { signal: lifecycle.signal });
           myPinRow.appendChild(myPinBtn);
           accountsGroup.appendChild(myPinRow);
@@ -804,35 +804,35 @@ registerApp({
           // does the length check and we just show its message.
           if (SessionManager.changePassphrase) {
             const phraseRow = createEl('div', { className: 'nook-row' });
-            phraseRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Your passphrase' }));
-            const phraseBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Change passphrase' });
+            phraseRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.system.yourPassphrase') }));
+            const phraseBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.system.changePassphrase') });
             phraseBtn.addEventListener('click', async () => {
-              const current = await showModal('Change passphrase', 'Enter your current PIN or passphrase:', [
-                { label: 'Cancel' }, { label: 'Next', value: 'next' }
+              const current = await showModal(_t('settings.system.changePassphrase'), _t('settings.system.enterCurrentPassphrase'), [
+                { label: _t('common.cancel') }, { label: _t('common.next'), value: 'next' }
               ], 'password');
               if (!isAlive() || !current) return;
 
-              const phrase1 = await showModal('New passphrase', 'Enter a new passphrase:', [
-                { label: 'Cancel' }, { label: 'Next', value: 'next' }
+              const phrase1 = await showModal(_t('settings.system.newPassphrase'), _t('settings.system.enterNewPassphrase'), [
+                { label: _t('common.cancel') }, { label: _t('common.next'), value: 'next' }
               ], 'password');
               if (!isAlive() || !phrase1) return;
 
-              const phrase2 = await showModal('Confirm passphrase', 'Re-enter your new passphrase:', [
-                { label: 'Cancel' }, { label: 'Set passphrase', value: 'confirm' }
+              const phrase2 = await showModal(_t('settings.system.confirmPassphrase'), _t('settings.system.reenterNewPassphrase'), [
+                { label: _t('common.cancel') }, { label: _t('settings.system.setPassphrase'), value: 'confirm' }
               ], 'password');
               if (!isAlive()) return;
               if (phrase1 !== phrase2) {
-                showModal('Passphrase Mismatch', 'The passphrases do not match. Please try again.');
+                showModal(_t('settings.system.passphraseMismatch'), _t('settings.system.passphraseMismatchBody'));
                 return;
               }
 
               const result = await SessionManager.changePassphrase(current, phrase1);
               if (!isAlive()) return;
               if (!result?.ok) {
-                showModal('Passphrase not changed', result?.message || 'Passphrase change failed.');
+                showModal(_t('settings.system.passphraseNotChanged'), result?.message || _t('settings.system.passphraseChangeFailed'));
                 return;
               }
-              Notify.show({ title: 'Passphrase Updated', body: 'Your passphrase has been changed', type: 'success', appName: 'Settings' });
+              Notify.show({ title: _t('settings.system.passphraseUpdated'), body: _t('settings.system.passphraseUpdatedBody'), type: 'success', appName: 'Settings' });
             }, { signal: lifecycle.signal });
             phraseRow.appendChild(phraseBtn);
             accountsGroup.appendChild(phraseRow);
@@ -843,9 +843,9 @@ registerApp({
       } else {
         // User
         const userGroup = createEl('div', { className: 'nook-group' });
-        userGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'User' }));
+        userGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.user') }));
         const userRow = createEl('div', { className: 'nook-row' });
-        const userLabel = createEl('label', { className: 'nook-row-label', htmlFor: 'system-username-input', textContent: 'Username' });
+        const userLabel = createEl('label', { className: 'nook-row-label', htmlFor: 'system-username-input', textContent: _t('settings.system.username') });
         userRow.appendChild(userLabel);
         const userInput = createEl('input', {
           className: 'input', id: 'system-username-input', name: 'system-username',
@@ -861,40 +861,40 @@ registerApp({
 
       // Lock screen
       const lockGroup = createEl('div', { className: 'nook-group' });
-      lockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Lock Screen' }));
+      lockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.lockScreen') }));
       const pinRow = createEl('div', { className: 'nook-row' });
-      pinRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'PIN Lock' }));
+      pinRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.system.pinLock') }));
 
-      const pinBtn = createEl('button', { className: 'btn btn-sm', textContent: OS.lockPin ? 'Change PIN' : 'Set PIN' });
+      const pinBtn = createEl('button', { className: 'btn btn-sm', textContent: OS.lockPin ? _t('settings.system.changePin') : _t('settings.system.setPin') });
       pinBtn.addEventListener('click', async () => {
         if (OS.lockPin) {
-          const currentPin = await showModal('Change PIN', 'Enter current PIN:', [
-            { label: 'Cancel' }, { label: 'Next', value: 'next' }
+          const currentPin = await showModal(_t('settings.system.changePin'), _t('settings.system.enterCurrentPin'), [
+            { label: _t('common.cancel') }, { label: _t('common.next'), value: 'next' }
           ], 'password');
           if (!isAlive()) return;
           if (!currentPin) return;
           const hash = await OS.workers.crypto.call('pbkdf2', currentPin, getPinSalt());
           if (hash !== OS.lockPin) {
-            showModal('Incorrect PIN', 'The current PIN you entered is incorrect.');
+            showModal(_t('settings.system.incorrectPin'), _t('settings.system.incorrectPinBody'));
             return;
           }
         }
 
-        const pin1 = await showModal(OS.lockPin ? 'New PIN' : 'Set PIN', 'Enter a 4-digit PIN:', [
-          { label: 'Cancel' }, { label: 'Next', value: 'next' }
+        const pin1 = await showModal(OS.lockPin ? _t('settings.system.newPin') : _t('settings.system.setPin'), _t('settings.system.enter4DigitPin'), [
+          { label: _t('common.cancel') }, { label: _t('common.next'), value: 'next' }
         ], 'password');
         if (!isAlive()) return;
         if (!pin1 || pin1.length !== 4 || !/^\d{4}$/.test(pin1)) {
-          if (pin1) showModal('Invalid PIN', 'PIN must be exactly 4 digits.');
+          if (pin1) showModal(_t('settings.system.invalidPin'), _t('settings.system.pinExactly4'));
           return;
         }
 
-        const pin2 = await showModal('Confirm PIN', 'Re-enter your PIN:', [
-          { label: 'Cancel' }, { label: 'Set PIN', value: 'confirm' }
+        const pin2 = await showModal(_t('settings.system.confirmPin'), _t('settings.system.reenterPin'), [
+          { label: _t('common.cancel') }, { label: _t('settings.system.setPin'), value: 'confirm' }
         ], 'password');
         if (!isAlive()) return;
         if (pin1 !== pin2) {
-          showModal('PIN Mismatch', 'The PINs do not match. Please try again.');
+          showModal(_t('settings.system.pinMismatch'), _t('settings.system.pinMismatchBody'));
           return;
         }
 
@@ -902,21 +902,21 @@ registerApp({
         const newHash = await OS.workers.crypto.call('pbkdf2', pin1, getPinSalt());
         if (!isAlive()) return;
         window.NovaByteSystem.security.setLockPin(newHash);
-        Notify.show({ title: wasSet ? 'PIN Updated' : 'PIN Set', body: wasSet ? 'Lock screen PIN has been updated' : 'Lock screen PIN has been set', type: 'success', appName: 'Settings' });
+        Notify.show({ title: wasSet ? _t('settings.system.pinUpdated') : _t('settings.system.pinSet'), body: wasSet ? _t('settings.system.lockPinUpdatedBody') : _t('settings.system.lockPinSetBody'), type: 'success', appName: 'Settings' });
         renderContent();
       }, { signal: lifecycle.signal });
       pinRow.appendChild(pinBtn);
 
       if (OS.lockPin) {
-        const removePinBtn = createEl('button', { className: 'btn btn-sm btn-danger', textContent: 'Remove', style: { marginLeft: '8px' } });
+        const removePinBtn = createEl('button', { className: 'btn btn-sm btn-danger', textContent: _t('common.remove'), style: { marginLeft: '8px' } });
         removePinBtn.addEventListener('click', async () => {
-          const result = await showModal('Remove PIN', 'Are you sure you want to remove PIN lock?', [
-            { label: 'Cancel' }, { label: 'Remove PIN', danger: true, value: 'confirm' }
+          const result = await showModal(_t('settings.system.removePin'), _t('settings.system.removePinQuestion'), [
+            { label: _t('common.cancel') }, { label: _t('settings.system.removePin'), danger: true, value: 'confirm' }
           ]);
           if (!isAlive()) return;
           if (result === 'confirm') {
             window.NovaByteSystem.security.setLockPin(null);
-            Notify.show({ title: 'PIN Removed', body: 'PIN lock has been disabled', type: 'success', appName: 'Settings' });
+            Notify.show({ title: _t('settings.system.pinRemoved'), body: _t('settings.system.pinRemovedBody'), type: 'success', appName: 'Settings' });
             renderContent();
           }
         }, { signal: lifecycle.signal });
@@ -927,15 +927,15 @@ registerApp({
 
       // Recovery
       const recoveryGroup = createEl('div', { className: 'nook-group' });
-      recoveryGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Recovery' }));
+      recoveryGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.recovery') }));
       const recoveryRow = createEl('div', { className: 'nook-row' });
-      recoveryRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Recovery Environment' }));
-      const recoveryBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Boot to Recovery', style: { background: '#6c5ce7' } });
+      recoveryRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.system.recoveryEnvironment') }));
+      const recoveryBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.system.bootToRecovery'), style: { background: '#6c5ce7' } });
       recoveryBtn.addEventListener('click', async () => {
         const confirmed = await showModal(
-          'Boot to Recovery Environment',
-          'This will restart the machine into the Linux recovery environment, where you can start in safe mode, clear caches, back up or restore data, or reset the system.',
-          [{ label: 'Cancel' }, { label: 'Boot to Recovery', value: 'confirm', primary: true }]
+          _t('settings.system.bootToRecoveryEnv'),
+          _t('settings.system.bootToRecoveryBody'),
+          [{ label: _t('common.cancel') }, { label: _t('settings.system.bootToRecovery'), value: 'confirm', primary: true }]
         );
         if (!isAlive()) return;
         if (confirmed !== 'confirm') return;
@@ -961,15 +961,15 @@ registerApp({
 
       // Developer Mode
       const devGroup = createEl('div', { className: 'nook-group' });
-      devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Developer' }));
+      devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.developer') }));
       const devRow = createEl('div', { className: 'nook-toggle-row' });
-      devRow.appendChild(createEl('span', { textContent: 'Developer Mode' }));
+      devRow.appendChild(createEl('span', { textContent: _t('settings.system.developerMode') }));
       const devOn = !!systemSettings.get('devMode');
       const devToggle = createEl('button', {
         className: 'toggle' + (devOn ? ' active' : ''),
         role: 'switch',
         'aria-checked': String(devOn),
-        'aria-label': 'Toggle developer mode'
+        'aria-label': _t('settings.system.toggleDevModeAria')
       });
       devToggle.addEventListener('click', async () => {
         const next = !systemSettings.get('devMode');
@@ -982,8 +982,8 @@ registerApp({
         devToggle.classList.toggle('active', next);
         devToggle.setAttribute('aria-checked', String(next));
         Notify.show({
-          title: next ? 'Developer Mode Enabled' : 'Developer Mode Disabled',
-          body: next ? 'Press F3 to toggle debug overlay' : undefined,
+          title: next ? _t('settings.system.devModeEnabled') : _t('settings.system.devModeDisabled'),
+          body: next ? _t('settings.system.devModeOverlayHint') : undefined,
           type: 'info',
           appName: 'Settings'
         });
@@ -1017,7 +1017,7 @@ registerApp({
         const header = createEl('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:16px;' });
         header.appendChild(createEl('span', { textContent: '\u26A0\uFE0F', style: 'font-size:22px;line-height:1;' }));
         header.appendChild(createEl('div', {
-          textContent: 'Developer Mode — Security Warning',
+          textContent: _t('settings.system.devWarningTitle'),
           style: 'font-size:17px;font-weight:700;color:var(--text-danger,#f85149);letter-spacing:0.2px;'
         }));
         dialog.appendChild(header);
@@ -1025,17 +1025,13 @@ registerApp({
         const body = createEl('div', {
           style: 'font-size:14px;color:var(--text-secondary,#aaa);line-height:1.55;margin-bottom:18px;white-space:pre-line;max-height:340px;overflow-y:auto;padding-right:4px;'
         });
-        body.textContent =
-          'WARNING: Developer Mode enables development and diagnostic tools that can expose or change sensitive system state.\n\n' +
-          'Developer Mode does not by itself disable the app sandbox or grant every app unrestricted filesystem, network, or system access. Tools and actions remain subject to their own permission checks. Use these capabilities only on a device you trust.\n\n' +
-          'Developer Mode also makes it possible to enable Root Access in Settings. Root Access is a separate device-wide switch, and each app still needs its own explicit grant. A root-approved app runs directly inside the OS page without a sandbox and can read or change system data and UI. Only grant it to apps you fully trust.\n\n' +
-          'Developer Mode is intended for development, debugging, and system maintenance. Enable it only when needed, and leave it disabled during normal use.';
+        body.textContent = _t('settings.system.devWarningBody');
           'Developer Mode is intended solely for development, debugging, and system maintenance. Enable it only when you understand the risks. Leave it disabled during normal use.';
         dialog.appendChild(body);
 
         const actions = createEl('div', { style: 'display:flex;gap:10px;justify-content:flex-end;' });
-        const cancelBtn = createEl('button', { className: 'btn', textContent: 'Cancel' });
-        const confirmBtn = createEl('button', { className: 'btn btn-danger', textContent: 'Turn On Anyway' });
+        const cancelBtn = createEl('button', { className: 'btn', textContent: _t('common.cancel') });
+        const confirmBtn = createEl('button', { className: 'btn btn-danger', textContent: _t('settings.system.turnOnAnyway') });
         actions.append(cancelBtn, confirmBtn);
         dialog.appendChild(actions);
         overlay.appendChild(dialog);
@@ -1188,7 +1184,7 @@ registerApp({
         const kbSelect = document.createElement('select');
         kbSelect.className = 'input';
         kbSelect.id = 'keyboard-layout-select';
-        kbSelect.setAttribute('aria-label', 'Keyboard layout');
+        kbSelect.setAttribute('aria-label', _t('settings.shared.keyboardLayoutAria'));
         const configuredLayout = systemSettings.get('keyboardLayout');
         const savedLayout = KEYBOARD_LAYOUTS.some(layout => layout.code === configuredLayout)
           ? configuredLayout
@@ -1309,9 +1305,9 @@ registerApp({
 
     // Connectivity
     function renderConnectivity() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Connectivity', style: { marginBottom: '8px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.connectivity'), style: { marginBottom: '8px' } }));
       mainContent.appendChild(createEl('p', {
-        textContent: 'Manage Wi-Fi, wired internet, and Bluetooth devices.',
+        textContent: _t('settings.connectivity.subtitle'),
         style: 'margin:0 0 20px;color:var(--text-muted);font-size:13px;'
       }));
 
@@ -1322,31 +1318,31 @@ registerApp({
         style: 'font-size:13px;color:var(--text-muted);'
       });
       const networkGroup = createEl('section', { className: 'nook-group' });
-      networkGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Internet connection' }));
+      networkGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.connectivity.internetConnection') }));
       const networkToggle = createEl('button', {
         className: 'btn btn-sm',
-        textContent: 'Networking: checking…',
+        textContent: _t('settings.connectivity.networkChecking'),
         disabled: true
       });
-      const refreshNetwork = createEl('button', { className: 'btn btn-sm', textContent: 'Refresh status' });
+      const refreshNetwork = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.connectivity.refreshStatus') });
       const networkControls = createEl('div', { className: 'nook-row', style: 'gap:8px;flex-wrap:wrap;' });
       networkControls.append(networkToggle, refreshNetwork);
       networkGroup.appendChild(networkControls);
 
       const wifiGroup = createEl('section', { className: 'nook-group' });
-      wifiGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Internet and Wi-Fi' }));
+      wifiGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.connectivity.internetAndWifi') }));
       const wifiControls = createEl('div', { className: 'nook-row', style: 'gap:8px;flex-wrap:wrap;' });
-      const wifiToggle = createEl('button', { className: 'btn btn-sm', textContent: 'Wi-Fi: checking…', disabled: true });
-      const wifiScan = createEl('button', { className: 'btn btn-sm', textContent: 'Scan for networks' });
-      const wifiDisconnect = createEl('button', { className: 'btn btn-sm', textContent: 'Disconnect Wi-Fi' });
+      const wifiToggle = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.connectivity.wifiChecking'), disabled: true });
+      const wifiScan = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.connectivity.scanNetworks') });
+      const wifiDisconnect = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.connectivity.disconnectWifi') });
       wifiControls.append(wifiToggle, wifiScan, wifiDisconnect);
       wifiGroup.appendChild(wifiControls);
 
       const wifiPassword = createEl('input', {
         type: 'password',
         autocomplete: 'current-password',
-        placeholder: 'Wi-Fi password (if required)',
-        'aria-label': 'Wi-Fi password',
+        placeholder: _t('settings.connectivity.wifiPasswordPlaceholder'),
+        'aria-label': _t('settings.connectivity.wifiPasswordAria'),
         style: 'width:100%;max-width:320px;margin:8px 0;'
       });
       wifiGroup.appendChild(wifiPassword);
@@ -1354,10 +1350,10 @@ registerApp({
       wifiGroup.appendChild(wifiList);
 
       const bluetoothGroup = createEl('section', { className: 'nook-group' });
-      bluetoothGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Bluetooth' }));
+      bluetoothGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.connectivity.bluetooth') }));
       const bluetoothControls = createEl('div', { className: 'nook-row', style: 'gap:8px;flex-wrap:wrap;' });
-      const bluetoothToggle = createEl('button', { className: 'btn btn-sm', textContent: 'Bluetooth: checking…', disabled: true });
-      const bluetoothScan = createEl('button', { className: 'btn btn-sm', textContent: 'Scan for devices' });
+      const bluetoothToggle = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.connectivity.bluetoothChecking'), disabled: true });
+      const bluetoothScan = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.connectivity.scanDevices') });
       bluetoothControls.append(bluetoothToggle, bluetoothScan);
       bluetoothGroup.appendChild(bluetoothControls);
       const bluetoothList = createEl('div', { style: 'display:grid;gap:8px;margin-top:8px;' });
@@ -1366,7 +1362,7 @@ registerApp({
       mainContent.append(statusText, networkGroup, wifiGroup, bluetoothGroup);
 
       if (!connectivity) {
-        statusText.textContent = 'Connectivity service is not available in this build.';
+        statusText.textContent = _t('settings.connectivity.serviceUnavailable');
         return;
       }
 
@@ -1375,7 +1371,7 @@ registerApp({
         statusText.style.color = isError ? 'var(--text-danger)' : 'var(--text-muted)';
       };
       const runAction = async (action, successMessage) => {
-        setStatus('Working…');
+        setStatus(_t('settings.connectivity.working'));
         try {
           await action();
           if (!isAlive()) return;
@@ -1395,24 +1391,24 @@ registerApp({
             setStatus(status.reason);
             return;
           }
-          statusText.textContent = `Internet: ${status.connectivity} · Network: ${status.networkState}`;
+          statusText.textContent = _t('settings.connectivity.statusLine', { connectivity: status.connectivity, networkState: status.networkState });
           networkToggle.disabled = status.networkEnabled === null;
           networkToggle.textContent = status.networkEnabled === null
-            ? 'Networking unavailable'
-            : `Networking: ${status.networkEnabled ? 'On' : 'Off'}`;
+            ? _t('settings.connectivity.networkingUnavailable')
+            : _t('settings.connectivity.networkingState', { state: status.networkEnabled ? _t('settings.connectivity.on') : _t('settings.connectivity.off') });
           networkToggle.setAttribute('aria-pressed', String(status.networkEnabled === true));
           wifiToggle.disabled = status.wifiEnabled === null;
           wifiToggle.textContent = status.wifiEnabled === null
-            ? 'Wi-Fi unavailable'
-            : `Wi-Fi: ${status.wifiEnabled ? 'On' : 'Off'}`;
+            ? _t('settings.connectivity.wifiUnavailable')
+            : _t('settings.connectivity.wifiState', { state: status.wifiEnabled ? _t('settings.connectivity.on') : _t('settings.connectivity.off') });
           wifiToggle.setAttribute('aria-pressed', String(status.wifiEnabled === true));
           bluetoothToggle.disabled = status.bluetoothEnabled === null;
           bluetoothToggle.textContent = status.bluetoothEnabled === null
-            ? 'Bluetooth unavailable'
-            : `Bluetooth: ${status.bluetoothEnabled ? 'On' : 'Off'}`;
+            ? _t('settings.connectivity.bluetoothUnavailable')
+            : _t('settings.connectivity.bluetoothState', { state: status.bluetoothEnabled ? _t('settings.connectivity.on') : _t('settings.connectivity.off') });
           bluetoothToggle.setAttribute('aria-pressed', String(status.bluetoothEnabled === true));
           const errors = [status.wifiError, status.bluetoothError].filter(Boolean);
-          if (errors.length) setStatus(`Internet: ${status.connectivity} · ${errors.join(' · ')}`, true);
+          if (errors.length) setStatus(_t('settings.connectivity.statusLineErrors', { connectivity: status.connectivity, errors: errors.join(' · ') }), true);
         } catch (error) {
           if (isAlive()) setStatus(error.message || String(error), true);
         }
@@ -1420,26 +1416,26 @@ registerApp({
 
       networkToggle.addEventListener('click', () => {
         const currentlyEnabled = networkToggle.getAttribute('aria-pressed') === 'true';
-        void runAction(() => connectivity.setNetworkingEnabled(!currentlyEnabled), 'Networking setting updated.');
+        void runAction(() => connectivity.setNetworkingEnabled(!currentlyEnabled), _t('settings.connectivity.networkingUpdated'));
       }, { signal: lifecycle.signal });
       refreshNetwork.addEventListener('click', () => { void refreshStatus(); }, { signal: lifecycle.signal });
 
       wifiToggle.addEventListener('click', () => {
         const currentlyEnabled = wifiToggle.getAttribute('aria-pressed') === 'true';
-        void runAction(() => connectivity.setWifiEnabled(!currentlyEnabled), 'Wi-Fi setting updated.');
+        void runAction(() => connectivity.setWifiEnabled(!currentlyEnabled), _t('settings.connectivity.wifiUpdated'));
       }, { signal: lifecycle.signal });
 
       wifiScan.addEventListener('click', async () => {
         wifiScan.disabled = true;
         wifiList.replaceChildren();
-        setStatus('Scanning for Wi-Fi networks…');
+        setStatus(_t('settings.connectivity.scanningWifi'));
         try {
           const networks = await connectivity.getWifiNetworks();
           if (!isAlive()) return;
           if (!networks.length) {
             wifiList.appendChild(createEl('div', {
               className: 'nook-row-label',
-              textContent: 'No Wi-Fi networks found. Check that a wireless adapter is available.'
+              textContent: _t('settings.connectivity.noNetworks')
             }));
           }
           for (const network of networks) {
@@ -1449,19 +1445,19 @@ registerApp({
             });
             row.appendChild(createEl('span', {
               className: 'nook-row-label',
-              textContent: `${network.ssid} · ${network.security} · ${network.signal}%`
+              textContent: _t('settings.connectivity.networkSummary', { ssid: network.ssid, security: network.security, signal: network.signal })
             }));
-            const connect = createEl('button', { className: 'btn btn-sm', textContent: 'Connect' });
+            const connect = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.connectivity.connect') });
             connect.addEventListener('click', () => {
               void runAction(
                 () => connectivity.connectWifi(network.ssid, wifiPassword.value),
-                `Connected to ${network.ssid}.`
+                _t('settings.connectivity.connectedTo', { name: network.ssid })
               ).finally(() => { if (isAlive()) wifiPassword.value = ''; });
             }, { signal: lifecycle.signal });
             row.appendChild(connect);
             wifiList.appendChild(row);
           }
-          setStatus(`Found ${networks.length} Wi-Fi network(s).`);
+          setStatus(_t('settings.connectivity.foundNetworks', { count: networks.length }));
         } catch (error) {
           if (isAlive()) setStatus(error.message || String(error), true);
         } finally {
@@ -1470,25 +1466,25 @@ registerApp({
       }, { signal: lifecycle.signal });
 
       wifiDisconnect.addEventListener('click', () => {
-        void runAction(() => connectivity.disconnectWifi(), 'Wi-Fi disconnected.');
+        void runAction(() => connectivity.disconnectWifi(), _t('settings.connectivity.wifiDisconnected'));
       }, { signal: lifecycle.signal });
 
       bluetoothToggle.addEventListener('click', () => {
         const currentlyEnabled = bluetoothToggle.getAttribute('aria-pressed') === 'true';
-        void runAction(() => connectivity.setBluetoothEnabled(!currentlyEnabled), 'Bluetooth setting updated.');
+        void runAction(() => connectivity.setBluetoothEnabled(!currentlyEnabled), _t('settings.connectivity.bluetoothUpdated'));
       }, { signal: lifecycle.signal });
 
       bluetoothScan.addEventListener('click', async () => {
         bluetoothScan.disabled = true;
         bluetoothList.replaceChildren();
-        setStatus('Scanning for Bluetooth devices…');
+        setStatus(_t('settings.connectivity.scanningBluetooth'));
         try {
           const devices = await connectivity.scanBluetooth();
           if (!isAlive()) return;
           if (!devices.length) {
             bluetoothList.appendChild(createEl('div', {
               className: 'nook-row-label',
-              textContent: 'No Bluetooth devices found. Make sure the device is discoverable.'
+              textContent: _t('settings.connectivity.noDevices')
             }));
           }
           for (const device of devices) {
@@ -1498,44 +1494,44 @@ registerApp({
             });
             row.appendChild(createEl('span', {
               className: 'nook-row-label',
-              textContent: `${device.name} · ${device.address}`
+              textContent: _t('settings.connectivity.deviceSummary', { name: device.name, address: device.address })
             }));
-            const pair = createEl('button', { className: 'btn btn-sm', textContent: 'Pair' });
+            const pair = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.connectivity.pair') });
             if (device.paired) {
               const connect = createEl('button', {
                 className: 'btn btn-sm',
-                textContent: device.connected ? 'Connected' : 'Connect',
+                textContent: device.connected ? _t('settings.connectivity.connected') : _t('settings.connectivity.connect'),
                 disabled: device.connected
               });
               if (!device.connected) {
                 connect.addEventListener('click', () => {
-                  void runAction(() => connectivity.connectBluetooth(device.address), `Connected to ${device.name}.`);
+                  void runAction(() => connectivity.connectBluetooth(device.address), _t('settings.connectivity.connectedTo', { name: device.name }));
                 }, { signal: lifecycle.signal });
               }
               const disconnect = createEl('button', {
                 className: 'btn btn-sm',
-                textContent: 'Disconnect',
+                textContent: _t('settings.connectivity.disconnect'),
                 disabled: !device.connected
               });
               if (device.connected) {
                 disconnect.addEventListener('click', () => {
-                  void runAction(() => connectivity.disconnectBluetooth(device.address), `Disconnected from ${device.name}.`);
+                  void runAction(() => connectivity.disconnectBluetooth(device.address), _t('settings.connectivity.disconnectedFrom', { name: device.name }));
                 }, { signal: lifecycle.signal });
               }
-              const forget = createEl('button', { className: 'btn btn-sm', textContent: 'Forget' });
+              const forget = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.connectivity.forget') });
               forget.addEventListener('click', () => {
-                void runAction(() => connectivity.forgetBluetooth(device.address), `Forgot ${device.name}.`);
+                void runAction(() => connectivity.forgetBluetooth(device.address), _t('settings.connectivity.forgot', { name: device.name }));
               }, { signal: lifecycle.signal });
               row.append(connect, disconnect, forget);
             } else {
               pair.addEventListener('click', () => {
-                void runAction(() => connectivity.pairBluetooth(device.address), `Paired and connected to ${device.name}.`);
+                void runAction(() => connectivity.pairBluetooth(device.address), _t('settings.connectivity.pairedWith', { name: device.name }));
               }, { signal: lifecycle.signal });
               row.appendChild(pair);
             }
             bluetoothList.appendChild(row);
           }
-          setStatus(`Found ${devices.length} Bluetooth device(s).`);
+          setStatus(_t('settings.connectivity.foundDevices', { count: devices.length }));
         } catch (error) {
           if (isAlive()) setStatus(error.message || String(error), true);
         } finally {
@@ -1548,22 +1544,22 @@ registerApp({
 
     // Storage
     async function renderStorage() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Storage', style: { marginBottom: '20px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.storage'), style: { marginBottom: '20px' } }));
 
       try {
         const est = await navigator.storage.estimate();
         if (!isAlive()) return;
 
         const usageGroup = createEl('div', { className: 'nook-group' });
-        usageGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Storage Usage' }));
+        usageGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.storage.usage') }));
 
         const usedRow = createEl('div', { className: 'nook-row' });
-        usedRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Used' }));
+        usedRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.storage.used') }));
         usedRow.appendChild(createEl('span', { textContent: formatBytes(est.usage || 0) }));
         usageGroup.appendChild(usedRow);
 
         const quotaRow = createEl('div', { className: 'nook-row' });
-        quotaRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Quota' }));
+        quotaRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.storage.quota') }));
         quotaRow.appendChild(createEl('span', { textContent: formatBytes(est.quota || 0) }));
         usageGroup.appendChild(quotaRow);
 
@@ -1575,16 +1571,16 @@ registerApp({
         mainContent.appendChild(usageGroup);
       } catch (err) {
         devLog('storage.estimate() failed:', err);
-        mainContent.appendChild(createEl('p', { textContent: 'Unable to retrieve storage information.' }));
+        mainContent.appendChild(createEl('p', { textContent: _t('settings.storage.unavailable') }));
       }
 
       // Per-app storage ledger (the "logical UID" accounting layer).
       // Settings reads AppSandbox.storageLedgerSnapshot() directly — trusted
       // host-tier access; apps can never see each other's numbers over IPC.
       const perAppGroup = createEl('div', { className: 'nook-group' });
-      perAppGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Per-App Storage' }));
+      perAppGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.storage.perApp') }));
       perAppGroup.appendChild(createEl('p', {
-        textContent: 'Key-value usage against each app\'s own budget, plus lifetime bytes moved and request counts. Budgets are enforced by the system, not by the app.',
+        textContent: _t('settings.storage.perAppHint'),
         style: { margin: '0 0 8px', opacity: '0.75', fontSize: '12px' },
       }));
       mainContent.appendChild(perAppGroup);
@@ -1601,7 +1597,7 @@ registerApp({
         const apps = snapshot?.apps || [];
         if (!apps.length) {
           perAppGroup.appendChild(createEl('p', {
-            textContent: 'No per-app storage recorded yet. Apps appear here once they store data through the platform API.',
+            textContent: _t('settings.storage.perAppEmpty'),
             style: { margin: '0', opacity: '0.65', fontSize: '12px' },
           }));
           return;
@@ -1616,7 +1612,7 @@ registerApp({
           }));
           row.appendChild(top);
           row.appendChild(createEl('div', {
-            textContent: formatBytes(app.bytesWritten || 0) + ' written · ' + formatBytes(app.bytesRead || 0) + ' read · ' + (app.requestCount || 0) + ' requests',
+            textContent: _t('settings.storage.ledgerStats', { written: formatBytes(app.bytesWritten || 0), read: formatBytes(app.bytesRead || 0), requests: app.requestCount || 0 }),
             style: { opacity: '0.65', fontSize: '11px' },
           }));
           const barRatio = Math.min(100, (app.kvUsage || 0) / (app.budgets?.storageQuotaBytes || 1) * 100);
@@ -1629,9 +1625,9 @@ registerApp({
 
       // Clear data buttons
       const clearGroup = createEl('div', { className: 'nook-group' });
-      clearGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Clear Data' }));
+      clearGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.storage.clearData') }));
 
-      const clearCacheBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Clear Cache' });
+      const clearCacheBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.storage.clearCache') });
       clearCacheBtn.addEventListener('click', async () => {
         const cleared = [];
 
@@ -1640,7 +1636,9 @@ registerApp({
             const cacheNames = await caches.keys();
             if (cacheNames.length) {
               await Promise.all(cacheNames.map(n => caches.delete(n)));
-              cleared.push(cacheNames.length + ' SW cache' + (cacheNames.length > 1 ? 's' : ''));
+              cleared.push(cacheNames.length > 1
+                ? _t('settings.storage.swCaches', { count: cacheNames.length })
+                : _t('settings.storage.swCache', { count: cacheNames.length }));
             }
           } catch (err) { devLog('caches.keys() failed:', err); }
         }
@@ -1652,7 +1650,9 @@ registerApp({
           );
           if (tempKeys.length) {
             for (const k of tempKeys) localStorage.removeItem(k);
-            cleared.push(tempKeys.length + ' temp key' + (tempKeys.length > 1 ? 's' : ''));
+            cleared.push(tempKeys.length > 1
+              ? _t('settings.storage.tempKeys', { count: tempKeys.length })
+              : _t('settings.storage.tempKey', { count: tempKeys.length }));
           }
           // Registry copies of the same transient boot state (HKNS/system/boot/*).
           if (typeof RegistryBootState !== 'undefined') {
@@ -1662,26 +1662,26 @@ registerApp({
 
         if (!isAlive()) return;
         if (cleared.length) {
-          Notify.show({ title: 'Cache Cleared', body: 'Removed: ' + cleared.join(', '), type: 'success', appName: 'Settings' });
+          Notify.show({ title: _t('settings.storage.cacheCleared'), body: _t('settings.storage.removedList', { items: cleared.join(', ') }), type: 'success', appName: 'Settings' });
         } else {
-          Notify.show({ title: 'Nothing to Clear', body: 'Cache is already empty', type: 'info', appName: 'Settings' });
+          Notify.show({ title: _t('settings.storage.nothingToClear'), body: _t('settings.storage.cacheEmpty'), type: 'info', appName: 'Settings' });
         }
       }, { signal: lifecycle.signal });
       clearGroup.appendChild(clearCacheBtn);
 
-      const wipeBtn = createEl('button', { className: 'btn btn-danger btn-sm', style: { marginLeft: '8px' }, textContent: 'Wipe All Data' });
+      const wipeBtn = createEl('button', { className: 'btn btn-danger btn-sm', style: { marginLeft: '8px' }, textContent: _t('settings.storage.wipeAllData') });
       wipeBtn.addEventListener('click', async () => {
-        const wipeConfirm = await showModal('Wipe All Data', 'This permanently deletes your files, settings, installed apps, and app data. On NBOSP, the system will restart after clearing your user profile. The installed operating system files are not removed.', [
-          { label: 'Cancel' }, { label: 'Wipe Everything', danger: true, value: 'wipe' }
+        const wipeConfirm = await showModal(_t('settings.storage.wipeAllData'), _t('settings.storage.wipeBody'), [
+          { label: _t('common.cancel') }, { label: _t('settings.storage.wipeEverything'), danger: true, value: 'wipe' }
         ]);
         if (!isAlive()) return;
         if (wipeConfirm !== 'wipe') return;
-        Notify.show({ title: 'Wiping Data', body: 'Please wait...', type: 'warning', appName: 'Settings' });
+        Notify.show({ title: _t('settings.storage.wiping'), body: _t('settings.storage.wipingBody'), type: 'warning', appName: 'Settings' });
         try {
           await window.performFactoryReset();
         } catch (err) {
           devLog('Factory reset failed:', err);
-          if (isAlive()) Notify.show({ title: 'Reset Failed', body: err.message, type: 'error', appName: 'Settings' });
+          if (isAlive()) Notify.show({ title: _t('settings.storage.resetFailed'), body: err.message, type: 'error', appName: 'Settings' });
         }
       }, { signal: lifecycle.signal });
       clearGroup.appendChild(wipeBtn);
@@ -1690,14 +1690,14 @@ registerApp({
 
     // Desktop
     function renderDesktop() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Desktop', style: { marginBottom: '20px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.desktop'), style: { marginBottom: '20px' } }));
 
       // Wallpaper
       const wallpaperGroup = createEl('div', { className: 'nook-group' });
-      wallpaperGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Wallpaper' }));
+      wallpaperGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.desktop.wallpaper') }));
 
       const presetRow = createEl('div', { className: 'nook-row' });
-      presetRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Preset Wallpapers' }));
+      presetRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.desktop.presetWallpapers') }));
       const presetContainer = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;' });
 
       const savedWallpaperId = systemSettings.get('wallpaperId');
@@ -1713,7 +1713,9 @@ registerApp({
         const wpCard = createEl('div', {
           role: 'button',
           tabindex: '0',
-          'aria-label': 'Wallpaper: ' + wp.name + (isActive ? ' (active)' : ''),
+          'aria-label': isActive
+            ? _t('settings.desktop.wallpaperAriaActive', { name: wp.name })
+            : _t('settings.desktop.wallpaperAria', { name: wp.name }),
           'aria-pressed': String(isActive),
           title: wp.name,
           style: 'width:64px;height:48px;border-radius:6px;cursor:pointer;border:2px solid ' + (isActive ? 'var(--accent)' : 'transparent') + ';background:' + wp.gradient + ';transition:all 0.15s;' + (isActive ? 'box-shadow:0 0 0 2px var(--window-bg), 0 0 8px var(--accent);' : 'opacity:0.7;')
@@ -1723,10 +1725,10 @@ registerApp({
           if (systemSettings.set('wallpaperId', wp.id) === false ||
               systemSettings.set('customWallpaper', null) === false ||
               systemSettings.set('customWallpaperName', null) === false) {
-            Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
+            Notify.show({ title: _t('settings.desktop.wallpaperNotChanged'), body: _t('settings.desktop.wallpaperPolicyBody'), type: 'error', appName: 'Settings' });
             return;
           }
-          wallpaperName.textContent = 'No custom image selected';
+          wallpaperName.textContent = _t('settings.desktop.noCustomImage');
           for (let i = 0; i < wpCards.length; i++) {
             const on = i === idx;
             wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
@@ -1734,7 +1736,7 @@ registerApp({
             wpCards[i].style.opacity     = on ? '1' : '0.7';
             wpCards[i].setAttribute('aria-pressed', String(on));
           }
-          Notify.show({ title: 'Wallpaper Changed', body: 'Applied ' + wp.name, type: 'success', appName: 'Settings' });
+          Notify.show({ title: _t('settings.desktop.wallpaperChanged'), body: _t('settings.desktop.wallpaperApplied', { name: wp.name }), type: 'success', appName: 'Settings' });
         }
 
         wpCard.addEventListener('click', applyWallpaper, { signal: lifecycle.signal });
@@ -1750,19 +1752,19 @@ registerApp({
       wallpaperGroup.appendChild(presetRow);
 
       const wallpaperRow = createEl('div', { className: 'nook-row', style: 'margin-top:16px;' });
-      wallpaperRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Custom Image' }));
+      wallpaperRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.desktop.customImage') }));
       const wallpaperName = createEl('span', {
         id: 'custom-wallpaper-name',
         textContent: systemSettings.get('customWallpaper')
-          ? (systemSettings.get('customWallpaperName') || 'Custom image')
-          : 'No custom image selected',
+          ? (systemSettings.get('customWallpaperName') || _t('settings.desktop.customImageFallback'))
+          : _t('settings.desktop.noCustomImage'),
         style: 'margin-left:8px;color:var(--text-secondary);font-size:12px;'
       });
 
-      const wallpaperBtn = createEl('button', { className: 'btn btn-sm', id: 'wallpaper-upload', textContent: 'Choose Image…' });
+      const wallpaperBtn = createEl('button', { className: 'btn btn-sm', id: 'wallpaper-upload', textContent: _t('settings.desktop.chooseImage') });
       wallpaperBtn.addEventListener('click', async () => {
         const file = await SystemDialogs.open({
-          title: 'Choose Wallpaper',
+          title: _t('settings.desktop.chooseWallpaper'),
           filter: (name, isDir) => isDir || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name),
         });
         if (!file || !isAlive()) return;
@@ -1773,28 +1775,28 @@ registerApp({
           if (systemSettings.set('customWallpaper', dataUrl) === false ||
               systemSettings.set('customWallpaperName', file.name) === false ||
               systemSettings.set('wallpaperId', null) === false) {
-            Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
+            Notify.show({ title: _t('settings.desktop.wallpaperNotChanged'), body: _t('settings.desktop.wallpaperPolicyBody'), type: 'error', appName: 'Settings' });
             return;
           }
         } catch (error) {
-          Notify.show({ title: 'Wallpaper Not Changed', body: error?.message || 'The selected image is not supported.', type: 'error', appName: 'Settings' });
+          Notify.show({ title: _t('settings.desktop.wallpaperNotChanged'), body: error?.message || _t('settings.desktop.imageNotSupported'), type: 'error', appName: 'Settings' });
           return;
         }
         wallpaperName.textContent = file.name;
-        Notify.show({ title: 'Wallpaper Changed', body: 'Custom wallpaper applied', type: 'success', appName: 'Settings' });
+        Notify.show({ title: _t('settings.desktop.wallpaperChanged'), body: _t('settings.desktop.customWallpaperApplied'), type: 'success', appName: 'Settings' });
       }, { signal: lifecycle.signal });
       wallpaperRow.appendChild(wallpaperBtn);
       wallpaperRow.appendChild(wallpaperName);
 
-      const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset to Default', style: { marginLeft: '8px' } });
+      const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.desktop.resetToDefault'), style: { marginLeft: '8px' } });
       resetBtn.addEventListener('click', () => {
         if (systemSettings.set('customWallpaper', null) === false ||
             systemSettings.set('customWallpaperName', null) === false ||
             systemSettings.set('wallpaperId', 'stock-blue') === false) {
-          Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
+          Notify.show({ title: _t('settings.desktop.wallpaperNotChanged'), body: _t('settings.desktop.wallpaperPolicyBody'), type: 'error', appName: 'Settings' });
           return;
         }
-        wallpaperName.textContent = 'No custom image selected';
+        wallpaperName.textContent = _t('settings.desktop.noCustomImage');
         for (let i = 0; i < wpCards.length; i++) {
           const on = i === 0;
           wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
@@ -1802,7 +1804,7 @@ registerApp({
           wpCards[i].style.opacity     = on ? '1' : '0.7';
           wpCards[i].setAttribute('aria-pressed', String(on));
         }
-        Notify.show({ title: 'Wallpaper Reset', body: 'Default wallpaper restored', type: 'success', appName: 'Settings' });
+        Notify.show({ title: _t('settings.desktop.wallpaperReset'), body: _t('settings.desktop.defaultRestored'), type: 'success', appName: 'Settings' });
       }, { signal: lifecycle.signal });
       wallpaperRow.appendChild(resetBtn);
       wallpaperGroup.appendChild(wallpaperRow);
@@ -1810,16 +1812,16 @@ registerApp({
 
       // Taskbar
       const clockGroup = createEl('div', { className: 'nook-group' });
-      clockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Taskbar' }));
+      clockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.desktop.taskbar') }));
 
       const tbClockRow = createEl('div', { className: 'nook-toggle-row' });
-      tbClockRow.appendChild(createEl('span', { textContent: 'Show Clock in Taskbar' }));
+      tbClockRow.appendChild(createEl('span', { textContent: _t('settings.desktop.showClock') }));
       const clockVisible = systemSettings.get('showTaskbarClock') !== false;
       const clockToggle = createEl('button', {
         className: 'toggle' + (clockVisible ? ' active' : ''),
         role: 'switch',
         'aria-checked': String(clockVisible),
-        'aria-label': 'Toggle clock in taskbar'
+        'aria-label': _t('settings.desktop.toggleClockAria')
       });
       clockToggle.addEventListener('click', () => {
         const wasVisible = systemSettings.get('showTaskbarClock') !== false;
@@ -1834,13 +1836,13 @@ registerApp({
 
       // Taskbar size
       const sizeRow = createEl('div', { className: 'nook-row' });
-      sizeRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Size' }));
+      sizeRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.desktop.size') }));
       const currentSize = systemSettings.get('taskbarSize') || 'normal';
       for (const sz of TASKBAR_SIZES) {
         const active = currentSize === sz.value;
         const btn = createEl('button', {
           className: 'btn btn-sm' + (active ? ' btn-primary' : ''),
-          textContent: sz.label, style: { marginRight: '8px' },
+          textContent: _t(sz.labelKey), style: { marginRight: '8px' },
           'aria-pressed': String(active)
         });
         btn.addEventListener('click', () => {
@@ -1857,19 +1859,19 @@ registerApp({
 
     // Accessibility
     function renderAccessibility() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Accessibility', style: { marginBottom: '20px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.accessibility'), style: { marginBottom: '20px' } }));
 
       // Reduce Motion
       const motionGroup = createEl('div', { className: 'nook-group' });
-      motionGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Motion' }));
+      motionGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.accessibility.motion') }));
       const motionRow = createEl('div', { className: 'nook-toggle-row' });
-      motionRow.appendChild(createEl('span', { textContent: 'Reduce Motion' }));
+      motionRow.appendChild(createEl('span', { textContent: _t('settings.accessibility.reduceMotion') }));
       const motionOn = !!systemSettings.get('reduceMotion');
       const motionToggle = createEl('button', {
         className: 'toggle' + (motionOn ? ' active' : ''),
         role: 'switch',
         'aria-checked': String(motionOn),
-        'aria-label': 'Toggle reduced motion'
+        'aria-label': _t('settings.accessibility.toggleMotionAria')
       });
       motionToggle.addEventListener('click', () => {
         const next = !systemSettings.get('reduceMotion');
@@ -1883,15 +1885,15 @@ registerApp({
 
       // Transparency
       const transparencyGroup = createEl('div', { className: 'nook-group' });
-      transparencyGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Transparency' }));
+      transparencyGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.accessibility.transparency') }));
       const transparencyRow = createEl('div', { className: 'nook-toggle-row' });
-      transparencyRow.appendChild(createEl('span', { textContent: 'Remove Transparency' }));
+      transparencyRow.appendChild(createEl('span', { textContent: _t('settings.accessibility.removeTransparency') }));
       const transOn = !!systemSettings.get('removeTransparency');
       const transparencyToggle = createEl('button', {
         className: 'toggle' + (transOn ? ' active' : ''),
         role: 'switch',
         'aria-checked': String(transOn),
-        'aria-label': 'Toggle transparency removal'
+        'aria-label': _t('settings.accessibility.toggleTransparencyAria')
       });
       transparencyToggle.addEventListener('click', () => {
         const next = !systemSettings.get('removeTransparency');
@@ -1903,21 +1905,21 @@ registerApp({
       transparencyGroup.appendChild(transparencyRow);
       mainContent.appendChild(transparencyGroup);
       mainContent.appendChild(createEl('p', {
-        textContent: 'Makes windows, menus, and panels fully solid — removes blur and see-through backgrounds everywhere.',
+        textContent: _t('settings.accessibility.transparencyHint'),
         style: { color: 'var(--text-secondary)', fontSize: '12px', marginTop: '-8px', marginBottom: '20px' }
       }));
 
       // Icon Size
       const iconSizeGroup = createEl('div', { className: 'nook-group' });
-      iconSizeGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Icon Size' }));
+      iconSizeGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.accessibility.iconSize') }));
       const currentIconSize = systemSettings.get('cursorSize') || 'normal';
       for (const opt of ICON_SIZES) {
         const row = createEl('div', { className: 'nook-row' });
-        row.appendChild(createEl('span', { textContent: opt.label }));
+        row.appendChild(createEl('span', { textContent: _t(opt.labelKey) }));
         const active = currentIconSize === opt.value;
         const btn = createEl('button', {
           className: 'btn btn-sm' + (active ? ' btn-primary' : ''),
-          textContent: active ? 'Active' : 'Select',
+          textContent: active ? _t('settings.shared.active') : _t('common.select'),
           'aria-pressed': String(active)
         });
         btn.addEventListener('click', () => {
@@ -1940,23 +1942,23 @@ registerApp({
 
     // Notifications
     function renderNotifications() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Notifications', style: { marginBottom: '4px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.notifications'), style: { marginBottom: '4px' } }));
       mainContent.appendChild(createEl('p', {
-        textContent: 'Do Not Disturb and per-app notification channels.',
+        textContent: _t('settings.notifications.subtitle'),
         style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }
       }));
 
       // Do Not Disturb
       const dndGroup = createEl('div', { className: 'nook-group' });
-      dndGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Do Not Disturb' }));
+      dndGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.notifications.dnd') }));
       const dndRow = createEl('div', { className: 'nook-toggle-row' });
-      dndRow.appendChild(createEl('span', { textContent: 'Hide notification toasts' }));
+      dndRow.appendChild(createEl('span', { textContent: _t('settings.notifications.hideToasts') }));
       const dndOn = !!OS.dnd;
       const dndToggle = createEl('button', {
         className: 'toggle' + (dndOn ? ' active' : ''),
         role: 'switch',
         'aria-checked': String(dndOn),
-        'aria-label': 'Toggle Do Not Disturb'
+        'aria-label': _t('settings.notifications.toggleDndAria')
       });
       dndToggle.addEventListener('click', () => {
         const next = !OS.dnd;
@@ -1969,21 +1971,21 @@ registerApp({
       dndGroup.appendChild(dndRow);
       mainContent.appendChild(dndGroup);
       mainContent.appendChild(createEl('p', {
-        textContent: 'While on, new notifications skip the toast and land silently in the notification panel instead.',
+        textContent: _t('settings.notifications.dndHint'),
         style: { color: 'var(--text-secondary)', fontSize: '12px', marginTop: '-8px', marginBottom: '20px' }
       }));
 
       // Notification channels
-      mainContent.appendChild(createEl('h3', { textContent: 'App Channels', style: { marginBottom: '8px' } }));
+      mainContent.appendChild(createEl('h3', { textContent: _t('settings.notifications.appChannels'), style: { marginBottom: '8px' } }));
       mainContent.appendChild(createEl('p', {
-        textContent: 'Apps sort their notifications into channels (Messages, Promos, …). Pick an importance per channel — Blocked silences it completely.',
+        textContent: _t('settings.notifications.channelsHint'),
         style: { color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }
       }));
 
       const notify = (typeof Notify !== 'undefined' && Notify.listAppsWithChannels) ? Notify : null;
       if (!notify) {
         const warn = createEl('div', { style: 'padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;' });
-        warn.textContent = 'Notification channel system not available.';
+        warn.textContent = _t('settings.notifications.systemUnavailable');
         mainContent.appendChild(warn);
         return;
       }
@@ -1998,7 +2000,7 @@ registerApp({
         const empty = createEl('div', {
           style: 'padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text-muted);font-size:13px;'
         });
-        empty.textContent = 'No apps have created notification channels yet. Channels appear here once an app declares them in its manifest or creates them through the notifications API.';
+        empty.textContent = _t('settings.notifications.noChannels');
         mainContent.appendChild(empty);
         return;
       }
@@ -2007,10 +2009,10 @@ registerApp({
       // pattern used elsewhere (Icon Size, taskbar size). Values mirror the
       // channel importance model in notifications/service.js.
       const IMPORTANCE_OPTIONS = [
-        { value: 'none',    label: 'Off',   title: 'Blocked — nothing is shown' },
-        { value: 'low',     label: 'Low',   title: 'Panel only, no toast' },
-        { value: 'default', label: 'Norm',  title: 'Normal — toast + panel' },
-        { value: 'high',    label: 'High',  title: 'High — long-lived toast' }
+        { value: 'none',    labelKey: 'settings.notifications.levelOff',   titleKey: 'settings.notifications.levelOffTitle' },
+        { value: 'low',     labelKey: 'settings.notifications.levelLow',   titleKey: 'settings.notifications.levelLowTitle' },
+        { value: 'default', labelKey: 'settings.notifications.levelNorm',  titleKey: 'settings.notifications.levelNormTitle' },
+        { value: 'high',    labelKey: 'settings.notifications.levelHigh',  titleKey: 'settings.notifications.levelHighTitle' }
       ];
 
       for (const appId of appIds) {
@@ -2023,7 +2025,7 @@ registerApp({
         });
         const header = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px;' });
         header.appendChild(createEl('div', { style: 'font-weight:600;font-size:13px;', textContent: appName }));
-        const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset' });
+        const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.notifications.reset') });
         resetBtn.addEventListener('click', () => {
           // Clear every override for this app — channels fall back to the
           // importances the developer declared.
@@ -2047,8 +2049,8 @@ registerApp({
             const active = ch.importance === opt.value;
             const btn = createEl('button', {
               className: 'btn btn-sm' + (active ? ' btn-primary' : ''),
-              textContent: opt.label,
-              title: opt.title,
+              textContent: _t(opt.labelKey),
+              title: _t(opt.titleKey),
               'aria-pressed': String(active)
             });
             btn.addEventListener('click', () => {
@@ -2436,15 +2438,15 @@ registerApp({
 
     // Default Apps
     function renderDefaultApps() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Default Apps', style: { marginBottom: '4px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.defaultApps'), style: { marginBottom: '4px' } }));
       mainContent.appendChild(createEl('p', {
-        textContent: 'Choose which app opens each type of file or link. Only apps that support a category are shown.',
+        textContent: _t('settings.defaultApps.subtitle'),
         style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }
       }));
 
       if (typeof DefaultApps === 'undefined') {
         const warn = createEl('div', { style: 'padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;' });
-        warn.textContent = 'Default apps system not available.';
+        warn.textContent = _t('settings.defaultApps.systemUnavailable');
         mainContent.appendChild(warn);
         return;
       }
@@ -2456,7 +2458,7 @@ registerApp({
         const banner = createEl('div', {
           style: 'display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--accent-muted,rgba(88,166,255,0.12));border:1px solid var(--accent);border-radius:8px;margin-bottom:16px;font-size:12.5px;color:var(--text-primary);'
         });
-        banner.textContent = requestingName + ' would like to be your default ' + DefaultApps.CATEGORIES[highlightCategory].name + '.';
+        banner.textContent = _t('settings.defaultApps.requestBanner', { app: requestingName, category: DefaultApps.CATEGORIES[highlightCategory].name });
         mainContent.appendChild(banner);
       }
 
@@ -2496,7 +2498,7 @@ registerApp({
         left.appendChild(textWrap);
         row.appendChild(left);
 
-        const changeBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Change' });
+        const changeBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.defaultApps.change') });
         row.appendChild(changeBtn);
 
         function refreshCurrent() {
@@ -2508,9 +2510,9 @@ registerApp({
           iconWrap.appendChild(iconFor(chosen?.icon, chosen?.name));
 
           if (chosen) {
-            currentLabel.textContent = chosen.name + (chosenId ? '' : ' (system default)');
+            currentLabel.textContent = chosen.name + (chosenId ? '' : _t('settings.defaultApps.systemDefaultSuffix'));
           } else {
-            currentLabel.textContent = 'No app available';
+            currentLabel.textContent = _t('settings.defaultApps.noAppAvailable');
           }
           changeBtn.disabled = candidates.length === 0;
           changeBtn.style.opacity = candidates.length === 0 ? '0.5' : '';
@@ -2539,15 +2541,15 @@ registerApp({
         });
 
         const header = createEl('div', { style: 'padding:16px 18px 12px;border-bottom:1px solid var(--border-subtle);' });
-        header.appendChild(createEl('div', { textContent: 'Default ' + category.name, style: 'font-weight:600;font-size:14px;color:var(--text-primary);' }));
-        header.appendChild(createEl('div', { textContent: 'Detected from installed apps that support this type.', style: 'font-size:11.5px;color:var(--text-muted);margin-top:2px;' }));
+        header.appendChild(createEl('div', { textContent: _t('settings.defaultApps.pickerTitle', { category: category.name }), style: 'font-weight:600;font-size:14px;color:var(--text-primary);' }));
+        header.appendChild(createEl('div', { textContent: _t('settings.defaultApps.pickerSubtitle'), style: 'font-size:11.5px;color:var(--text-muted);margin-top:2px;' }));
         card.appendChild(header);
 
         const body = createEl('div', { style: 'padding:8px;' });
 
         if (candidates.length === 0) {
           body.appendChild(createEl('div', {
-            textContent: 'No installed apps support this category yet.',
+            textContent: _t('settings.defaultApps.pickerEmpty'),
             style: 'padding:16px;text-align:center;color:var(--text-muted);font-size:12.5px;'
           }));
         }
@@ -2581,13 +2583,13 @@ registerApp({
           const choose = () => {
             try {
               if (!DefaultApps.setDefault(categoryId, app.id)) {
-                Notify.show({ title: 'Default App Not Changed', body: 'This app is no longer available for this category.', type: 'error', appName: 'Nook' });
+                Notify.show({ title: _t('settings.defaultApps.notChanged'), body: _t('settings.defaultApps.noLongerAvailable'), type: 'error', appName: 'Nook' });
                 return;
               }
               dismissOverlay(overlay);
               onChosen();
             } catch (err) {
-              Notify.show({ title: 'Default App Not Changed', body: err?.message || 'Could not save the default app.', type: 'error', appName: 'Nook' });
+              Notify.show({ title: _t('settings.defaultApps.notChanged'), body: err?.message || _t('settings.defaultApps.couldNotSave'), type: 'error', appName: 'Nook' });
             }
           };
           optRow.addEventListener('click', choose, { signal: ac.signal });
@@ -2600,19 +2602,19 @@ registerApp({
 
         const resetRow = createEl('button', {
           type: 'button',
-          textContent: 'Use system default',
+          textContent: _t('settings.defaultApps.useSystemDefault'),
           style: 'width:100%;text-align:left;padding:10px;border:0;border-radius:8px;background:transparent;color:var(--text-secondary);font-size:12.5px;cursor:pointer;'
         });
         resetRow.addEventListener('click', () => {
           try {
             if (!DefaultApps.setDefault(categoryId, null)) {
-              Notify.show({ title: 'Default App Not Changed', body: 'Could not restore the system default.', type: 'error', appName: 'Nook' });
+              Notify.show({ title: _t('settings.defaultApps.notChanged'), body: _t('settings.defaultApps.couldNotRestore'), type: 'error', appName: 'Nook' });
               return;
             }
             dismissOverlay(overlay);
             onChosen();
           } catch (err) {
-            Notify.show({ title: 'Default App Not Changed', body: err?.message || 'Could not restore the system default.', type: 'error', appName: 'Nook' });
+            Notify.show({ title: _t('settings.defaultApps.notChanged'), body: err?.message || _t('settings.defaultApps.couldNotRestore'), type: 'error', appName: 'Nook' });
           }
         }, { signal: ac.signal });
         body.appendChild(resetRow);
@@ -2635,15 +2637,15 @@ registerApp({
 
     // Privacy & Security
     function renderPrivacy() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Privacy & Security', style: { marginBottom: '20px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.privacy.title'), style: { marginBottom: '20px' } }));
 
       // Shared-file access audit (from the storage ledger). Shows which apps
       // touched files outside their own sandbox — the Android privacy
       // dashboard equivalent for the shared tree.
       const auditGroup = createEl('div', { className: 'nook-privacy-section' });
-      auditGroup.appendChild(createEl('h3', { textContent: 'File Access Audit' }));
+      auditGroup.appendChild(createEl('h3', { textContent: _t('settings.privacy.fileAccessAudit') }));
       auditGroup.appendChild(createEl('p', {
-        textContent: 'Apps reading or writing files outside their own storage (shared files, picked files) are logged here. Entries appear after the access happens.',
+        textContent: _t('settings.privacy.fileAccessHint'),
         style: { margin: '0 0 8px', opacity: '0.75', fontSize: '12px' },
       }));
       mainContent.appendChild(auditGroup);
@@ -2660,16 +2662,16 @@ registerApp({
         const events = snapshot?.accessLog || [];
         if (!events.length) {
           auditGroup.appendChild(createEl('p', {
-            textContent: 'No shared-file access recorded. This is good — apps have stayed in their own storage.',
+            textContent: _t('settings.privacy.fileAccessEmpty'),
             style: { margin: '0', opacity: '0.65', fontSize: '12px' },
           }));
           return;
         }
         const KIND_LABELS = {
-          'shared-file-read': 'Read shared file',
-          'shared-file-write': 'Wrote shared file',
-          'picked-file-read': 'Read picked file',
-          'picked-file-write': 'Wrote picked file',
+          'shared-file-read': _t('settings.privacy.readSharedFile'),
+          'shared-file-write': _t('settings.privacy.wroteSharedFile'),
+          'picked-file-read': _t('settings.privacy.readPickedFile'),
+          'picked-file-write': _t('settings.privacy.wrotePickedFile'),
         };
         for (const ev of events.slice(0, 50)) {
           const appName = (typeof OS !== 'undefined' && OS.apps?.[ev.appId]?.name) || ev.appId;
@@ -2692,9 +2694,9 @@ registerApp({
       // AppSandbox.macPolicySnapshot() directly — trusted host tier; the
       // snapshot is deliberately not reachable over app IPC.
       const macGroup = createEl('div', { className: 'nook-privacy-section' });
-      macGroup.appendChild(createEl('h3', { textContent: 'Security Policy (MAC)' }));
+      macGroup.appendChild(createEl('h3', { textContent: _t('settings.privacy.macPolicy') }));
       macGroup.appendChild(createEl('p', {
-        textContent: 'Every app call passes a mandatory access control check before it reaches a system handler. Enforcing domains are refused unless policy allows; permissive domains are only logged.',
+        textContent: _t('settings.privacy.macPolicyHint'),
         style: { margin: '0 0 8px', opacity: '0.75', fontSize: '12px' },
       }));
       mainContent.appendChild(macGroup);
@@ -2710,35 +2712,35 @@ registerApp({
         if (!isAlive()) return;
         if (!snap || !snap.info) {
           macGroup.appendChild(createEl('p', {
-            textContent: 'Security policy information is unavailable in this session.',
+            textContent: _t('settings.privacy.macUnavailable'),
             style: { margin: '0', opacity: '0.65', fontSize: '12px' },
           }));
           return;
         }
         const info = snap.info;
-        const modeLabel = (m) => (m === 'enforcing' ? 'Enforcing' : 'Permissive (log only)');
+        const modeLabel = (m) => (m === 'enforcing' ? _t('settings.privacy.macEnforcing') : _t('settings.privacy.macPermissive'));
         const statusRow = createEl('div', { className: 'nook-row', style: { alignItems: 'flex-start', flexDirection: 'column', gap: '2px' } });
-        statusRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Policy v' + info.policyVersion }));
+        statusRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.privacy.policyVersion', { version: info.policyVersion }) }));
         statusRow.appendChild(createEl('span', {
-          textContent: 'Apps: ' + modeLabel(info.domains?.untrusted_app) + ' · Platform: ' + modeLabel(info.domains?.platform_module),
+          textContent: _t('settings.privacy.macModeLine', { apps: modeLabel(info.domains?.untrusted_app), platform: modeLabel(info.domains?.platform_module) }),
           style: { opacity: '0.8' },
         }));
         statusRow.appendChild(createEl('div', {
-          textContent: info.grantCoupledEndpoints + ' grant-coupled endpoints · ' + info.advisoryEndpoints
-            + ' advisory endpoints · ' + info.advisoryFamilies + ' advisory families · '
-            + info.neverallow + ' neverallow rules',
+          textContent: _t('settings.privacy.macCoverage', { grantCoupled: info.grantCoupledEndpoints, advisory: info.advisoryEndpoints, advisoryFamilies: info.advisoryFamilies, neverallow: info.neverallow }),
           style: { opacity: '0.65', fontSize: '11px' },
         }));
         statusRow.appendChild(createEl('div', {
-          textContent: info.denialsToday + ' enforced denial' + (info.denialsToday === 1 ? '' : 's') + ' today'
-            + (info.auditDropped ? ' · ' + info.auditDropped + ' audit entries dropped (rate limit)' : ''),
+          textContent: (info.denialsToday === 1
+            ? _t('settings.privacy.denialsToday', { count: info.denialsToday })
+            : _t('settings.privacy.denialsTodayPlural', { count: info.denialsToday }))
+            + (info.auditDropped ? _t('settings.privacy.auditDropped', { count: info.auditDropped }) : ''),
           style: { opacity: '0.65', fontSize: '11px' },
         }));
         macGroup.appendChild(statusRow);
         const denials = snap.denials || [];
         if (!denials.length) {
           macGroup.appendChild(createEl('p', {
-            textContent: 'No policy denials recorded. Apps are staying inside their allowed capabilities.',
+            textContent: _t('settings.privacy.noDenials'),
             style: { margin: '0', opacity: '0.65', fontSize: '12px' },
           }));
           return;
@@ -2750,12 +2752,12 @@ registerApp({
           const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
           top.appendChild(createEl('span', { className: 'nook-row-label', textContent: appName, title: d.appId || '' }));
           top.appendChild(createEl('span', {
-            textContent: (d.enforced ? 'Denied' : 'Would deny (permissive)') + ' · ' + (d.endpoint || ''),
+            textContent: (d.enforced ? _t('settings.privacy.denied') : _t('settings.privacy.wouldDeny')) + ' · ' + (d.endpoint || ''),
             style: { opacity: '0.8' },
           }));
           row.appendChild(top);
           row.appendChild(createEl('div', {
-            textContent: (d.perms && d.perms.length ? 'requires ' + d.perms.join(' | ') : 'no policy rule') + ' · ' + when,
+            textContent: (d.perms && d.perms.length ? _t('settings.privacy.requiresPerms', { perms: d.perms.join(' | ') }) : _t('settings.privacy.noPolicyRule')) + ' · ' + when,
             style: { opacity: '0.65', fontSize: '11px', wordBreak: 'break-all' },
           }));
           macGroup.appendChild(row);
@@ -2764,14 +2766,14 @@ registerApp({
 
       // Data management
       const exportSection = createEl('div', { className: 'nook-privacy-section' });
-      exportSection.appendChild(createEl('h3', { textContent: 'Data Management' }));
+      exportSection.appendChild(createEl('h3', { textContent: _t('settings.privacy.dataManagement') }));
       const exportActions = createEl('div', { className: 'nook-data-actions' });
 
-      const exportBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Export All Data (JSON)' });
+      const exportBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.privacy.exportAllData') });
       exportBtn.addEventListener('click', async () => {
         exportBtn.disabled = true;
         const prevLabel = exportBtn.textContent;
-        exportBtn.textContent = 'Exporting\u2026';
+        exportBtn.textContent = _t('settings.privacy.exporting');
         try {
           // Pull every real data domain, not just the in-memory settings cache.
           const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
@@ -2803,9 +2805,9 @@ registerApp({
           a.click();
           a.remove();
           URL.revokeObjectURL(url);
-          Notify.show({ title: 'Data Exported', body: 'All data has been exported', type: 'success', appName: 'Nook' });
+          Notify.show({ title: _t('settings.privacy.dataExported'), body: _t('settings.privacy.dataExportedBody'), type: 'success', appName: 'Nook' });
         } catch (err) {
-          Notify.show({ title: 'Export Failed', body: err?.message || 'Could not export data', type: 'error', appName: 'Nook' });
+          Notify.show({ title: _t('settings.privacy.exportFailed'), body: err?.message || _t('settings.privacy.couldNotExport'), type: 'error', appName: 'Nook' });
         } finally {
           if (isAlive()) {
             exportBtn.disabled = false;
@@ -2815,11 +2817,11 @@ registerApp({
       }, { signal: lifecycle.signal });
       exportActions.appendChild(exportBtn);
 
-      const importBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Import Data' });
+      const importBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.privacy.importData') });
       importBtn.addEventListener('click', async () => {
         try {
           const picked = await SystemDialogs.open({
-            title: 'Import Data',
+            title: _t('settings.privacy.importData'),
             startPath: (typeof os !== 'undefined' ? os.homedir() : null) || '/home/nbosp',
             filter: (name, isDir) => isDir || name.endsWith('.json'),
           });
@@ -2860,15 +2862,15 @@ registerApp({
           if (!isAlive()) return;
           if (failed || skippedSettings.length) {
             const details = [];
-            if (failed) details.push('Some data could not be saved.');
-            if (skippedSettings.length) details.push(`${skippedSettings.length} unsupported or protected setting(s) were skipped.`);
-            Notify.show({ title: 'Import Incomplete', body: details.join(' '), type: 'error', appName: 'Nook' });
+            if (failed) details.push(_t('settings.privacy.someDataNotSaved'));
+            if (skippedSettings.length) details.push(_t('settings.privacy.settingsSkipped', { count: skippedSettings.length }));
+            Notify.show({ title: _t('settings.privacy.importIncomplete'), body: details.join(' '), type: 'error', appName: 'Nook' });
           } else {
-            Notify.show({ title: 'Data Imported', body: 'All data has been imported. Restart to apply fully.', type: 'success', appName: 'Nook' });
+            Notify.show({ title: _t('settings.privacy.dataImported'), body: _t('settings.privacy.dataImportedBody'), type: 'success', appName: 'Nook' });
           }
         } catch (err) {
           devLog('Import failed:', err);
-          Notify.show({ title: 'Import Failed', body: err?.message || 'Could not import the selected file', type: 'error', appName: 'Nook' });
+          Notify.show({ title: _t('settings.privacy.importFailed'), body: err?.message || _t('settings.privacy.couldNotImport'), type: 'error', appName: 'Nook' });
         }
       }, { signal: lifecycle.signal });
       exportActions.appendChild(importBtn);
@@ -2880,18 +2882,18 @@ registerApp({
       // itself give any app access; it just makes the machine capable of
       // honoring an admin:*-granted app's requests.
       const adminSection = createEl('div', { className: 'nook-privacy-section' });
-      adminSection.appendChild(createEl('h3', { textContent: 'Admin Access' }));
+      adminSection.appendChild(createEl('h3', { textContent: _t('settings.privacy.adminAccess') }));
       adminSection.appendChild(createEl('p', {
-        textContent: 'Lets apps you\u2019ve granted admin permissions to (audit logs, system settings, sessions) actually use them. Off by default — most people never need this.',
+        textContent: _t('settings.privacy.adminAccessHint'),
         style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', marginBottom: '12px' }
       }));
       const adminRow = createEl('div', { className: 'nook-toggle-row' });
-      adminRow.appendChild(createEl('span', { textContent: 'Enable admin mode on this device' }));
+      adminRow.appendChild(createEl('span', { textContent: _t('settings.privacy.enableAdminMode') }));
       const adminToggle = createEl('button', {
         className: 'toggle',
         role: 'switch',
         'aria-checked': 'false',
-        'aria-label': 'Toggle admin mode',
+        'aria-label': _t('settings.privacy.toggleAdminAria'),
         disabled: true
       });
       adminRow.appendChild(adminToggle);
@@ -2936,7 +2938,7 @@ registerApp({
         } catch (error) {
           if (!isAlive()) return;
           adminSection.appendChild(createEl('p', {
-            textContent: `Could not check admin status: ${error?.message || 'Request failed'}`,
+            textContent: _t('settings.privacy.adminStatusError', { message: error?.message || _t('settings.shared.requestFailed') }),
             style: { color: 'var(--danger, #f85149)', fontSize: '12px', marginTop: '8px' }
           }));
           return;
@@ -2955,15 +2957,15 @@ registerApp({
           adminToggle.classList.toggle('active', !!json.adminEnabled);
           adminToggle.setAttribute('aria-checked', String(!!json.adminEnabled));
           Notify.show({
-            title: json.adminEnabled ? 'Admin Mode Enabled' : 'Admin Mode Disabled',
+            title: json.adminEnabled ? _t('settings.privacy.adminModeEnabled') : _t('settings.privacy.adminModeDisabled'),
             body: json.adminEnabled
-              ? 'Apps granted admin permissions can now use them.'
-              : 'Admin permission grants are now inert again.',
+              ? _t('settings.privacy.adminModeEnabledBody')
+              : _t('settings.privacy.adminModeDisabledBody'),
             type: 'success', appName: 'Nook'
           });
         } catch (err) {
           if (!isAlive()) return;
-          Notify.show({ title: 'Could Not Update Admin Mode', body: err?.message || 'Try again', type: 'error', appName: 'Nook' });
+          Notify.show({ title: _t('settings.privacy.adminModeUpdateFailed'), body: err?.message || _t('settings.privacy.tryAgain'), type: 'error', appName: 'Nook' });
         } finally {
           if (isAlive()) adminToggle.disabled = false;
         }
@@ -2971,30 +2973,30 @@ registerApp({
     }
 
     function renderRootAccess() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Root Access', style: { marginBottom: '8px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.root'), style: { marginBottom: '8px' } }));
       mainContent.appendChild(createEl('p', {
-        textContent: 'Root apps run directly in the OS page with unrestricted access and can perform real administrator (root) operations. Every root app first asks for your confirmation inside a NovaByte prompt — never inside the app — and every privileged operation runs through audited, passwordless sudo (NOPASSWD) and is written to the security log. This is not a sandbox or a normal app permission.',
+        textContent: _t('settings.root.intro'),
         style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', lineHeight: '1.55', marginBottom: '18px' }
       }));
 
       const devMode = systemSettings.get('devMode') === true;
       const rootEnabled = systemSettings.get('rootAccessEnabled') === true;
       const masterGroup = createEl('div', { className: 'nook-group' });
-      masterGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Root mode' }));
+      masterGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.root.mode') }));
 
       if (!devMode) {
         masterGroup.appendChild(createEl('p', {
-          textContent: 'Enable Developer Mode before Root Access can be turned on.',
+          textContent: _t('settings.root.enableDevModeFirst'),
           style: { color: 'var(--text-warning, #d29922)', fontSize: '13px', margin: '0' }
         }));
       } else {
         const masterRow = createEl('div', { className: 'nook-toggle-row' });
-        masterRow.appendChild(createEl('span', { textContent: 'Enable Root Access for this device' }));
+        masterRow.appendChild(createEl('span', { textContent: _t('settings.root.enableForDevice') }));
         const masterToggle = createEl('button', {
           className: 'toggle' + (rootEnabled ? ' active' : ''),
           role: 'switch',
           'aria-checked': String(rootEnabled),
-          'aria-label': 'Enable Root Access'
+          'aria-label': _t('settings.root.enableRootAccess')
         });
         masterToggle.addEventListener('click', async () => {
           const enable = !systemSettings.get('rootAccessEnabled');
@@ -3004,10 +3006,10 @@ registerApp({
           masterToggle.classList.toggle('active', enable);
           masterToggle.setAttribute('aria-checked', String(enable));
           Notify.show({
-            title: enable ? 'Root Access Enabled' : 'Root Access Disabled',
+            title: enable ? _t('settings.root.enabled') : _t('settings.root.disabled'),
             body: enable
-              ? 'Apps still need an individual root grant before they run in the OS page.'
-              : 'Root grants are inactive until Root Access is enabled again.',
+              ? _t('settings.root.enabledBody')
+              : _t('settings.root.disabledBody'),
             type: enable ? 'warn' : 'info',
             appName: 'Settings'
           });
@@ -3026,22 +3028,22 @@ registerApp({
         if (ns && typeof ns.status === 'function') {
           const st = ns.status();
           const sessGroup = createEl('div', { className: 'nook-group' });
-          sessGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Root session' }));
+          sessGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.root.session') }));
           const sessRow = createEl('div', { className: 'nook-toggle-row' });
           sessRow.appendChild(createEl('span', {
             textContent: st.sessionActive
-              ? 'Active — privileged operations are authorized until the session expires.'
-              : 'No active root session. Root apps ask for your confirmation in a NovaByte prompt when they need it.'
+              ? _t('settings.root.sessionActive')
+              : _t('settings.root.sessionInactive')
           }));
           if (st.sessionActive) {
-            const endBtn = createEl('button', { className: 'btn btn-sm btn-danger', textContent: 'End session' });
+            const endBtn = createEl('button', { className: 'btn btn-sm btn-danger', textContent: _t('settings.root.endSession') });
             endBtn.addEventListener('click', async () => {
               try { await window.NovaRoot.endSession(); } catch (error) {
                 console.warn('[Settings] Ending root session failed:', error);
               }
               Notify.show({
-                title: 'Root session ended',
-                body: 'Cached root authorization was invalidated. Apps will ask again.',
+                title: _t('settings.root.sessionEnded'),
+                body: _t('settings.root.sessionEndedBody'),
                 type: 'info',
                 appName: 'Settings'
               });
@@ -3060,8 +3062,8 @@ registerApp({
         mainContent.appendChild(createEl('div', {
           className: 'empty-state',
           textContent: !devMode
-            ? 'Root execution is disabled until Developer Mode and Root Access are both enabled.'
-            : 'Root execution is disabled. Turn on Root Access to manage root-enabled apps and activity.',
+            ? _t('settings.root.executionDisabledDevMode')
+            : _t('settings.root.executionDisabled'),
           style: { height: 'auto', padding: '18px 0', alignItems: 'flex-start', justifyContent: 'flex-start' }
         }));
         return;
@@ -3091,10 +3093,10 @@ registerApp({
         return declared || granted;
       });
       const appGroup = createEl('div', { className: 'nook-group' });
-      appGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Apps requesting root access' }));
+      appGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.root.appsRequesting') }));
       if (!rootApps.length) {
         appGroup.appendChild(createEl('p', {
-          textContent: 'No installed apps request or currently have a root access grant.',
+          textContent: _t('settings.root.noRootApps'),
           style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', margin: '0' }
         }));
       }
@@ -3113,7 +3115,7 @@ registerApp({
           className: 'toggle' + (granted ? ' active' : ''),
           role: 'switch',
           'aria-checked': String(granted),
-          'aria-label': `Root access for ${app.name || app.id}`,
+          'aria-label': _t('settings.root.appToggleAria', { app: app.name || app.id }),
           disabled: !granted && (!devMode || !rootEnabled)
         });
         toggle.addEventListener('click', async () => {
@@ -3123,7 +3125,7 @@ registerApp({
               .some(grant => grant.permission === 'system:root' && grant.granted === true);
             if (existingGrant) {
               await AppPermissionManager.revokePermission('system:root', app.id);
-              Notify.show({ title: 'Root Access Revoked', body: `${app.name} can no longer launch with root access.`, type: 'success', appName: 'Settings' });
+              Notify.show({ title: _t('settings.root.revoked'), body: _t('settings.root.revokedBody', { app: app.name }), type: 'success', appName: 'Settings' });
               if (typeof AppSandbox !== 'undefined'
                 && AppSandbox.reloadAfterRootRevocation?.(`Root access for ${app.id} was revoked`)) return;
             } else {
@@ -3132,7 +3134,7 @@ registerApp({
               if (!grantedNow) return;
             }
           } catch (err) {
-            Notify.show({ title: 'Could Not Update Root Access', body: err?.message || 'Try again.', type: 'error', appName: 'Settings' });
+            Notify.show({ title: _t('settings.root.updateFailed'), body: err?.message || _t('settings.root.tryAgain'), type: 'error', appName: 'Settings' });
           } finally {
             if (isAlive()) renderContent();
           }
@@ -3143,15 +3145,15 @@ registerApp({
       mainContent.appendChild(appGroup);
 
       const auditGroup = createEl('div', { className: 'nook-group' });
-      auditGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Root API audit log' }));
+      auditGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.root.auditLog') }));
       auditGroup.appendChild(createEl('p', {
-        textContent: 'Up to 1,000 recent calls are retained; the latest 100 are displayed here. This is not a complete record of direct JavaScript or browser activity, and root apps may alter same-origin logs.',
+        textContent: _t('settings.root.auditHint'),
         style: { color: 'var(--text-secondary, #8b949e)', fontSize: '12px', lineHeight: '1.5' }
       }));
       const auditEntries = (typeof AppSandbox !== 'undefined' ? AppSandbox.getRootAuditLog?.() || [] : []).slice(0, 100);
       if (!auditEntries.length) {
         auditGroup.appendChild(createEl('p', {
-          textContent: 'No root activity has been recorded.',
+          textContent: _t('settings.root.noActivity'),
           style: { color: 'var(--text-secondary, #8b949e)', fontSize: '12px', margin: '0' }
         }));
       } else {
@@ -3186,20 +3188,20 @@ registerApp({
           style: 'background:var(--bg-elevated,#1b1f23);border:2px solid var(--text-danger,#f85149);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.65);padding:24px;max-width:540px;width:100%;'
         });
         card.appendChild(createEl('h2', {
-          textContent: 'Enable Root Access?',
+          textContent: _t('settings.root.confirmTitle'),
           style: { color: 'var(--text-danger, #f85149)', margin: '0 0 12px' }
         }));
         card.appendChild(createEl('p', {
-          textContent: 'This allows individually approved .novaapp packages to execute JavaScript in the OS page instead of their sandbox. A root app can read and change OS data, manipulate system UI, and interfere with other apps.',
+          textContent: _t('settings.root.confirmBody1'),
           style: { color: 'var(--text-secondary, #c9d1d9)', fontSize: '13px', lineHeight: '1.55' }
         }));
         card.appendChild(createEl('p', {
-          textContent: 'Root API calls are logged, but arbitrary JavaScript and browser activity cannot be fully observed. Only enable this on a development device and grant root only to apps you trust.',
+          textContent: _t('settings.root.confirmBody2'),
           style: { color: 'var(--text-danger, #ff7b72)', fontSize: '13px', lineHeight: '1.55' }
         }));
         const actions = createEl('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' } });
-        const cancel = createEl('button', { className: 'btn', textContent: 'Cancel' });
-        const enable = createEl('button', { className: 'btn btn-danger', textContent: 'Enable Root Access' });
+        const cancel = createEl('button', { className: 'btn', textContent: _t('common.cancel') });
+        const enable = createEl('button', { className: 'btn btn-danger', textContent: _t('settings.root.enableRootAccess') });
         actions.append(cancel, enable);
         card.appendChild(actions);
         overlay.appendChild(card);
@@ -3341,9 +3343,9 @@ registerApp({
       mainContent.style.padding = '0';
       const body = createEl('div', { style: 'padding:24px 28px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;flex:1;' });
       const linuxInfo = {
-        distribution: 'Not running on Linux',
-        kernel: 'Unavailable',
-        architecture: 'Unavailable'
+        distribution: _t('settings.about.notLinux'),
+        kernel: _t('settings.about.unavailable'),
+        architecture: _t('settings.about.unavailable')
       };
       if (typeof process !== 'undefined' && process.platform === 'linux') {
         try {
@@ -3351,7 +3353,7 @@ registerApp({
           const fs = require('fs');
           linuxInfo.kernel = os.release();
           linuxInfo.architecture = os.arch();
-          linuxInfo.distribution = 'NovaByte OS (Buildroot)';
+          linuxInfo.distribution = _t('settings.about.novabyteBuildroot');
           const releaseFile = fs.readFileSync('/etc/os-release', 'utf8');
           const prettyName = releaseFile.match(/^PRETTY_NAME=(.*)$/m)?.[1];
           if (prettyName) {
@@ -3382,7 +3384,7 @@ registerApp({
       }
 
       // Software
-      const { wrap: swWrap, rows: swRows } = mkSection('Software Information', '\uD83D\uDCBF');
+      const { wrap: swWrap, rows: swRows } = mkSection(_t('settings.about.softwareInfo'), '\uD83D\uDCBF');
 
       const logoRow = createEl('div', { style: 'padding:18px 0 14px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border-subtle);' });
       const logoBox = createEl('div', { style: 'width:54px;height:54px;border-radius:15px;background:linear-gradient(135deg,#3d8eff 0%,#7c5cfc 55%,#c45cff 100%);display:flex;align-items:center;justify-content:center;box-shadow:0 6px 22px rgba(88,166,255,0.32),0 2px 8px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.22);flex-shrink:0;' });
@@ -3395,9 +3397,9 @@ registerApp({
       logoMeta.append(lgTitle, verBadge, tagline);
       logoRow.append(logoBox, logoMeta);
       swRows.appendChild(logoRow);
-      swRows.appendChild(mkRow('Operating System', linuxInfo.distribution));
-      swRows.appendChild(mkRow('Linux Kernel', linuxInfo.kernel));
-      swRows.appendChild(mkRow('Architecture', linuxInfo.architecture));
+      swRows.appendChild(mkRow(_t('settings.about.operatingSystem'), linuxInfo.distribution));
+      swRows.appendChild(mkRow(_t('settings.about.linuxKernel'), linuxInfo.kernel));
+      swRows.appendChild(mkRow(_t('settings.about.architecture'), linuxInfo.architecture));
 
       // Version row — easter egg: 7 clicks launches Snake
       const novaVersionRow = createEl('div', {
@@ -3405,11 +3407,11 @@ registerApp({
         style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-bottom:1px solid var(--border-subtle);cursor:pointer;transition:background 0.15s;border-radius:6px;',
         role: 'button',
         tabindex: '0',
-        'aria-label': 'NovaByte version (click 7 times for a surprise)'
+        'aria-label': _t('settings.about.versionAria')
       });
       novaVersionRow.addEventListener('mouseenter', () => { novaVersionRow.style.background = 'rgba(88,166,255,0.08)'; });
       novaVersionRow.addEventListener('mouseleave', () => { novaVersionRow.style.background = 'transparent'; });
-      const novaVerLabel = createEl('span', { textContent: 'NovaByte Version', style: 'color:var(--text-secondary);flex-shrink:0;margin-right:12px;' });
+      const novaVerLabel = createEl('span', { textContent: _t('settings.about.novabyteVersion'), style: 'color:var(--text-secondary);flex-shrink:0;margin-right:12px;' });
       const novaVerValue = createEl('span', { style: 'color:var(--text-primary);font-weight:500;text-align:right;max-width:65%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', textContent: 'v' + OS.version });
       novaVersionRow.append(novaVerLabel, novaVerValue);
 
@@ -3431,11 +3433,11 @@ registerApp({
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleVersionClick(); }
       }, { signal: lifecycle.signal });
       swRows.appendChild(novaVersionRow);
-      swRows.appendChild(mkRow('Build Date',  '2026-11-14'));
+      swRows.appendChild(mkRow(_t('settings.about.buildDate'),  '2026-11-14'));
 
       const secRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });
       const secRowLeft  = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
-      secRowLeft.appendChild(createEl('span', { textContent: 'Security Patch Level', style: 'color:var(--text-secondary);' }));
+      secRowLeft.appendChild(createEl('span', { textContent: _t('settings.about.securityPatchLevel'), style: 'color:var(--text-secondary);' }));
       secRow.appendChild(secRowLeft);
       const secRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
       const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;', textContent: '\uD83D\uDD12 ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-12') });
@@ -3453,15 +3455,15 @@ registerApp({
         ? TrustStore.systemSignatureTier()
         : 'test-keys';
       const tierRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-radius:6px;' });
-      tierRow.appendChild(createEl('span', { textContent: 'Platform Signature', style: 'color:var(--text-secondary);' }));
+      tierRow.appendChild(createEl('span', { textContent: _t('settings.about.platformSignature'), style: 'color:var(--text-secondary);' }));
       const tierBadge    = createEl('span', {
         style: signatureTier === 'release-keys'
           ? 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;'
           : 'display:inline-flex;align-items:center;gap:5px;background:rgba(255,159,10,0.12);border:1px solid rgba(255,159,10,0.35);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#ff9f0a;',
         title: signatureTier === 'release-keys'
-          ? 'System packages are verified against the operator\u2019s rotated release key.'
-          : 'System packages are verified against the AOSP-style public test key committed in the repository (NBOSP/keys/). Fine for development and forks; production machines should rotate to a release key.',
-        textContent: signatureTier === 'release-keys' ? '\uD83D\uDD12 Release keys' : '\u26A0\uFE0F Test keys',
+          ? _t('settings.about.signatureReleaseTitle')
+          : _t('settings.about.signatureTestTitle'),
+        textContent: signatureTier === 'release-keys' ? _t('settings.about.releaseKeys') : _t('settings.about.testKeys'),
       });
       const tierRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
       tierRowRight.appendChild(tierBadge);
@@ -3470,51 +3472,51 @@ registerApp({
       body.appendChild(swWrap);
 
       // Hardware
-      const { wrap: hwWrap, rows: hwRows } = mkSection('Hardware', '\uD83D\uDDA5\uFE0F');
+      const { wrap: hwWrap, rows: hwRows } = mkSection(_t('settings.about.hardware'), '\uD83D\uDDA5\uFE0F');
       const hardware = window.NovaByteSystem.hardware.getInventory();
       const graphicsSummary = hardware.supported
-        ? hardware.graphics.map(device => [device.vendor, device.driver].filter(Boolean).join(' ')).filter(Boolean).join(', ') || 'No graphics device reported'
-        : 'Unavailable';
+        ? hardware.graphics.map(device => [device.vendor, device.driver].filter(Boolean).join(' ')).filter(Boolean).join(', ') || _t('settings.about.noGraphics')
+        : _t('settings.about.unavailable');
       [
-        ['Screen Resolution', hardware.display?.resolution
+        [_t('settings.about.screenResolution'), hardware.display?.resolution
           ? `${hardware.display.resolution.width}\u00D7${hardware.display.resolution.height}`
           : screen.width + '\u00D7' + screen.height,                                                               false],
-        ['Colour Depth',      screen.colorDepth + ' bit',                                                             false],
-        ['Pixel Ratio',       window.devicePixelRatio + '\u00D7',                                                     false],
-        ['CPU Cores',         String(hardware.cpu?.logicalCores || navigator.hardwareConcurrency || 'Unknown'),      false],
-        ['Graphics Device',   graphicsSummary,                                                                        false],
-        ['Virtualization',    hardware.virtualization?.vendor || 'Not identified',                                   false],
-        ['VMware Tools',      hardware.vmwareTools?.running ? 'Running' : hardware.vmwareTools?.installed ? 'Installed, not running' : 'Not detected', false],
-        ['Device Memory',     hardware.memory?.totalBytes
+        [_t('settings.about.colourDepth'),      screen.colorDepth + ' bit',                                                             false],
+        [_t('settings.about.pixelRatio'),       window.devicePixelRatio + '\u00D7',                                                     false],
+        [_t('settings.about.cpuCores'),         String(hardware.cpu?.logicalCores || navigator.hardwareConcurrency || _t('settings.about.unknown')),      false],
+        [_t('settings.about.graphicsDevice'),   graphicsSummary,                                                                        false],
+        [_t('settings.about.virtualization'),    hardware.virtualization?.vendor || _t('settings.about.notIdentified'),                                   false],
+        [_t('settings.about.vmwareTools'),      hardware.vmwareTools?.running ? _t('settings.about.running') : hardware.vmwareTools?.installed ? _t('settings.about.installedNotRunning') : _t('settings.about.notDetected'), false],
+        [_t('settings.about.deviceMemory'),     hardware.memory?.totalBytes
           ? `${(hardware.memory.totalBytes / (1024 ** 3)).toFixed(1)} GB`
-          : navigator.deviceMemory ? navigator.deviceMemory + ' GB (approx.)' : 'Not reported',                      false],
-        ['Touch Points',      navigator.maxTouchPoints > 0 ? String(navigator.maxTouchPoints) + ' point(s)' : 'None', true]
+          : navigator.deviceMemory ? _t('settings.about.memoryApprox', { value: navigator.deviceMemory }) : _t('settings.about.notReported'),                      false],
+        [_t('settings.about.touchPoints'),      navigator.maxTouchPoints > 0 ? _t('settings.about.touchPointsValue', { count: navigator.maxTouchPoints }) : _t('settings.about.none'), true]
       ].forEach(([lbl, val, last]) => hwRows.appendChild(mkRow(lbl, val, last)));
       body.appendChild(hwWrap);
 
       // Environment
-      const { wrap: envWrap, rows: envRows } = mkSection('Environment', '\uD83C\uDF10');
-      let tz = 'Unknown';
-      try { tz = systemSettings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
+      const { wrap: envWrap, rows: envRows } = mkSection(_t('settings.about.environment'), '\uD83C\uDF10');
+      let tz = _t('settings.about.unknown');
+      try { tz = systemSettings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || _t('settings.about.unknown'); } catch { /* sandboxed */ }
       [
-        ['Browser',         detectBrowser(),                                                                          false],
-        ['Platform',        navigator.platform,                                                                        false],
-        ['Region',          systemSettings.get('region') || navigator.language,                                          false],
-        ['Timezone',        tz,                                                                                        false],
-        ['Do Not Track',    navigator.doNotTrack === '1' ? 'Enabled \u2713' : 'Not set',                             false],
-        ['Cookies',         navigator.cookieEnabled ? 'Enabled \u2713' : 'Disabled',                                 false],
-        ['Service Workers', ('serviceWorker' in navigator) ? 'Supported \u2713' : 'Not supported',                    true]
+        [_t('settings.about.browser'),         detectBrowser(),                                                                          false],
+        [_t('settings.about.platform'),        navigator.platform,                                                                        false],
+        [_t('settings.about.region'),          systemSettings.get('region') || navigator.language,                                          false],
+        [_t('settings.about.timezone'),        tz,                                                                                        false],
+        [_t('settings.about.doNotTrack'),    navigator.doNotTrack === '1' ? _t('settings.about.enabledCheck') : _t('settings.about.notSet'),                             false],
+        [_t('settings.about.cookies'),         navigator.cookieEnabled ? _t('settings.about.enabledCheck') : _t('settings.about.disabled'),                                 false],
+        [_t('settings.about.serviceWorkers'), ('serviceWorker' in navigator) ? _t('settings.about.supportedCheck') : _t('settings.dateRegion.notSupported'),                    true]
       ].forEach(([lbl, val, last]) => envRows.appendChild(mkRow(lbl, val, last)));
       body.appendChild(envWrap);
 
       // Legal
-      const { wrap: lgWrap, rows: lgRows } = mkSection('Legal \u0026 Licences', '\u2696\uFE0F');
-      lgRows.appendChild(mkRow('Licence',   'Apache 2.0'));
-      lgRows.appendChild(mkRow('Copyright', '\u00A9 2026 DirazCoder'));
+      const { wrap: lgWrap, rows: lgRows } = mkSection(_t('settings.about.legal'), '\u2696\uFE0F');
+      lgRows.appendChild(mkRow(_t('settings.about.licence'),   'Apache 2.0'));
+      lgRows.appendChild(mkRow(_t('settings.about.copyright'), '\u00A9 2026 DirazCoder'));
       body.appendChild(lgWrap);
 
       // Copy system info
-      const copyBtn = createEl('button', { className: 'btn btn-sm', textContent: '\uD83D\uDCCB Copy System Info' });
+      const copyBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.about.copySystemInfo') });
       copyBtn.addEventListener('click', () => {
         let tzCopy = 'Unknown';
         try { tzCopy = systemSettings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
@@ -3536,11 +3538,11 @@ registerApp({
         ];
         if (navigator.clipboard?.writeText) {
           navigator.clipboard.writeText(lines.join('\n')).then(
-            () => Notify.show({ title: 'Copied', body: 'System info copied to clipboard', type: 'success', appName: 'Nook' }),
-            (err) => { devLog('clipboard.writeText failed:', err); Notify.show({ title: 'Copy Failed', body: 'Clipboard not available', type: 'error', appName: 'Nook' }); }
+            () => Notify.show({ title: _t('settings.about.copied'), body: _t('settings.about.copiedBody'), type: 'success', appName: 'Nook' }),
+            (err) => { devLog('clipboard.writeText failed:', err); Notify.show({ title: _t('settings.about.copyFailed'), body: _t('settings.about.clipboardUnavailable'), type: 'error', appName: 'Nook' }); }
           );
         } else {
-          Notify.show({ title: 'Copy Failed', body: 'Clipboard not available', type: 'error', appName: 'Nook' });
+          Notify.show({ title: _t('settings.about.copyFailed'), body: _t('settings.about.clipboardUnavailable'), type: 'error', appName: 'Nook' });
         }
       }, { signal: lifecycle.signal });
       body.appendChild(copyBtn);
@@ -3558,6 +3560,28 @@ registerApp({
     // Guarded with isAlive() so the handler is a no-op once this window
     // is closed (the listener itself is removed by the returned cleanup).
     if (typeof OS !== 'undefined' && OS.events && typeof OS.events.on === 'function') {
+      // Live re-localisation — re-render this window when the OS language
+      // changes. Wired exactly once per account mount (the app script can
+      // be re-evaluated; an unguarded registration would stack listeners),
+      // mirroring the launcher's __launcherLocaleWired pattern.
+      if (!window.__settingsLocaleWired) {
+        window.__settingsLocaleWired = true;
+        OS.events.on('languageChanged', () => {
+          try {
+            window.NovaI18n?.applyStaticDom?.(document);
+            // The sidebar is built once — re-label its buttons, then re-render
+            // the currently visible section in the new language.
+            for (const [id, btn] of sidebarBtns) {
+              const section = SECTIONS.find(s => s.id === id);
+              if (!section?.nameKey) continue;
+              btn.setAttribute('aria-label', _t(section.nameKey));
+              const labelSpan = btn.lastElementChild;
+              if (labelSpan) labelSpan.textContent = _t(section.nameKey);
+            }
+            renderContent();
+          } catch (error) { console.warn('[Settings] Language change re-render failed:', error); }
+        });
+      }
       const settingsHandler = ({ key }) => {
         if (!isAlive()) return;
         if (key === 'devMode' && ['apps', 'root'].includes(currentSection)) renderContent();

@@ -141,17 +141,16 @@
     }
     const releaseNotes = getLatestReleaseNotes(app);
     Notify.show({
-      title: `${app.name} needs updating`,
-      body: `Version ${app.version} is available (installed: ${installed.version || 'unknown'}).${
-        releaseNotes ? `\n\nWhat’s new in v${app.version}:\n${releaseNotes}` : ''
-      }`,
+      title: _t('apps.storeUpdates.needsUpdating', { app: app.name }),
+      body: _t('apps.storeUpdates.updateAvailableBody', { version: app.version, installed: installed.version || _t('apps.storeUpdates.unknownVersion') }) +
+        (releaseNotes ? _t('apps.storeUpdates.whatsNew', { version: app.version, notes: releaseNotes }) : ''),
       type: 'info',
       appName: 'Store',
       appId: 'com.nbosp.store',
       category: 'apps',
       icon: 'package',
       action: 'open-store',
-      actionLabel: 'Open store',
+      actionLabel: _t('apps.storeUpdates.openStore'),
     });
     return true;
   }

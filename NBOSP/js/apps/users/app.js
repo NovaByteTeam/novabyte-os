@@ -150,7 +150,7 @@ registerApp({
     }
 
     function fmtDate(ts) {
-      if (!ts) return 'never';
+      if (!ts) return _t('apps.users.never');
       try { return new Date(ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }); } catch (_) { return String(ts); }
     }
 
@@ -167,8 +167,8 @@ registerApp({
         style: 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;',
       });
       splash.appendChild(createEl('div', { style: 'font-size:34px', textContent: '🔒' }));
-      splash.appendChild(createEl('div', { style: 'font-size:15px;font-weight:600', textContent: /multi-user is off/i.test(message || '') ? 'Multi-user is off' : 'Administrator account required' }));
-      splash.appendChild(createEl('div', { style: 'font-size:12px;max-width:380px;text-align:center', textContent: message || 'The Users console manages accounts machine-wide. Sign in with an Admin or Owner account to use it.' }));
+      splash.appendChild(createEl('div', { style: 'font-size:15px;font-weight:600', textContent: /multi-user is off/i.test(message || '') ? _t('apps.users.splash.multiUserOff') : _t('apps.users.splash.adminRequired') }));
+      splash.appendChild(createEl('div', { style: 'font-size:12px;max-width:380px;text-align:center', textContent: message || _t('apps.users.splash.deniedBody') }));
       root.appendChild(splash);
     }
 
@@ -179,9 +179,9 @@ registerApp({
     root.appendChild(body);
 
     const TABS = [
-      { id: 'users', name: 'Users' },
-      { id: 'policies', name: 'Policies' },
-      { id: 'audit', name: 'Audit' },
+      { id: 'users', name: _t('apps.users.tabs.users') },
+      { id: 'policies', name: _t('apps.users.tabs.policies') },
+      { id: 'audit', name: _t('apps.users.tabs.audit') },
     ];
     let activeTab = 'users';
     const tabButtons = {};
@@ -221,9 +221,9 @@ registerApp({
     function renderUsers() {
       body.innerHTML = '';
       const toolbar = createEl('div', { className: 'nbusers-toolbar' });
-      toolbar.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600', textContent: `Accounts (${usersCache.length})` }));
+      toolbar.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600', textContent: _t('apps.users.accountsCount', { count: usersCache.length }) }));
       const addBtn = createEl('button', { className: 'nbusers-btn primary nbusers-add-btn' });
-      addBtn.setAttribute('aria-label', 'Add account');
+      addBtn.setAttribute('aria-label', _t('apps.users.addAccount'));
       const addIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       addIcon.setAttribute('viewBox', '0 0 24 24');
       addIcon.setAttribute('width', '16');
@@ -237,19 +237,19 @@ registerApp({
       addIconPath.setAttribute('d', 'M12 5v14M5 12h14');
       addIcon.appendChild(addIconPath);
       addBtn.appendChild(addIcon);
-      addBtn.appendChild(createEl('span', { textContent: 'Add account' }));
+      addBtn.appendChild(createEl('span', { textContent: _t('apps.users.addAccount') }));
       addBtn.addEventListener('click', () => renderAddUser(), { signal });
       toolbar.appendChild(addBtn);
       body.appendChild(toolbar);
 
       if (!usersCache.length) {
-        body.appendChild(createEl('div', { className: 'nbusers-empty', textContent: 'No accounts yet — add the first one.' }));
+        body.appendChild(createEl('div', { className: 'nbusers-empty', textContent: _t('apps.users.noAccounts') }));
         return;
       }
 
       const table = createEl('table', { className: 'nbusers-table' });
       const head = createEl('tr');
-      for (const label of ['Account', 'Username', 'Role', 'Status', 'Last sign-in', 'Storage', 'Actions']) {
+      for (const label of [_t('apps.users.table.account'), _t('apps.users.table.username'), _t('apps.users.table.role'), _t('apps.users.table.status'), _t('apps.users.table.lastSignIn'), _t('apps.users.table.storage'), _t('apps.users.table.actions')]) {
         head.appendChild(createEl('th', { textContent: label }));
       }
       const thead = createEl('thead');
@@ -270,7 +270,7 @@ registerApp({
         accountInfo.appendChild(createEl('span', { className: 'nbusers-avatar', textContent: avatarText(user) }));
         const nameWrap = createEl('div');
         nameWrap.appendChild(createEl('div', { style: 'font-weight:600', textContent: user.displayName || user.username }));
-        if (user.locked) nameWrap.appendChild(createEl('div', { style: 'font-size:10px;color:var(--text-danger)', textContent: 'locked — needs admin unlock' }));
+        if (user.locked) nameWrap.appendChild(createEl('div', { style: 'font-size:10px;color:var(--text-danger)', textContent: _t('apps.users.lockedNeedsUnlock') }));
         accountInfo.appendChild(nameWrap);
         cellAccount.appendChild(accountInfo);
         row.appendChild(cellAccount);
@@ -281,7 +281,7 @@ registerApp({
         ]));
         row.appendChild(createEl('td', null, [
           createEl('span', { className: `nbusers-chip ${user.status}`, textContent: user.status }),
-          user.locked ? createEl('span', { className: 'nbusers-chip locked', textContent: 'locked' }) : null,
+          user.locked ? createEl('span', { className: 'nbusers-chip locked', textContent: _t('apps.users.lockedChip') }) : null,
         ]));
         row.appendChild(createEl('td', { textContent: fmtDate(user.lastLoginAt) }));
 
@@ -302,21 +302,21 @@ registerApp({
           return btn;
         };
 
-        actions.appendChild(mkBtn('Edit', '', () => renderEditUser(user), 'Display name, role, quota'));
+        actions.appendChild(mkBtn(_t('apps.users.actions.edit'), '', () => renderEditUser(user), _t('apps.users.actions.editTitle')));
         if (user.role !== 'owner') {
           if (user.status === 'active') {
-            actions.appendChild(mkBtn('Disable', '', () => adminAction('accounts.disable', { uid: user.uid }, 'disable'), 'Block sign-in and revoke sessions'));
+            actions.appendChild(mkBtn(_t('apps.users.actions.disable'), '', () => adminAction('accounts.disable', { uid: user.uid }, 'disable'), _t('apps.users.actions.disableTitle')));
           } else {
-            actions.appendChild(mkBtn('Enable', '', () => adminAction('accounts.enable', { uid: user.uid }, 'enable')));
+            actions.appendChild(mkBtn(_t('apps.users.actions.enable'), '', () => adminAction('accounts.enable', { uid: user.uid }, 'enable')));
           }
           if (user.locked) {
-            actions.appendChild(mkBtn('Unlock', '', () => adminAction('accounts.unlock', { uid: user.uid }, 'unlock'), 'Clear the brute-force lock'));
+            actions.appendChild(mkBtn(_t('apps.users.actions.unlock'), '', () => adminAction('accounts.unlock', { uid: user.uid }, 'unlock'), _t('apps.users.actions.unlockTitle')));
           }
         }
-        actions.appendChild(mkBtn('Reset PIN', '', () => resetCredential(user), 'Issue a temporary PIN shown once'));
-        actions.appendChild(mkBtn('Force out', 'ghost', () => adminAction('accounts.forceLogout', { uid: user.uid }, 'force-logout'), 'Revoke every session of this account'));
+        actions.appendChild(mkBtn(_t('apps.users.actions.resetPin'), '', () => resetCredential(user), _t('apps.users.actions.resetPinTitle')));
+        actions.appendChild(mkBtn(_t('apps.users.actions.forceOut'), 'ghost', () => adminAction('accounts.forceLogout', { uid: user.uid }, 'force-logout'), _t('apps.users.actions.forceOutTitle')));
         if (user.role !== 'owner') {
-          actions.appendChild(mkBtn('Delete', 'danger', () => renderDeleteUser(user), 'Archive or wipe this account'));
+          actions.appendChild(mkBtn(_t('apps.users.actions.delete'), 'danger', () => renderDeleteUser(user), _t('apps.users.actions.deleteTitle')));
         }
         cellActions.appendChild(actions);
         row.appendChild(cellActions);
@@ -333,7 +333,7 @@ registerApp({
         await refresh();
         return true;
       }
-      const message = result?.message || result?.error || `${verbLabel} failed`;
+      const message = result?.message || result?.error || _t('apps.users.actionFailed', { verb: verbLabel });
       toast(message, true);
       return false;
     }
@@ -359,17 +359,17 @@ registerApp({
     // Add-user wizard (Table 9): account → credentials → review.
     function renderAddUser() {
       body.innerHTML = '';
-      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: 'Add account' }));
-      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: 'New accounts sign in with the PIN you choose; they can change it from their own lock screen.' }));
+      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: _t('apps.users.addAccount') }));
+      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: _t('apps.users.add.subtitle') }));
 
       const form = createEl('div', { className: 'nbusers-form' });
       const fields = [
-        { id: 'nu-display', label: 'Display name', type: 'text', placeholder: 'Sam Nova' },
-        { id: 'nu-username', label: 'Username (3–32 chars, immutable)', type: 'text', placeholder: 'sam' },
-        { id: 'nu-role', label: 'Role', type: 'select', options: [['standard', 'Standard — personal data, no machine authority'], ['admin', 'Admin — full system authority']] },
-        { id: 'nu-pin', label: 'PIN (4–6 digits)', type: 'password', placeholder: '••••', maxlength: '6' },
-        { id: 'nu-pass', label: 'Passphrase (optional, 8+ chars)', type: 'password', placeholder: 'recommended for admins' },
-        { id: 'nu-quota', label: 'Storage quota (GB, default 2)', type: 'number', placeholder: '2', min: '1', max: '32', step: '0.5' },
+        { id: 'nu-display', label: _t('apps.users.fields.displayName'), type: 'text', placeholder: _t('apps.users.fields.displayNamePlaceholder') },
+        { id: 'nu-username', label: _t('apps.users.fields.usernameLabel'), type: 'text', placeholder: _t('apps.users.fields.usernamePlaceholder') },
+        { id: 'nu-role', label: _t('apps.users.fields.role'), type: 'select', options: [['standard', _t('apps.users.roles.standard')], ['admin', _t('apps.users.roles.admin')]] },
+        { id: 'nu-pin', label: _t('apps.users.fields.pinLabel'), type: 'password', placeholder: '••••', maxlength: '6' },
+        { id: 'nu-pass', label: _t('apps.users.fields.passphraseLabel'), type: 'password', placeholder: _t('apps.users.fields.passphrasePlaceholder') },
+        { id: 'nu-quota', label: _t('apps.users.fields.quotaDefault'), type: 'number', placeholder: '2', min: '1', max: '32', step: '0.5' },
       ];
       const inputs = {};
       for (const f of fields) {
@@ -397,9 +397,9 @@ registerApp({
       body.appendChild(status);
 
       const row = createEl('div', { style: 'display:flex;gap:10px;margin-top:6px' });
-      const cancel = createEl('button', { className: 'nbusers-btn ghost', textContent: 'Cancel' });
+      const cancel = createEl('button', { className: 'nbusers-btn ghost', textContent: _t('common.cancel') });
       cancel.addEventListener('click', () => { selectTab('users'); }, { signal });
-      const create = createEl('button', { className: 'nbusers-btn primary', textContent: 'Create account' });
+      const create = createEl('button', { className: 'nbusers-btn primary', textContent: _t('apps.users.createAccount') });
       create.addEventListener('click', async () => {
         const displayName = inputs['nu-display'].value.trim();
         const username = inputs['nu-username'].value.trim().toLowerCase();
@@ -407,11 +407,11 @@ registerApp({
         const pin = inputs['nu-pin'].value;
         const passphrase = inputs['nu-pass'].value;
         const quotaGB = parseFloat(inputs['nu-quota'].value);
-        if (!displayName) { status.textContent = 'Enter a display name.'; return; }
-        if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)) { status.textContent = 'Username: 3–32 chars — letters, digits, dots, dashes, underscores.'; return; }
-        if (!/^\d{4,6}$/.test(pin)) { status.textContent = 'PIN must be 4–6 digits.'; return; }
-        if (passphrase && passphrase.length < 8) { status.textContent = 'Passphrase must be 8+ characters (or empty).'; return; }
-        status.textContent = 'Creating…';
+        if (!displayName) { status.textContent = _t('apps.users.validation.displayNameRequired'); return; }
+        if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)) { status.textContent = _t('apps.users.validation.usernameInvalid'); return; }
+        if (!/^\d{4,6}$/.test(pin)) { status.textContent = _t('apps.users.validation.pinDigits'); return; }
+        if (passphrase && passphrase.length < 8) { status.textContent = _t('apps.users.validation.passphraseTooShort'); return; }
+        status.textContent = _t('apps.users.creating');
         const account = { displayName, username, role, pin };
         if (passphrase) account.passphrase = passphrase;
         if (Number.isFinite(quotaGB) && quotaGB > 0) account.quotaBytes = Math.round(quotaGB * 1024 * 1024 * 1024);
@@ -420,9 +420,9 @@ registerApp({
           status.textContent = '';
           await refresh();
           selectTab('users');
-          toast(`Account ${username} created`);
+          toast(_t('apps.users.accountCreated', { username }));
         } else {
-          status.textContent = result?.message || result?.error || 'Creation failed';
+          status.textContent = result?.message || result?.error || _t('apps.users.creationFailed');
         }
       }, { signal });
       row.appendChild(cancel);
@@ -432,14 +432,14 @@ registerApp({
 
     function renderEditUser(user) {
       body.innerHTML = '';
-      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: `Edit — ${user.displayName || user.username}` }));
-      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: 'The username never changes; the display name, role and quota are editable by an admin.' }));
+      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: _t('apps.users.editTitle', { name: user.displayName || user.username }) }));
+      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: _t('apps.users.edit.subtitle') }));
 
       const form = createEl('div', { className: 'nbusers-form' });
       const displayNameInput = createEl('input', { type: 'text', value: user.displayName || '' });
       const roleSelect = createEl('select');
-      roleSelect.appendChild(createEl('option', { value: 'standard', textContent: 'Standard — personal data, no machine authority' }));
-      roleSelect.appendChild(createEl('option', { value: 'admin', textContent: 'Admin — full system authority' }));
+      roleSelect.appendChild(createEl('option', { value: 'standard', textContent: _t('apps.users.roles.standard') }));
+      roleSelect.appendChild(createEl('option', { value: 'admin', textContent: _t('apps.users.roles.admin') }));
       roleSelect.value = user.role === 'admin' ? 'admin' : 'standard';
       if (user.role === 'owner') {
         roleSelect.value = 'admin';
@@ -449,12 +449,12 @@ registerApp({
       quotaInput.style.width = '100%';
       displayNameInput.style.width = '100%';
 
-      form.appendChild(createEl('label', { textContent: 'Display name' }));
+      form.appendChild(createEl('label', { textContent: _t('apps.users.fields.displayName') }));
       form.appendChild(displayNameInput);
-      form.appendChild(createEl('label', { textContent: 'Role' }));
+      form.appendChild(createEl('label', { textContent: _t('apps.users.fields.role') }));
       form.appendChild(roleSelect);
       if (user.role !== 'owner') { /* role editing allowed */ }
-      form.appendChild(createEl('label', { textContent: 'Storage quota (GB)' }));
+      form.appendChild(createEl('label', { textContent: _t('apps.users.fields.storageQuota') }));
       form.appendChild(quotaInput);
       body.appendChild(form);
 
@@ -462,9 +462,9 @@ registerApp({
       body.appendChild(status);
 
       const row = createEl('div', { style: 'display:flex;gap:10px;margin-top:6px' });
-      const back = createEl('button', { className: 'nbusers-btn ghost', textContent: 'Back' });
+      const back = createEl('button', { className: 'nbusers-btn ghost', textContent: _t('common.back') });
       back.addEventListener('click', () => selectTab('users'), { signal });
-      const save = createEl('button', { className: 'nbusers-btn primary', textContent: 'Save' });
+      const save = createEl('button', { className: 'nbusers-btn primary', textContent: _t('common.save') });
       save.addEventListener('click', async () => {
         const patch = { displayName: displayNameInput.value.trim() || user.username };
         if (user.role !== 'owner') patch.role = roleSelect.value;
@@ -474,9 +474,9 @@ registerApp({
         if (result?.success) {
           await refresh();
           selectTab('users');
-          toast('Account updated');
+          toast(_t('apps.users.accountUpdated'));
         } else {
-          status.textContent = result?.message || result?.error || 'Update failed (last-admin guard?)';
+          status.textContent = result?.message || result?.error || _t('apps.users.updateFailed');
         }
       }, { signal });
       row.appendChild(back);
@@ -487,20 +487,20 @@ registerApp({
     async function resetCredential(user) {
       const result = await adminUsers('accounts.resetCredential', { uid: user.uid });
       if (!result?.success) {
-        toast(result?.message || result?.error || 'Reset failed', true);
+        toast(result?.message || result?.error || _t('apps.users.resetFailed'), true);
         return;
       }
       const data = result.data || {};
       // The temporary PIN is shown exactly once.
       body.innerHTML = '';
-      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: `Temporary PIN — ${user.displayName || user.username}` }));
-      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: 'Valid for 15 minutes. The account must choose a new PIN at its next sign-in. Both ends are logged to the audit feed.' }));
+      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: _t('apps.users.temporaryPinTitle', { name: user.displayName || user.username }) }));
+      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: _t('apps.users.temporaryPinBody') }));
       const pinCard = createEl('div', {
         style: 'display:inline-block;padding:18px 26px;border-radius:12px;border:1px dashed var(--accent);font-size:26px;letter-spacing:6px;font-weight:700;color:var(--accent);background:var(--bg-overlay);',
         textContent: String(data.temporaryPin || ''),
       });
       body.appendChild(pinCard);
-      const back = createEl('button', { className: 'nbusers-btn', textContent: 'Done' });
+      const back = createEl('button', { className: 'nbusers-btn', textContent: _t('apps.users.done') });
       back.style.marginTop = '16px';
       back.addEventListener('click', () => selectTab('users'), { signal });
       body.appendChild(back);
@@ -509,8 +509,8 @@ registerApp({
 
     function renderDeleteUser(user) {
       body.innerHTML = '';
-      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: `Delete — ${user.displayName || user.username}` }));
-      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: 'The owner is never deletable, and the last active admin is protected. Choose what happens to the account\u2019s storage.' }));
+      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: _t('apps.users.deleteTitle', { name: user.displayName || user.username }) }));
+      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: _t('apps.users.delete.subtitle') }));
 
       const status = createEl('div', { className: 'nbusers-status' });
       const row = createEl('div', { style: 'display:flex;flex-direction:column;gap:10px;max-width:460px' });
@@ -527,17 +527,17 @@ registerApp({
             const data = result.data || {};
             await refresh();
             selectTab('users');
-            toast(data.archivedTo ? `Archived to /Shared${String(data.archivedTo).split('admin-backups')[1] || ''}` : 'Account deleted');
+            toast(data.archivedTo ? _t('apps.users.archivedTo', { path: String(data.archivedTo).split('admin-backups')[1] || '' }) : _t('apps.users.accountDeleted'));
           } else {
-            status.textContent = result?.message || result?.error || 'Deletion refused';
+            status.textContent = result?.message || result?.error || _t('apps.users.deletionRefused');
           }
         }, { signal });
         return card;
       };
 
-      row.appendChild(mk('Archive', 'Move this account\u2019s tree into /Shared/admin-backups for later retrieval, then remove the account.', 'archive'));
-      row.appendChild(mk('Wipe', 'Remove the account\u2019s storage strata outright: registry files, user home, AppStorage rows, webview partitions.', 'wipe'));
-      const back = createEl('button', { className: 'nbusers-btn ghost', textContent: 'Cancel' });
+      row.appendChild(mk(_t('apps.users.deleteMode.archive'), _t('apps.users.deleteMode.archiveBody'), 'archive'));
+      row.appendChild(mk(_t('apps.users.deleteMode.wipe'), _t('apps.users.deleteMode.wipeBody'), 'wipe'));
+      const back = createEl('button', { className: 'nbusers-btn ghost', textContent: _t('common.cancel') });
       back.addEventListener('click', () => selectTab('users'), { signal });
       row.appendChild(back);
       body.appendChild(row);
@@ -557,11 +557,11 @@ registerApp({
     function renderPolicies() {
       body.innerHTML = '';
       if (!policiesCache) {
-        body.appendChild(createEl('div', { className: 'nbusers-empty', textContent: 'Policies unavailable.' }));
+        body.appendChild(createEl('div', { className: 'nbusers-empty', textContent: _t('apps.users.policiesUnavailable') }));
         return;
       }
-      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: 'Machine account policies' }));
-      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: 'These apply to every account on this machine; individual storage quotas live per account on the Users tab.' }));
+      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: _t('apps.users.policies.title') }));
+      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: _t('apps.users.policies.subtitle') }));
 
       const p = policiesCache;
       const form = createEl('div', { className: 'nbusers-form' });
@@ -592,18 +592,18 @@ registerApp({
         form.appendChild(createEl('div', { style: 'height:6px' }));
       };
 
-      mkToggle('guestAccess', 'Guest access on the login picker', 'A guest tile starts an ephemeral, volatile session — nothing persists.');
-      mkToggle('showUsernamesOnPicker', 'Show usernames on the login picker', 'Relax the display-name default for shared kiosks where real names help.');
-      mkToggle('closeAppsOnSwitch', 'Close apps when switching accounts', 'The memory-disciplined default; the keep-running variant arrives later without protocol changes.');
-      mkNumber('defaultUserQuotaBytes', 'Default per-account storage (bytes)', 'Applied to newly created accounts.', 1024 * 1024, 32 * 1024 ** 3, 1024 * 1024);
-      mkNumber('idleLockMaxMinutes', 'Idle lock maximum (minutes)', 'Accounts may set a shorter idle lock, never longer.', 1, 240, 1);
-      mkNumber('lockoutShortMs', 'Lockout step 1 (ms)', 'Failed-attempt ladder: short lockout.', 5000, 600000, 5000);
-      mkNumber('lockoutExtendedMs', 'Lockout step 2 (ms)', 'Failed-attempt ladder: extended lockout before the admin-locked state.', 5000, 3600000, 5000);
+      mkToggle('guestAccess', _t('apps.users.policies.guestAccess'), _t('apps.users.policies.guestAccessHint'));
+      mkToggle('showUsernamesOnPicker', _t('apps.users.policies.showUsernames'), _t('apps.users.policies.showUsernamesHint'));
+      mkToggle('closeAppsOnSwitch', _t('apps.users.policies.closeAppsOnSwitch'), _t('apps.users.policies.closeAppsHint'));
+      mkNumber('defaultUserQuotaBytes', _t('apps.users.policies.defaultQuota'), _t('apps.users.policies.defaultQuotaHint'), 1024 * 1024, 32 * 1024 ** 3, 1024 * 1024);
+      mkNumber('idleLockMaxMinutes', _t('apps.users.policies.idleLockMax'), _t('apps.users.policies.idleLockHint'), 1, 240, 1);
+      mkNumber('lockoutShortMs', _t('apps.users.policies.lockoutStep1'), _t('apps.users.policies.lockoutStep1Hint'), 5000, 600000, 5000);
+      mkNumber('lockoutExtendedMs', _t('apps.users.policies.lockoutStep2'), _t('apps.users.policies.lockoutStep2Hint'), 5000, 3600000, 5000);
 
       body.appendChild(form);
       const status = createEl('div', { className: 'nbusers-status' });
       body.appendChild(status);
-      const save = createEl('button', { className: 'nbusers-btn primary', textContent: 'Save policies' });
+      const save = createEl('button', { className: 'nbusers-btn primary', textContent: _t('apps.users.savePolicies') });
       save.addEventListener('click', async () => {
         const patch = {};
         for (const input of form.querySelectorAll('[data-policy-key]')) {
@@ -613,10 +613,10 @@ registerApp({
         const result = await adminUsers('policies.set', { policies: patch });
         if (result?.success) {
           policiesCache = result.data?.policies || policiesCache;
-          status.textContent = 'Saved';
+          status.textContent = _t('apps.users.saved');
           status.className = 'nbusers-status nbusers-ok';
         } else {
-          status.textContent = result?.message || result?.error || 'Policy save failed';
+          status.textContent = result?.message || result?.error || _t('apps.users.policySaveFailed');
           status.className = 'nbusers-status';
         }
       }, { signal });
@@ -628,19 +628,19 @@ registerApp({
 
     async function renderAudit() {
       body.innerHTML = '';
-      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: 'Account events' }));
-      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:14px', textContent: 'The persistent per-user audit feed: sign-ins, credential changes, account lifecycle, admin actions.' }));
+      body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: _t('apps.users.audit.title') }));
+      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:14px', textContent: _t('apps.users.audit.subtitle') }));
 
       const toolbar = createEl('div', { className: 'nbusers-toolbar' });
       const filter = createEl('select');
-      filter.appendChild(createEl('option', { value: '', textContent: 'All accounts' }));
+      filter.appendChild(createEl('option', { value: '', textContent: _t('apps.users.audit.allAccounts') }));
       for (const user of usersCache) {
         filter.appendChild(createEl('option', { value: user.uid, textContent: user.displayName || user.username }));
       }
       filter.value = auditFilterUid;
       filter.addEventListener('change', () => { auditFilterUid = filter.value; renderAudit(); }, { signal });
       toolbar.appendChild(filter);
-      const exportBtn = createEl('button', { className: 'nbusers-btn', textContent: 'Export CSV' });
+      const exportBtn = createEl('button', { className: 'nbusers-btn', textContent: _t('apps.users.audit.exportCsv') });
       exportBtn.addEventListener('click', exportAuditCsv, { signal });
       toolbar.appendChild(exportBtn);
       body.appendChild(toolbar);
@@ -648,7 +648,7 @@ registerApp({
       const result = await adminUsers('events.list', { limit: 200, ...(auditFilterUid ? { uid: auditFilterUid } : {}) });
       const events = result?.data?.events || result?.events || [];
       if (!events.length) {
-        body.appendChild(createEl('div', { className: 'nbusers-empty', textContent: 'No events yet.' }));
+        body.appendChild(createEl('div', { className: 'nbusers-empty', textContent: _t('apps.users.audit.noEvents') }));
         return;
       }
       for (const event of events) {
@@ -660,7 +660,7 @@ registerApp({
           createEl('span', { textContent: event.actor || '' }),
         ]));
         el.appendChild(createEl('div', { style: 'font-weight:600', textContent: event.action }));
-        if (event.target) el.appendChild(createEl('div', { style: 'color:var(--text-muted)', textContent: `target: ${event.target}` }));
+        if (event.target) el.appendChild(createEl('div', { style: 'color:var(--text-muted)', textContent: _t('apps.users.audit.target', { target: event.target }) }));
         if (event.detail && typeof event.detail === 'object') {
           el.appendChild(createEl('div', { style: 'color:var(--text-muted);font-size:11px;white-space:pre-wrap;', textContent: JSON.stringify(event.detail) }));
         }
@@ -681,18 +681,18 @@ registerApp({
       }
       try {
         const destination = await window.SystemDialogs.save({
-          title: 'Export account events',
+          title: _t('apps.users.audit.exportTitle'),
           suggestedName: 'novabyte-account-events.csv',
         });
         if (!destination) return;
         const nodeRequire = typeof window.require === 'function'
           ? window.require
           : (typeof require === 'function' ? require : null);
-        if (!nodeRequire) throw new Error('File writing is unavailable in this runtime.');
+        if (!nodeRequire) throw new Error(_t('apps.users.audit.fileWriteUnavailable'));
         await nodeRequire('fs').promises.writeFile(destination.path, lines.join('\n'), 'utf8');
-        toast('CSV exported to ' + destination.path);
+        toast(_t('apps.users.audit.csvExported', { path: destination.path }));
       } catch (err) {
-        toast('CSV export failed: ' + (err?.message || err), true);
+        toast(_t('apps.users.audit.csvExportFailed', { message: err?.message || err }), true);
       }
     }
 
@@ -728,7 +728,7 @@ registerApp({
         return;
       }
     } catch (err) {
-      roleDeniedSplash('The account service is unreachable: ' + (err?.message || err));
+      roleDeniedSplash(_t('apps.users.splash.unreachable', { message: err?.message || err }));
       return;
     }
     renderUsers();

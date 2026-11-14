@@ -21,6 +21,29 @@ const MyAppsManager = (() => {
   }
 
   /**
+   * Localised lookup with an inline English fallback.
+   *
+   * The trusted host installs window._t (NovaI18n) before platform UI loads,
+   * so live lookups resolve through the OS catalogues. This module is also
+   * consumed in DOM-less environments (Node tooling / unit tests) where no
+   * engine exists, and before catalogues are registered (when _t echoes the
+   * key) — in both cases the exact original English is rendered from the
+   * inline fallback so the output is unchanged.
+   */
+  function t(key, english, vars) {
+    try {
+      if (typeof window !== 'undefined' && typeof window._t === 'function') {
+        const out = window._t(key, vars);
+        if (typeof out === 'string' && out && out !== key) return out;
+      }
+    } catch (_) { /* fall back to the inline English */ }
+    if (!vars) return english;
+    return english.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, name) => (
+      vars[name] !== undefined && vars[name] !== null ? String(vars[name]) : match
+    ));
+  }
+
+  /**
    * Initialize the manager
    */
   function initialize() {
@@ -47,8 +70,8 @@ const MyAppsManager = (() => {
   function showInstallNotification(app) {
     if (typeof Notify !== 'undefined') {
       Notify.show({
-        title: 'App Installed',
-        body: `${app.name} has been installed successfully`,
+        title: t('apps.myApps.appInstalledTitle', 'App Installed'),
+        body: t('apps.myApps.appInstalledBody', '{{app}} has been installed successfully', { app: app.name }),
         type: 'success',
         appName: 'My Apps'
       });
@@ -62,8 +85,8 @@ const MyAppsManager = (() => {
   function showUninstallNotification(app) {
     if (typeof Notify !== 'undefined') {
       Notify.show({
-        title: 'App Removed',
-        body: `${app.name} has been uninstalled`,
+        title: t('apps.myApps.appRemovedTitle', 'App Removed'),
+        body: t('apps.myApps.appRemovedBody', '{{app}} has been uninstalled', { app: app.name }),
         type: 'info',
         appName: 'My Apps'
       });
@@ -283,11 +306,11 @@ const MyAppsManager = (() => {
   function showInstallUI(container) {
     const html = `
       <div style="padding: 20px;">
-        <h2 style="color: #e6edf3; margin-bottom: 20px;">Install Application</h2>
+        <h2 style="color: #e6edf3; margin-bottom: 20px;">${t('apps.myApps.installTitle', 'Install Application')}</h2>
         
         <div style="margin-bottom: 20px;">
           <label style="color: #8b949e; display: block; margin-bottom: 8px;">
-            Install from .novaapp file:
+            ${t('apps.myApps.installFromFileLabel', 'Install from .novaapp file:')}
           </label>
           <div style="display: flex; align-items: center; gap: 10px;">
             <button type="button" id="installFileBtn" style="
@@ -297,14 +320,14 @@ const MyAppsManager = (() => {
               padding: 8px 12px;
               color: #e6edf3;
               cursor: pointer;
-            ">Choose file…</button>
-            <span id="installFileName" style="color: #8b949e; font-size: 13px;">No file selected</span>
+            ">${t('apps.myApps.chooseFile', 'Choose file…')}</button>
+            <span id="installFileName" style="color: #8b949e; font-size: 13px;">${t('apps.myApps.noFileSelected', 'No file selected')}</span>
           </div>
         </div>
         
         <div style="margin-bottom: 20px;">
           <label style="color: #8b949e; display: block; margin-bottom: 8px;">
-            Or install from URL:
+            ${t('apps.myApps.installFromUrlLabel', 'Or install from URL:')}
           </label>
           <input type="text" id="installUrlInput" placeholder="https://example.com/app.novaapp" style="
             background: var(--bg-sunken);
@@ -324,7 +347,7 @@ const MyAppsManager = (() => {
           padding: 10px 20px;
           font-size: 14px;
           cursor: pointer;
-        ">Install</button>
+        ">${t('apps.myApps.install', 'Install')}</button>
         
         <div id="installStatus" style="margin-top: 15px;"></div>
       </div>
@@ -339,7 +362,7 @@ const MyAppsManager = (() => {
 
     fileBtn.addEventListener('click', async () => {
       const picked = await SystemDialogs.open({
-        title: 'Choose .novaapp',
+        title: t('apps.myApps.chooseNovaapp', 'Choose .novaapp'),
         filter: (name, isDir) => isDir || /\.(novaapp|json)$/i.test(name),
       });
       if (!picked) return;
@@ -350,7 +373,7 @@ const MyAppsManager = (() => {
     const statusDiv = container.querySelector('#installStatus');
 
     installBtn.addEventListener('click', async () => {
-      statusDiv.innerHTML = '<p style="color: #8b949e;">Installing...</p>';
+      statusDiv.innerHTML = '<p style="color: #8b949e;">' + t('apps.myApps.installing', 'Installing...') + '</p>';
 
       try {
         let result;
@@ -360,23 +383,23 @@ const MyAppsManager = (() => {
         } else if (urlInput.value) {
           result = await installFromUrl(urlInput.value);
         } else {
-          throw new Error('Please select a file or enter a URL');
+          throw new Error(t('apps.myApps.selectFileOrUrl', 'Please select a file or enter a URL'));
         }
 
         statusDiv.innerHTML = `
           <p style="color: #3fb950;">
-            ✓ Successfully installed ${escapeHtml(result.app.name)}
+            ${t('apps.myApps.installedSuccessfully', '✓ Successfully installed {{app}}', { app: escapeHtml(result.app.name) })}
           </p>
         `;
 
         // Clear inputs
         pickedPackage = null;
-        fileNameEl.textContent = 'No file selected';
+        fileNameEl.textContent = t('apps.myApps.noFileSelected', 'No file selected');
         urlInput.value = '';
       } catch (error) {
         statusDiv.innerHTML = `
           <p style="color: #f85149;">
-            ✗ Installation failed: ${escapeHtml(error.message)}
+            ${t('apps.myApps.installFailed', '✗ Installation failed: {{message}}', { message: escapeHtml(error.message) })}
           </p>
         `;
       }
@@ -394,7 +417,7 @@ const MyAppsManager = (() => {
     const html = `
       <div style="padding: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-          <h2 style="color: #e6edf3; margin: 0;">My Apps</h2>
+          <h2 style="color: #e6edf3; margin: 0;">${t('apps.myApps.myApps', 'My Apps')}</h2>
           <button id="installAppBtn" style="
             background: #238636;
             color: white;
@@ -403,12 +426,12 @@ const MyAppsManager = (() => {
             padding: 8px 16px;
             font-size: 14px;
             cursor: pointer;
-          ">Install App</button>
+          ">${t('apps.myApps.installApp', 'Install App')}</button>
         </div>
         
         ${apps.length === 0 ? `
           <div style="text-align: center; padding: 40px; color: #8b949e;">
-            <p>No apps installed yet</p>
+            <p>${t('apps.myApps.noAppsInstalled', 'No apps installed yet')}</p>
             <button id="installFirstAppBtn" style="
               margin-top: 15px;
               background: #58a6ff;
@@ -417,7 +440,7 @@ const MyAppsManager = (() => {
               border-radius: 6px;
               padding: 10px 20px;
               cursor: pointer;
-            ">Install Your First App</button>
+            ">${t('apps.myApps.installFirstApp', 'Install Your First App')}</button>
           </div>
         ` : `
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
@@ -446,7 +469,7 @@ const MyAppsManager = (() => {
                 </div>
                 
                 <p style="color: #8b949e; font-size: 12px; margin-bottom: 15px;">
-                  ${escapeHtml(app.description || 'No description')}
+                  ${escapeHtml(app.description || t('apps.myApps.noDescription', 'No description'))}
                 </p>
                 
                 <div style="display: flex; gap: 8px;">
@@ -459,7 +482,7 @@ const MyAppsManager = (() => {
                     padding: 8px;
                     font-size: 12px;
                     cursor: pointer;
-                  ">Launch</button>
+                  ">${t('apps.myApps.launch', 'Launch')}</button>
                   
                   <button class="app-details-btn" data-app-id="${app.id}" style="
                     background: transparent;
@@ -469,7 +492,7 @@ const MyAppsManager = (() => {
                     padding: 8px;
                     font-size: 12px;
                     cursor: pointer;
-                  ">Details</button>
+                  ">${t('apps.myApps.details', 'Details')}</button>
                   
                   <button class="uninstall-app-btn" data-app-id="${app.id}" style="
                     background: transparent;
@@ -479,7 +502,7 @@ const MyAppsManager = (() => {
                     padding: 8px;
                     font-size: 12px;
                     cursor: pointer;
-                  ">Uninstall</button>
+                  ">${t('apps.myApps.uninstall', 'Uninstall')}</button>
                 </div>
               </div>
             `).join('')}
@@ -557,9 +580,9 @@ const MyAppsManager = (() => {
       btn.addEventListener('click', async (e) => {
         const appId = e.target.dataset.appId;
         const uninstallResult = await showModal(
-          'Uninstall App',
-          `Uninstall ${MyAppsManager.getApp(appId)?.name}?`,
-          [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
+          t('apps.myApps.uninstallAppTitle', 'Uninstall App'),
+          t('apps.myApps.uninstallAppBody', 'Uninstall {{app}}?', { app: MyAppsManager.getApp(appId)?.name }),
+          [{ label: t('common.cancel', 'Cancel') }, { label: t('apps.myApps.uninstall', 'Uninstall'), value: 'confirm', danger: true }]
         );
         if (uninstallResult === 'confirm') {
           await MyAppsManager.removeApp(appId);
@@ -591,7 +614,7 @@ const MyAppsManager = (() => {
           font-size: 14px;
           cursor: pointer;
           margin-bottom: 20px;
-        ">← Back to List</button>
+        ">${t('apps.myApps.backToList', '← Back to List')}</button>
         
         <div style="display: flex; gap: 20px; margin-bottom: 20px;">
           <div style="
@@ -608,12 +631,12 @@ const MyAppsManager = (() => {
           
           <div>
             <h1 style="color: #e6edf3; font-size: 24px; margin: 0 0 8px 0;">${escapeHtml(app.name)}</h1>
-            <p style="color: #8b949e; font-size: 14px; margin: 0 0 16px 0;">${escapeHtml(app.description || 'No description')}</p>
+            <p style="color: #8b949e; font-size: 14px; margin: 0 0 16px 0;">${escapeHtml(app.description || t('apps.myApps.noDescription', 'No description'))}</p>
             
             <div style="display: flex; gap: 15px; font-size: 13px;">
-              <span style="color: #8b949e;">Version: <span style="color: #e6edf3;">${escapeHtml(app.version)}</span></span>
-              <span style="color: #8b949e;">Author: <span style="color: #e6edf3;">${escapeHtml(app.author)}</span></span>
-              <span style="color: #8b949e;">Launches: <span style="color: #e6edf3;">${app.launchCount || 0}</span></span>
+              <span style="color: #8b949e;">${t('apps.myApps.versionLabel', 'Version: ')}<span style="color: #e6edf3;">${escapeHtml(app.version)}</span></span>
+              <span style="color: #8b949e;">${t('apps.myApps.authorLabel', 'Author: ')}<span style="color: #e6edf3;">${escapeHtml(app.author)}</span></span>
+              <span style="color: #8b949e;">${t('apps.myApps.launchesLabel', 'Launches: ')}<span style="color: #e6edf3;">${app.launchCount || 0}</span></span>
             </div>
           </div>
         </div>
@@ -627,7 +650,7 @@ const MyAppsManager = (() => {
             padding: 10px 20px;
             font-size: 14px;
             cursor: pointer;
-          ">Launch App</button>
+          ">${t('apps.myApps.launchApp', 'Launch App')}</button>
           
           <button id="uninstallAppBtn" style="
             background: transparent;
@@ -637,11 +660,11 @@ const MyAppsManager = (() => {
             padding: 10px 20px;
             font-size: 14px;
             cursor: pointer;
-          ">Uninstall</button>
+          ">${t('apps.myApps.uninstall', 'Uninstall')}</button>
         </div>
         
         <div style="margin-bottom: 20px;">
-          <h3 style="color: #e6edf3; font-size: 16px; margin-bottom: 10px;">Permissions</h3>
+          <h3 style="color: #e6edf3; font-size: 16px; margin-bottom: 10px;">${t('apps.myApps.permissions', 'Permissions')}</h3>
           ${permissions.length > 0 ? `
             <div style="display: flex; flex-wrap: gap: 8px;">
               ${permissions.map(p => `
@@ -654,17 +677,17 @@ const MyAppsManager = (() => {
                 ">${escapeHtml(p.permission)}</span>
               `).join('')}
             </div>
-          ` : '<p style="color: #8b949e;">No permissions requested</p>'}
+          ` : `<p style="color: #8b949e;">${t('apps.myApps.noPermissions', 'No permissions requested')}</p>`}
         </div>
         
         <div style="background: var(--bg-sunken); border-radius: 8px; padding: 15px;">
-          <h3 style="color: #e6edf3; font-size: 16px; margin-bottom: 10px;">Details</h3>
+          <h3 style="color: #e6edf3; font-size: 16px; margin-bottom: 10px;">${t('apps.myApps.details', 'Details')}</h3>
           <div style="font-size: 13px; color: #8b949e;">
-            <p><strong>Type:</strong> <span style="color: #e6edf3;">${escapeHtml(app.type)}</span></p>
-            <p><strong>Entry:</strong> <span style="color: #e6edf3;">${escapeHtml(app.entry)}</span></p>
-            <p><strong>Installed:</strong> <span style="color: #e6edf3;">${new Date(app.installedDate).toLocaleDateString()}</span></p>
-            ${app.lastLaunched ? `<p><strong>Last Launched:</strong> <span style="color: #e6edf3;">${new Date(app.lastLaunched).toLocaleDateString()}</span></p>` : ''}
-            <p><strong>Verified:</strong> <span style="color: ${app.verified ? '#3fb950' : '#d29922'}">${app.verified ? 'Yes' : 'No'}</span></p>
+            <p><strong>${t('apps.myApps.typeLabel', 'Type:')}</strong> <span style="color: #e6edf3;">${escapeHtml(app.type)}</span></p>
+            <p><strong>${t('apps.myApps.entryLabel', 'Entry:')}</strong> <span style="color: #e6edf3;">${escapeHtml(app.entry)}</span></p>
+            <p><strong>${t('apps.myApps.installedLabel', 'Installed:')}</strong> <span style="color: #e6edf3;">${new Date(app.installedDate).toLocaleDateString()}</span></p>
+            ${app.lastLaunched ? `<p><strong>${t('apps.myApps.lastLaunchedLabel', 'Last Launched:')}</strong> <span style="color: #e6edf3;">${new Date(app.lastLaunched).toLocaleDateString()}</span></p>` : ''}
+            <p><strong>${t('apps.myApps.verifiedLabel', 'Verified:')}</strong> <span style="color: ${app.verified ? '#3fb950' : '#d29922'}">${app.verified ? t('apps.myApps.yes', 'Yes') : t('apps.myApps.no', 'No')}</span></p>
           </div>
         </div>
       </div>
@@ -682,9 +705,9 @@ const MyAppsManager = (() => {
 
     container.querySelector('#uninstallAppBtn').addEventListener('click', async () => {
       const uninstallResult = await showModal(
-        'Uninstall App',
-        `Uninstall ${app.name}?`,
-        [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
+        t('apps.myApps.uninstallAppTitle', 'Uninstall App'),
+        t('apps.myApps.uninstallAppBody', 'Uninstall {{app}}?', { app: app.name }),
+        [{ label: t('common.cancel', 'Cancel') }, { label: t('apps.myApps.uninstall', 'Uninstall'), value: 'confirm', danger: true }]
       );
       if (uninstallResult === 'confirm') {
         await MyAppsManager.removeApp(appId);

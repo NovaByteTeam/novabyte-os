@@ -23,7 +23,7 @@ registerApp({
       msg.style.cssText = 'font-size:14px;text-align:center';
       const bold = createEl('b');
       bold.textContent = 'com.nbosp.search';
-      msg.append(bold, document.createTextNode('\nApp data directory missing.\nThis app requires NovaByte OS.'));
+      msg.append(bold, document.createTextNode('\n' + _t('apps.search.appDataMissing') + '\n' + _t('apps.search.requiresNovaByte')));
       content.append(warn, msg);
       return;
     }
@@ -209,9 +209,9 @@ registerApp({
 
     const inp = createEl('input', {
       type: 'text',
-      placeholder: 'Search files, contacts, downloads…',
+      placeholder: _t('apps.search.placeholder'),
       style: 'flex:1;background:none;border:none;outline:none;font-size:14px;color:var(--text-primary);',
-      'aria-label': 'Search',
+      'aria-label': _t('apps.search.searchLabel'),
       autocomplete: 'off',
       spellcheck: 'false',
     });
@@ -219,7 +219,7 @@ registerApp({
     const clearX = createEl('button', {
       type: 'button',
       style: 'background:none;border:none;color:var(--text-muted);cursor:pointer;display:none;padding:2px;',
-      'aria-label': 'Clear search',
+      'aria-label': _t('apps.search.clearSearchAria'),
     });
     clearX.innerHTML = svgIcon('x', 14);
 
@@ -233,7 +233,7 @@ registerApp({
     const results = createEl('div', {
       id: 'nbosp-search-results',
       role: 'region',
-      'aria-label': 'Search results',
+      'aria-label': _t('apps.search.resultsAria'),
       'aria-live': 'polite',
       style: 'flex:1;overflow-y:auto;padding:8px;',
     });
@@ -364,7 +364,7 @@ registerApp({
       const ico = createEl('span', { 'aria-hidden': 'true' });
       ico.innerHTML = svgIcon('search', 36);
       const lbl = createEl('div', { style: 'font-size:13px;margin-top:10px;' });
-      lbl.textContent = 'Type to search';
+      lbl.textContent = _t('apps.search.typeToSearch');
       hint.append(ico, lbl);
       results.appendChild(hint);
     }
@@ -373,7 +373,7 @@ registerApp({
       const msg = createEl('div', {
         style: 'padding:24px 8px;text-align:center;color:var(--text-muted);font-size:13px;',
       });
-      msg.textContent = `No results for "${q}"`;
+      msg.textContent = _t('apps.search.noResults', { query: q });
       results.appendChild(msg);
     }
 
@@ -402,10 +402,10 @@ registerApp({
 
       buildFileIndex();
       const fileHits = searchFiles(lq);
-      const filesSec = buildSection('Files', fileHits.slice(0, 12), (f) => {
+      const filesSec = buildSection(_t('apps.search.filesSection'), fileHits.slice(0, 12), (f) => {
         const path = filePathCache.get(f.id) || (f.name || '');
         const mime = fileMime(f);
-        return buildRow(iconForMime(mime), f.name || '(unnamed)', path, () => {
+        return buildRow(iconForMime(mime), f.name || _t('apps.search.unnamed'), path, () => {
           if (mime.startsWith('image/')) WM.createWindow('com.nbosp.gallery', { fileId: f.id });
           else if (mime.startsWith('audio/')) WM.createWindow('com.nbosp.music', { fileId: f.id });
           else if (typeof process !== 'undefined' && process.platform === 'linux'
@@ -419,16 +419,16 @@ registerApp({
       if (filesSec) { results.appendChild(filesSec); hasAnyLocal = true; }
 
       const contactHits = localCache.searchContacts(lq);
-      const contactsSec = buildSection('Contacts', contactHits, (c) =>
-        buildRow('users', c.name || '(no name)', c.email || c.phone || '', () =>
+      const contactsSec = buildSection(_t('apps.search.contactsSection'), contactHits, (c) =>
+        buildRow('users', c.name || _t('apps.search.noName'), c.email || c.phone || '', () =>
           WM.createWindow('com.nbosp.contacts', { contactId: c.id })
         )
       );
       if (contactsSec) { results.appendChild(contactsSec); hasAnyLocal = true; }
 
       const dlHits = localCache.searchDownloads(lq);
-      const dlSec = buildSection('Downloads', dlHits, (d) =>
-        buildRow('download', d.name || '(unnamed)', d.url || '', () =>
+      const dlSec = buildSection(_t('apps.search.downloadsSection'), dlHits, (d) =>
+        buildRow('download', d.name || _t('apps.search.unnamed'), d.url || '', () =>
           WM.createWindow('com.nbosp.downloads', { itemId: d.id })
         )
       );
@@ -439,7 +439,7 @@ registerApp({
 
       if (webHits === null) {
         const loadingEl = createEl('div', { style: 'padding:8px;color:var(--text-muted);font-size:12px;' });
-        loadingEl.textContent = 'Fetching web results…';
+        loadingEl.textContent = _t('apps.search.fetchingWeb');
         results.appendChild(loadingEl);
 
         webHits = [];
@@ -455,7 +455,7 @@ registerApp({
       }
 
       if (webHits.length) {
-        const webSec = buildSection('Web', webHits, (r) =>
+        const webSec = buildSection(_t('apps.search.webSection'), webHits, (r) =>
           buildRow('globe', r.title, r.desc || r.href, () =>
             WM.createWindow('com.nbosp.browser', { url: r.href })
           )
@@ -464,8 +464,8 @@ registerApp({
       } else {
         const fallback = buildRow(
           'globe',
-          `Search Brave for "${q}"`,
-          'Open in browser',
+          _t('apps.search.searchWebFor', { query: q }),
+          _t('apps.search.openInBrowser'),
           () => WM.createWindow('com.nbosp.browser', {
             url: 'https://search.brave.com/search?' + new URLSearchParams({ q }),
           })

@@ -11,19 +11,19 @@ registerApp({
   init(content, state, options) {
     if (!window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>' + _t('apps.events.gate.appDataMissing') + '<br>' + _t('apps.events.gate.requiresOs') + '</div>';
       return;
     }
 
     if (!OS.settings.get('devMode')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">Enable Developer Mode in Settings to use Events.</div>';
+      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">' + _t('apps.events.gate.devModeRequired') + '</div>';
       return;
     }
 
     if (typeof EventLog === 'undefined') {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center">EventLog service is not available in this context.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center">' + _t('apps.events.gate.serviceUnavailable') + '</div>';
       return;
     }
 
@@ -78,19 +78,19 @@ registerApp({
     const toolbar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:8px;flex-shrink:0;flex-wrap:wrap;' });
 
     const searchInput = createEl('input', {
-      placeholder: 'Filter by message, app, or appId…',
+      placeholder: _t('apps.events.filter.placeholder'),
       style: 'flex:1;min-width:140px;padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;box-sizing:border-box;'
     });
 
     const appSelect = createEl('select', {
       style: 'padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;'
     });
-    appSelect.appendChild(createEl('option', { value: '', textContent: 'All apps' }));
+    appSelect.appendChild(createEl('option', { value: '', textContent: _t('apps.events.filter.allApps') }));
 
     const categorySelect = createEl('select', {
       style: 'padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;'
     });
-    categorySelect.appendChild(createEl('option', { value: '', textContent: 'All categories' }));
+    categorySelect.appendChild(createEl('option', { value: '', textContent: _t('apps.events.filter.allCategories') }));
     const categoryList = (typeof EventLog.getCategories === 'function') ? EventLog.getCategories() : [];
     for (const c of categoryList) {
       categorySelect.appendChild(createEl('option', { value: c, textContent: c }));
@@ -99,7 +99,7 @@ registerApp({
     const severitySelect = createEl('select', {
       style: 'padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;'
     });
-    for (const [value, label] of [['', 'All severities'], ['info', 'Info'], ['warn', 'Warn'], ['error', 'Error']]) {
+    for (const [value, label] of [['', _t('apps.events.filter.allSeverities')], ['info', _t('apps.events.severity.info')], ['warn', _t('apps.events.severity.warn')], ['error', _t('common.error')]]) {
       severitySelect.appendChild(createEl('option', { value, textContent: label }));
     }
 
@@ -107,11 +107,11 @@ registerApp({
       style: 'padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;'
     });
     for (const [value, label] of [
-      ['all', 'All time'],
-      ['5m', 'Last 5 min'],
-      ['15m', 'Last 15 min'],
-      ['1h', 'Last 1 hour'],
-      ['session', 'This session'],
+      ['all', _t('apps.events.time.all')],
+      ['5m', _t('apps.events.time.last5m')],
+      ['15m', _t('apps.events.time.last15m')],
+      ['1h', _t('apps.events.time.last1h')],
+      ['session', _t('apps.events.time.thisSession')],
     ]) {
       timeRangeSelect.appendChild(createEl('option', { value, textContent: label }));
     }
@@ -120,10 +120,10 @@ registerApp({
       style: 'padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;'
     });
     for (const [value, label] of [
-      ['newest', 'Newest first'],
-      ['oldest', 'Oldest first'],
-      ['severity', 'Severity'],
-      ['app', 'A-Z'],
+      ['newest', _t('apps.events.sort.newest')],
+      ['oldest', _t('apps.events.sort.oldest')],
+      ['severity', _t('apps.events.sort.severity')],
+      ['app', _t('apps.events.sort.az')],
     ]) {
       sortSelect.appendChild(createEl('option', { value, textContent: label }));
     }
@@ -133,12 +133,12 @@ registerApp({
     });
     refreshViewOptions();
 
-    const saveViewBtn = createEl('button', { textContent: '+ Save view', title: 'Save current filters as a named view', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
-    const manageViewsBtn = createEl('button', { textContent: '⚙ Manage', title: 'Rename or delete saved views', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const saveViewBtn = createEl('button', { textContent: _t('apps.events.toolbar.saveView'), title: _t('apps.events.toolbar.saveViewTitle'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const manageViewsBtn = createEl('button', { textContent: _t('apps.events.toolbar.manage'), title: _t('apps.events.toolbar.manageTitle'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
 
-    const pauseBtn = createEl('button', { textContent: 'Pause', title: 'Pause live updates without losing scroll position', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
-    const clearBtn = createEl('button', { textContent: 'Clear', title: 'Clear the event log', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
-    const exportBtn = createEl('button', { textContent: 'Export', title: 'Download the filtered events as a .txt file', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const pauseBtn = createEl('button', { textContent: _t('apps.events.toolbar.pause'), title: _t('apps.events.toolbar.pauseTitle'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const clearBtn = createEl('button', { textContent: _t('apps.events.toolbar.clear'), title: _t('apps.events.toolbar.clearTitle'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const exportBtn = createEl('button', { textContent: _t('apps.events.toolbar.export'), title: _t('apps.events.toolbar.exportTitle'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
 
     toolbar.appendChild(searchInput);
     toolbar.appendChild(appSelect);
@@ -166,7 +166,7 @@ registerApp({
     });
     const detailHeader = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;' });
     const detailTitle = createEl('span', { style: 'color:var(--accent, #67e8f9);font-weight:600;font-size:12px;' });
-    const detailClose = createEl('button', { textContent: '✕', title: 'Close detail panel', style: 'background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;padding:0 2px;' });
+    const detailClose = createEl('button', { textContent: '✕', title: _t('apps.events.detail.closeTitle'), style: 'background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;padding:0 2px;' });
     detailClose.addEventListener('click', () => { selectedEventId = null; detailPanel.style.display = 'none'; render(); });
     detailHeader.appendChild(detailTitle);
     detailHeader.appendChild(detailClose);
@@ -239,7 +239,7 @@ registerApp({
 
     function refreshViewOptions() {
       savedViewSelect.innerHTML = '';
-      savedViewSelect.appendChild(createEl('option', { value: '', textContent: 'Saved views…' }));
+      savedViewSelect.appendChild(createEl('option', { value: '', textContent: _t('apps.events.views.savedViews') }));
       for (const v of savedViews) {
         savedViewSelect.appendChild(createEl('option', { value: v.id, textContent: v.name }));
       }
@@ -288,8 +288,8 @@ registerApp({
           saveAlerts();
           if (typeof Notify !== 'undefined') {
             Notify.show({
-              title: `⚡ Alert: ${rule.name}`,
-              body: matchedEntry ? matchedEntry.message.slice(0, 120) : 'Matching event detected',
+              title: _t('apps.events.alerts.notificationTitle', { name: rule.name }),
+              body: matchedEntry ? matchedEntry.message.slice(0, 120) : _t('apps.events.alerts.matchingEvent'),
               type: rule.severity === 'error' ? 'error' : 'warn',
               appName: 'Events',
               icon: 'alert',
@@ -307,7 +307,7 @@ registerApp({
       if (!changed) return;
       const current = appSelect.value;
       appSelect.innerHTML = '';
-      appSelect.appendChild(createEl('option', { value: '', textContent: 'All apps' }));
+      appSelect.appendChild(createEl('option', { value: '', textContent: _t('apps.events.filter.allApps') }));
       for (const app of [...knownApps].sort((a, b) => a.localeCompare(b))) {
         appSelect.appendChild(createEl('option', { value: app, textContent: app }));
       }
@@ -412,7 +412,7 @@ registerApp({
       }
       row.appendChild(createEl('span', { style: 'color:var(--text-primary);word-break:break-word;flex:1;', textContent: e.message }));
       if (e.data != null) {
-        row.appendChild(createEl('span', { style: 'color:var(--text-muted);flex-shrink:0;font-size:10px;', title: 'Has data payload — click for details', textContent: '●' }));
+        row.appendChild(createEl('span', { style: 'color:var(--text-muted);flex-shrink:0;font-size:10px;', title: _t('apps.events.row.dataPayloadTitle'), textContent: '●' }));
       }
       row.addEventListener('click', () => {
         selectedEventId = e.id;
@@ -429,7 +429,7 @@ registerApp({
       detailBody.innerHTML = '';
 
       const meta = createEl('div', { style: 'color:var(--text-muted);margin-bottom:6px;font-size:10px;' });
-      meta.textContent = `id: ${e.id}  severity: ${e.severity}  category: ${e.category || '(none)'}`;
+      meta.textContent = _t('apps.events.detail.meta', { id: e.id, severity: e.severity, category: e.category || _t('apps.events.detail.none') });
       detailBody.appendChild(meta);
 
       // Correlated breadcrumbs — show related events with same appId in ±3s window
@@ -437,7 +437,7 @@ registerApp({
       const related = all.filter(r => r.id !== e.id && r.data && e.data && r.data.appId && r.data.appId === e.data.appId && Math.abs(r.timestamp - e.timestamp) <= 3000).slice(0, 8);
       if (related.length) {
         const crumbLabel = createEl('div', { style: 'color:var(--text-muted);font-size:10px;margin-top:8px;margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em;' });
-        crumbLabel.textContent = `Related events (±3s, same appId: ${e.data.appId})`;
+        crumbLabel.textContent = _t('apps.events.detail.relatedEvents', { appId: e.data.appId });
         detailBody.appendChild(crumbLabel);
         const crumbBox = createEl('div', { style: 'margin-left:8px;border-left:1px solid var(--border-subtle);padding-left:6px;' });
         for (const r of related) {
@@ -450,7 +450,7 @@ registerApp({
 
       if (e.data != null) {
         const dataLabel = createEl('div', { style: 'color:var(--text-muted);font-size:10px;margin-top:8px;margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em;' });
-        dataLabel.textContent = 'Data payload';
+        dataLabel.textContent = _t('apps.events.detail.dataPayload');
         detailBody.appendChild(dataLabel);
         const pre = document.createElement('pre');
         pre.style.cssText = 'margin:0;padding:6px 8px;background:var(--bg-sunken,#0a0c10);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-muted);font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow:auto;';
@@ -477,14 +477,14 @@ registerApp({
       }
 
       countText.textContent = filtered.length === all.length
-        ? `${all.length} event${all.length === 1 ? '' : 's'}`
-        : `${filtered.length} of ${all.length} events`;
+        ? (all.length === 1 ? _t('apps.events.count.one', { count: all.length }) : _t('apps.events.count.many', { count: all.length }))
+        : _t('apps.events.count.filtered', { filtered: filtered.length, total: all.length });
 
       list.innerHTML = '';
       if (!filtered.length) {
         list.appendChild(createEl('div', {
           style: 'padding:24px;text-align:center;color:var(--text-muted);font-size:12px;',
-          textContent: all.length ? 'No events match the current filter.' : 'No events yet. Activity from apps, permissions, and packages will show up here.'
+          textContent: all.length ? _t('apps.events.empty.noMatch') : _t('apps.events.empty.none')
         }));
         return;
       }
@@ -506,7 +506,7 @@ registerApp({
         const headRow = renderRow(head);
         headRow.appendChild(createEl('span', {
           style: 'color:var(--text-muted);flex-shrink:0;font-size:10px;background:var(--bg-sunken);border-radius:8px;padding:1px 6px;',
-          textContent: `+${g.entries.length - 1} related`
+          textContent: _t('apps.events.cluster.relatedCount', { count: g.entries.length - 1 })
         }));
         list.appendChild(headRow);
 
@@ -535,7 +535,7 @@ registerApp({
 
     pauseBtn.addEventListener('click', () => {
       paused = !paused;
-      pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+      pauseBtn.textContent = paused ? _t('apps.events.toolbar.resume') : _t('apps.events.toolbar.pause');
       pauseBtn.style.color = paused ? 'var(--accent, #67e8f9)' : 'var(--text-muted)';
       if (!paused) render();
     }, { signal: ac.signal });
@@ -562,7 +562,7 @@ registerApp({
 
     // ── Saved views ─────────────────────────────────────────────────────
     async function promptViewName(existing) {
-      const name = await showPrompt(existing ? 'Rename view:' : 'Name this view:', existing ? existing.name : '');
+      const name = await showPrompt(existing ? _t('apps.events.views.renamePrompt') : _t('apps.events.views.namePrompt'), existing ? existing.name : '');
       if (name === null) return null;
       const trimmed = name.trim();
       if (!trimmed) return null;
@@ -606,14 +606,14 @@ registerApp({
     }, { signal: ac.signal });
 
     async function openManageViewsModal() {
-      if (!savedViews.length) { await showModal('Manage views', 'No saved views yet.'); return; }
+      if (!savedViews.length) { await showModal(_t('apps.events.views.manageTitle'), _t('apps.events.views.empty')); return; }
 
       const body = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto;' });
       for (const v of savedViews) {
         const row = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:4px 6px;border:1px solid var(--border-subtle);border-radius:4px;' });
         row.appendChild(createEl('span', { style: 'flex:1;font-size:12px;', textContent: v.name }));
-        const renameBtn = createEl('button', { className: 'btn', textContent: 'Rename', style: 'font-size:11px;padding:3px 8px;' });
-        const deleteBtn = createEl('button', { className: 'btn btn-danger', textContent: 'Delete', style: 'font-size:11px;padding:3px 8px;' });
+        const renameBtn = createEl('button', { className: 'btn', textContent: _t('common.rename'), style: 'font-size:11px;padding:3px 8px;' });
+        const deleteBtn = createEl('button', { className: 'btn btn-danger', textContent: _t('apps.events.views.delete'), style: 'font-size:11px;padding:3px 8px;' });
         renameBtn.addEventListener('click', async (ev) => {
           ev.stopPropagation();
           const newName = await promptViewName(v);
@@ -632,13 +632,13 @@ registerApp({
         body.appendChild(row);
       }
 
-      await showModal('Manage views', body, [{ label: 'Close', primary: true }]);
+      await showModal(_t('apps.events.views.manageTitle'), body, [{ label: _t('common.close'), primary: true }]);
     }
 
     manageViewsBtn.addEventListener('click', () => { openManageViewsModal(); }, { signal: ac.signal });
 
     // ── Alert rules (quick inline) ──────────────────────────────────────
-    const alertsBtn = createEl('button', { textContent: '⚡ Alerts', title: 'Manage alert rules', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const alertsBtn = createEl('button', { textContent: _t('apps.events.toolbar.alerts'), title: _t('apps.events.toolbar.alertsTitle'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
     toolbar.appendChild(alertsBtn);
 
     async function openAlertsModal() {
@@ -648,7 +648,7 @@ registerApp({
       function renderRuleList() {
         list.innerHTML = '';
         if (!alertRules.length) {
-          list.appendChild(createEl('div', { style: 'font-size:11px;color:var(--text-muted);', textContent: 'No alert rules yet.' }));
+          list.appendChild(createEl('div', { style: 'font-size:11px;color:var(--text-muted);', textContent: _t('apps.events.alerts.empty') }));
           return;
         }
         for (const r of alertRules) {
@@ -657,8 +657,8 @@ registerApp({
             style: 'flex:1;font-family:monospace;color:' + (r.enabled ? 'var(--text-primary)' : 'var(--text-muted)'),
             textContent: `[${r.severity || 'any'}] ${r.app || '*'}/${r.category || '*'} "${r.contains || ''}"`
           }));
-          const toggleBtn = createEl('button', { className: 'btn', textContent: r.enabled ? 'Enabled' : 'Disabled', style: 'font-size:11px;padding:3px 8px;' });
-          const removeBtn = createEl('button', { className: 'btn btn-danger', textContent: 'Remove', style: 'font-size:11px;padding:3px 8px;' });
+          const toggleBtn = createEl('button', { className: 'btn', textContent: r.enabled ? _t('apps.events.alerts.enabled') : _t('apps.events.alerts.disabled'), style: 'font-size:11px;padding:3px 8px;' });
+          const removeBtn = createEl('button', { className: 'btn btn-danger', textContent: _t('common.remove'), style: 'font-size:11px;padding:3px 8px;' });
           toggleBtn.addEventListener('click', (ev) => {
             ev.stopPropagation();
             r.enabled = !r.enabled;
@@ -679,27 +679,27 @@ registerApp({
       renderRuleList();
       body.appendChild(list);
 
-      body.appendChild(createEl('div', { style: 'border-top:1px solid var(--border-subtle);margin-top:2px;padding-top:8px;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;', textContent: 'Add rule' }));
+      body.appendChild(createEl('div', { style: 'border-top:1px solid var(--border-subtle);margin-top:2px;padding-top:8px;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;', textContent: _t('apps.events.alerts.addRule') }));
 
       const form = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
-      const nameInput = createEl('input', { placeholder: 'Rule name', className: 'input', style: 'width:100%;box-sizing:border-box;font-size:11px;' });
+      const nameInput = createEl('input', { placeholder: _t('apps.events.alerts.ruleNamePlaceholder'), className: 'input', style: 'width:100%;box-sizing:border-box;font-size:11px;' });
       const fieldsRow = createEl('div', { style: 'display:flex;gap:6px;' });
       const sevInput = createEl('select', { className: 'input', style: 'flex:1;font-size:11px;' });
-      for (const [value, label] of [['', 'Any severity'], ['info', 'Info'], ['warn', 'Warn'], ['error', 'Error']]) {
+      for (const [value, label] of [['', _t('apps.events.filter.anySeverity')], ['info', _t('apps.events.severity.info')], ['warn', _t('apps.events.severity.warn')], ['error', _t('common.error')]]) {
         sevInput.appendChild(createEl('option', { value, textContent: label }));
       }
-      const appInput = createEl('input', { placeholder: 'App (blank = any)', className: 'input', style: 'flex:1;font-size:11px;' });
-      const categoryInput = createEl('input', { placeholder: 'Category (blank = any)', className: 'input', style: 'flex:1;font-size:11px;' });
+      const appInput = createEl('input', { placeholder: _t('apps.events.alerts.appPlaceholder'), className: 'input', style: 'flex:1;font-size:11px;' });
+      const categoryInput = createEl('input', { placeholder: _t('apps.events.alerts.categoryPlaceholder'), className: 'input', style: 'flex:1;font-size:11px;' });
       fieldsRow.appendChild(sevInput);
       fieldsRow.appendChild(appInput);
       fieldsRow.appendChild(categoryInput);
-      const containsInput = createEl('input', { placeholder: 'Message contains (optional)', className: 'input', style: 'width:100%;box-sizing:border-box;font-size:11px;' });
-      const addBtn = createEl('button', { className: 'btn btn-primary', textContent: '+ Add rule', style: 'align-self:flex-start;font-size:11px;padding:5px 10px;' });
+      const containsInput = createEl('input', { placeholder: _t('apps.events.alerts.containsPlaceholder'), className: 'input', style: 'width:100%;box-sizing:border-box;font-size:11px;' });
+      const addBtn = createEl('button', { className: 'btn btn-primary', textContent: _t('apps.events.alerts.addRuleButton'), style: 'align-self:flex-start;font-size:11px;padding:5px 10px;' });
 
       addBtn.addEventListener('click', () => {
         const rule = {
           id: 'alert_' + Date.now(),
-          name: nameInput.value.trim() || 'Unnamed',
+          name: nameInput.value.trim() || _t('apps.events.alerts.unnamed'),
           severity: sevInput.value || null,
           app: appInput.value.trim() || null,
           category: categoryInput.value.trim() || null,
@@ -719,7 +719,7 @@ registerApp({
       form.appendChild(addBtn);
       body.appendChild(form);
 
-      await showModal('Alert rules', body, [{ label: 'Close', primary: true }]);
+      await showModal(_t('apps.events.alerts.title'), body, [{ label: _t('common.close'), primary: true }]);
     }
 
     alertsBtn.addEventListener('click', () => { openAlertsModal(); }, { signal: ac.signal });
@@ -739,15 +739,15 @@ registerApp({
     }
     recordSessionStart();
 
-    const compareBtn = createEl('button', { textContent: '⇔ Compare', title: 'Compare current session with a previous one', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const compareBtn = createEl('button', { textContent: _t('apps.events.toolbar.compare'), title: _t('apps.events.toolbar.compareTitle'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
     toolbar.appendChild(compareBtn);
 
     function renderDiffColumn(label, entries) {
       const col = createEl('div', { style: 'flex:1;min-width:0;' });
-      col.appendChild(createEl('div', { style: 'font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;', textContent: `${label} (${entries.length})` }));
+      col.appendChild(createEl('div', { style: 'font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;', textContent: _t('apps.events.compare.columnTitle', { label, count: entries.length }) }));
       const box = createEl('div', { style: 'max-height:200px;overflow:auto;border:1px solid var(--border-subtle);border-radius:4px;padding:6px;font-family:monospace;font-size:10px;display:flex;flex-direction:column;gap:2px;' });
       if (!entries.length) {
-        box.appendChild(createEl('div', { style: 'color:var(--text-muted);', textContent: '(none)' }));
+        box.appendChild(createEl('div', { style: 'color:var(--text-muted);', textContent: _t('apps.events.detail.none') }));
       } else {
         for (const e of entries.slice(0, 20)) {
           box.appendChild(createEl('div', {
@@ -764,7 +764,7 @@ registerApp({
     async function openCompareModal() {
       let sessions = [];
       try { sessions = readDevJson(SESSION_REG_PATH, SESSION_STORAGE_KEY, []); } catch {}
-      if (sessions.length < 2) { await showModal('Compare sessions', 'Need at least 2 sessions recorded to compare.'); return; }
+      if (sessions.length < 2) { await showModal(_t('apps.events.compare.title'), _t('apps.events.compare.needTwo')); return; }
 
       const picker = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto;' });
       const otherSessions = sessions.filter(s => s.id !== currentSessionId);
@@ -791,19 +791,29 @@ registerApp({
         const onlyInCurrent = currentEvents.filter(e => !otherEvents.some(o => o.id === e.id));
 
         const diffBody = createEl('div', { style: 'display:flex;flex-direction:column;gap:8px;' });
-        diffBody.appendChild(createEl('div', { style: 'font-size:11px;color:var(--text-muted);', textContent: `Current: ${currentSessionId}  vs  Other: ${other.id}` }));
+        diffBody.appendChild(createEl('div', { style: 'font-size:11px;color:var(--text-muted);', textContent: _t('apps.events.compare.currentVsOther', { current: currentSessionId, other: other.id }) }));
         const cols = createEl('div', { style: 'display:flex;gap:10px;' });
-        cols.appendChild(renderDiffColumn('New in current', onlyInCurrent));
-        cols.appendChild(renderDiffColumn('New in other', onlyInOther));
+        cols.appendChild(renderDiffColumn(_t('apps.events.compare.newInCurrent'), onlyInCurrent));
+        cols.appendChild(renderDiffColumn(_t('apps.events.compare.newInOther'), onlyInOther));
         diffBody.appendChild(cols);
 
-        await showModal('Session diff', diffBody, [{ label: 'Close', primary: true }]);
+        await showModal(_t('apps.events.compare.diffTitle'), diffBody, [{ label: _t('common.close'), primary: true }]);
       }
 
-      await showModal('Compare sessions', picker, [{ label: 'Cancel' }]);
+      await showModal(_t('apps.events.compare.title'), picker, [{ label: _t('common.cancel') }]);
     }
 
     compareBtn.addEventListener('click', () => { openCompareModal(); }, { signal: ac.signal });
+
+    // Live language switch — render() is the app's pure re-render entry point
+    // (the same path EventLog.subscribe drives on every log change), so a
+    // languageChanged event can safely relabel the list surface in place.
+    if (!window.__eventsLocaleWired) {
+      window.__eventsLocaleWired = true;
+      OS.events?.on?.('languageChanged', () => {
+        try { window.NovaI18n?.applyStaticDom?.(document); render(); } catch (e) { console.warn('[Events] Language change re-render failed:', e); }
+      });
+    }
 
     render();
   }

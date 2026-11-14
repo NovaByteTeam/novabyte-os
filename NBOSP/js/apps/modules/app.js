@@ -15,20 +15,20 @@ registerApp({
   init(content, state, options) {
     if (!window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>' + _t('apps.modules.guard.appDataMissing') + '<br>' + _t('apps.modules.guard.requiresNovaByte') + '</div>';
       return;
     }
 
     if (!OS.settings.get('devMode')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">Enable Developer Mode in Settings to use Modules.</div>';
+      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">' + _t('apps.modules.guard.devModeRequired') + '</div>';
       return;
     }
 
     content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
 
     const desc = createEl('div', { style: 'margin-bottom:12px;color:var(--text-muted);font-size:12px;flex-shrink:0;' });
-    desc.textContent = 'Reload any JS module without restarting the OS. Useful for rapid iteration.';
+    desc.textContent = _t('apps.modules.desc');
     content.appendChild(desc);
 
     // Defaults kept as a starting point, but the list is now editable and
@@ -175,8 +175,8 @@ registerApp({
     state.cleanups.push(() => ac.abort());
 
     const toolbar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;flex-shrink:0;align-items:center;' });
-    const reloadAllBtn = createEl('button', { textContent: 'Reload All', style: 'padding:6px 12px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;flex-shrink:0;' });
-    const filterInput = createEl('input', { placeholder: 'Filter by id or path…', style: 'flex:1;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;' });
+    const reloadAllBtn = createEl('button', { textContent: _t('apps.modules.toolbar.reloadAll'), style: 'padding:6px 12px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;flex-shrink:0;' });
+    const filterInput = createEl('input', { placeholder: _t('apps.modules.toolbar.filterPlaceholder'), style: 'flex:1;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;' });
     toolbar.appendChild(reloadAllBtn);
     toolbar.appendChild(filterInput);
     content.appendChild(toolbar);
@@ -188,9 +188,9 @@ registerApp({
     content.appendChild(list);
 
     const addRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:12px;flex-shrink:0;' });
-    const idInput = createEl('input', { placeholder: 'id (e.g. my-module)', style: 'width:140px;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
-    const pathInput = createEl('input', { placeholder: 'path (e.g. js/apps/foo.js)', style: 'flex:1;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
-    const addBtn = createEl('button', { textContent: 'Add', style: 'padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+    const idInput = createEl('input', { placeholder: _t('apps.modules.form.idPlaceholder'), style: 'width:140px;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+    const pathInput = createEl('input', { placeholder: _t('apps.modules.form.pathPlaceholder'), style: 'flex:1;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+    const addBtn = createEl('button', { textContent: _t('apps.modules.form.add'), style: 'padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
     addRow.appendChild(idInput);
     addRow.appendChild(pathInput);
     addRow.appendChild(addBtn);
@@ -202,8 +202,8 @@ registerApp({
     // along with a shared list). Matches the JSON export pattern used by
     // console.js/perf.js/sysaccess.js.
     const ioRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:8px;flex-shrink:0;' });
-    const exportBtn = createEl('button', { textContent: 'Export List', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
-    const importBtn = createEl('button', { textContent: 'Import List', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+    const exportBtn = createEl('button', { textContent: _t('apps.modules.io.exportList'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+    const importBtn = createEl('button', { textContent: _t('apps.modules.io.importList'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
     ioRow.appendChild(exportBtn);
     ioRow.appendChild(importBtn);
     content.appendChild(ioRow);
@@ -223,20 +223,20 @@ registerApp({
 
     importBtn.addEventListener('click', async () => {
       const file = await SystemDialogs.open({
-        title: 'Import Module List',
+        title: _t('apps.modules.io.importDialogTitle'),
         filter: (name, isDir) => isDir || name.toLowerCase().endsWith('.json'),
       });
       if (!file) return;
       try {
         const text = typeof file.content === 'string' ? file.content : file.content.toString('utf8');
         const parsed = JSON.parse(text);
-        if (!Array.isArray(parsed)) throw new Error('Expected a JSON array');
+        if (!Array.isArray(parsed)) throw new Error(_t('apps.modules.io.importNotArray'));
         // Validate shape before trusting it — a malformed import (missing
         // id/path, wrong types) would otherwise silently corrupt the list
         // and only surface as confusing errors much later when rendering
         // or reloading a broken entry.
         const valid = parsed.every(m => m && typeof m.id === 'string' && typeof m.path === 'string');
-        if (!valid) throw new Error('Each entry must have string "id" and "path" fields');
+        if (!valid) throw new Error(_t('apps.modules.io.importInvalidEntries'));
 
         // Merge by path (dedupe), imported entries win on conflict — matches
         // "import" intent (bring in a list) rather than silently discarding
@@ -249,7 +249,7 @@ registerApp({
       } catch (e) {
         // Inline error next to the buttons rather than a blocking alert —
         // consistent with the rest of this app's no-modal-dialogs approach.
-        reloadSummaryEl.textContent = 'Import failed: ' + e.message;
+        reloadSummaryEl.textContent = _t('apps.modules.io.importFailed', { message: e.message });
         reloadSummaryEl.style.color = '#f85149';
       }
     }, { signal: ac.signal });
@@ -262,14 +262,14 @@ registerApp({
       return new Promise((resolve) => {
         const overlay = createEl('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;' });
         const box = createEl('div', { style: 'background:var(--bg-elevated,#1a1c22);border:1px solid var(--border-subtle);border-radius:8px;padding:20px;max-width:360px;font-size:13px;' });
-        box.appendChild(createEl('div', { textContent: '⚠️ Reload ' + mod.id + '?', style: 'font-weight:600;margin-bottom:8px;font-size:14px;' }));
+        box.appendChild(createEl('div', { textContent: _t('apps.modules.confirm.title', { id: mod.id }), style: 'font-weight:600;margin-bottom:8px;font-size:14px;' }));
         box.appendChild(createEl('div', {
-          textContent: 'This module appears to own global state (e.g. window.' + '* singleton) that other running code depends on. Reloading it live can desync or blank open windows. Full page reload is always safe if this goes wrong.',
+          textContent: _t('apps.modules.confirm.body'),
           style: 'color:var(--text-muted);margin-bottom:14px;line-height:1.4;'
         }));
         const btnRow = createEl('div', { style: 'display:flex;gap:8px;justify-content:flex-end;' });
-        const cancelBtn = createEl('button', { textContent: 'Cancel', style: 'padding:6px 12px;background:transparent;color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;' });
-        const proceedBtn = createEl('button', { textContent: 'Reload Anyway', style: 'padding:6px 12px;background:#f85149;color:#fff;border:none;border-radius:4px;cursor:pointer;' });
+        const cancelBtn = createEl('button', { textContent: _t('common.cancel'), style: 'padding:6px 12px;background:transparent;color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;' });
+        const proceedBtn = createEl('button', { textContent: _t('apps.modules.confirm.reloadAnyway'), style: 'padding:6px 12px;background:#f85149;color:#fff;border:none;border-radius:4px;cursor:pointer;' });
         cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
         proceedBtn.addEventListener('click', () => { overlay.remove(); resolve(true); });
         btnRow.appendChild(cancelBtn);
@@ -300,7 +300,7 @@ registerApp({
         } else {
           const url = '/' + mod.path + '?t=' + Date.now();
           const res = await fetch(url);
-          if (!res.ok) throw new Error('HTTP ' + res.status + ' fetching ' + mod.path);
+          if (!res.ok) throw new Error(_t('apps.modules.reload.httpError', { status: res.status, path: mod.path }));
           code = await res.text();
         }
 
@@ -387,15 +387,15 @@ registerApp({
     // for that; a real diff view would be a much bigger feature on its own.
     function diffSummary(prevCode, newCode) {
       if (prevCode === null || prevCode === undefined) return null;
-      if (prevCode === newCode) return 'No changes';
+      if (prevCode === newCode) return _t('apps.modules.diff.noChanges');
       const a = prevCode.split('\n');
       const b = newCode.split('\n');
       const max = Math.max(a.length, b.length);
       let changed = 0;
       for (let i = 0; i < max; i++) if (a[i] !== b[i]) changed++;
       const delta = b.length - a.length;
-      const deltaStr = delta === 0 ? '' : (delta > 0 ? ' (+' + delta + ' lines)' : ' (' + delta + ' lines)');
-      return changed + ' line' + (changed === 1 ? '' : 's') + ' changed' + deltaStr;
+      const deltaStr = delta === 0 ? '' : (delta > 0 ? _t('apps.modules.diff.linesAdded', { count: delta }) : _t('apps.modules.diff.linesRemoved', { count: delta }));
+      return _t('apps.modules.diff.linesChanged', { count: changed, s: changed === 1 ? '' : 's' }) + deltaStr;
     }
 
     let filterValue = '';
@@ -427,10 +427,10 @@ registerApp({
         const override = safety[mod.path];
         const dangerGuess = override ? override === 'unsafe' : (knownCode !== null ? autoDetectDangerous(knownCode) : null);
         const badge = createEl('span', {
-          textContent: dangerGuess === null ? '? unknown' : (dangerGuess ? '⚠ stateful' : '✓ safe'),
+          textContent: dangerGuess === null ? _t('apps.modules.badge.unknown') : (dangerGuess ? _t('apps.modules.badge.stateful') : _t('apps.modules.badge.safe')),
           title: override
-            ? 'Manually marked ' + override + ' — click to change'
-            : (dangerGuess === null ? 'Not yet fetched — reload once to auto-detect' : 'Auto-detected — click to override'),
+            ? _t('apps.modules.badge.manuallyMarked', { state: override })
+            : (dangerGuess === null ? _t('apps.modules.badge.notYetFetched') : _t('apps.modules.badge.autoDetected')),
           style: 'font-size:10px;padding:1px 6px;border-radius:3px;cursor:pointer;user-select:none;' +
             (dangerGuess === null ? 'background:var(--bg-default);color:var(--text-muted);' :
              dangerGuess ? 'background:rgba(248,81,73,0.15);color:#f85149;' : 'background:rgba(63,185,80,0.15);color:#3fb950;')
@@ -449,12 +449,12 @@ registerApp({
         topLine.appendChild(info);
 
         const btns = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
-        const btn = createEl('button', { textContent: 'Reload', style: 'padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+        const btn = createEl('button', { textContent: _t('apps.modules.row.reload'), style: 'padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
         btn.dataset.role = 'reload';
         btn.addEventListener('click', () => reloadOne(mod, btn), { signal: ac.signal });
         btns.appendChild(btn);
 
-        const removeBtn = createEl('button', { textContent: '✕', title: 'Remove from list', style: 'padding:4px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+        const removeBtn = createEl('button', { textContent: '✕', title: _t('apps.modules.row.removeTitle'), style: 'padding:4px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
         removeBtn.addEventListener('click', () => {
           modules.splice(idx, 1);
           saveModules();
@@ -471,13 +471,13 @@ registerApp({
         if (hist) {
           const metaLine = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--text-muted);' });
           const summary = diffSummary(hist.prevCode, hist.newCode);
-          metaLine.appendChild(createEl('span', { textContent: summary ? summary + ' · last reload ' + new Date(hist.ts).toLocaleTimeString() : 'Reloaded ' + new Date(hist.ts).toLocaleTimeString() }));
+          metaLine.appendChild(createEl('span', { textContent: summary ? _t('apps.modules.row.lastReload', { summary, time: new Date(hist.ts).toLocaleTimeString() }) : _t('apps.modules.row.reloaded', { time: new Date(hist.ts).toLocaleTimeString() }) }));
 
           if (hist.prevCode !== null && hist.prevCode !== undefined && hist.prevCode !== hist.newCode) {
             const undoRow = createEl('div', { style: 'display:flex;gap:6px;' });
             const undoBtn = createEl('button', {
-              textContent: '↺ Undo (re-import previous)',
-              title: 'Re-import the previously loaded version of this module. Does not touch the file on disk.',
+              textContent: _t('apps.modules.row.undo'),
+              title: _t('apps.modules.row.undoTitle'),
               style: 'padding:2px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:10px;'
             });
             undoBtn.addEventListener('click', () => {
@@ -486,8 +486,8 @@ registerApp({
             undoRow.appendChild(undoBtn);
 
             const fullReloadBtn = createEl('button', {
-              textContent: '↻ Full page reload',
-              title: 'Reload the whole app from scratch. Slower but always correct — use if the module\'s in-memory state is desynced and re-importing old code alone won\'t fix it.',
+              textContent: _t('apps.modules.row.fullReload'),
+              title: _t('apps.modules.row.fullReloadTitle'),
               style: 'padding:2px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:10px;'
             });
             fullReloadBtn.addEventListener('click', () => location.reload(), { signal: ac.signal });
@@ -502,7 +502,7 @@ registerApp({
       });
 
       if (!visible.length) {
-        list.appendChild(createEl('div', { textContent: modules.length ? 'No modules match filter' : 'No modules in list. Add one below.', style: 'color:var(--text-muted);padding:8px;' }));
+        list.appendChild(createEl('div', { textContent: modules.length ? _t('apps.modules.list.noMatch') : _t('apps.modules.list.empty'), style: 'color:var(--text-muted);padding:8px;' }));
       }
     }
 
@@ -529,7 +529,7 @@ registerApp({
     reloadAllBtn.addEventListener('click', async () => {
       reloadAllBtn.disabled = true;
       const origText = reloadAllBtn.textContent;
-      reloadAllBtn.textContent = 'Reloading…';
+      reloadAllBtn.textContent = _t('apps.modules.toolbar.reloading');
 
       // Operates on currently visible (filtered) modules only — if the
       // list is filtered down, "Reload All" reloading hidden entries too
@@ -554,10 +554,10 @@ registerApp({
 
       // Brief inline summary next to the button rather than a modal —
       // consistent with the rest of this app avoiding blocking dialogs.
-      reloadSummaryEl.textContent = `Last run: ${okCount} ok` +
-        (cancelledCount ? `, ${cancelledCount} cancelled` : '') +
-        (failCount ? `, ${failCount} failed` : '') +
-        ` (${results.length} total)`;
+      reloadSummaryEl.textContent = _t('apps.modules.summary.lastRun', { ok: okCount }) +
+        (cancelledCount ? _t('apps.modules.summary.cancelled', { count: cancelledCount }) : '') +
+        (failCount ? _t('apps.modules.summary.failed', { count: failCount }) : '') +
+        _t('apps.modules.summary.total', { count: results.length });
       reloadSummaryEl.style.color = failCount ? '#f85149' : (cancelledCount ? '#fbbf24' : '#3fb950');
     }, { signal: ac.signal });
 

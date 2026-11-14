@@ -15,7 +15,7 @@ registerApp({
       const msg = createEl('div', { style: 'font-size:14px;text-align:center;' });
       const b = createEl('b');
       b.textContent = APP_ID;
-      msg.append(b, document.createTextNode('\nApp data directory missing.\nThis app requires NovaByte OS.'));
+      msg.append(b, document.createTextNode('\n' + _t('apps.contacts.appDataMissing') + '\n' + _t('apps.contacts.requiresNovaByte')));
       content.append(warn, msg);
       return;
     }
@@ -77,7 +77,7 @@ registerApp({
         return true;
       } catch (error) {
         console.error('[Contacts] Could not save contacts:', error);
-        Notify.show({ title: 'Contacts save failed', body: error.message, type: 'error', appName: 'Contacts' });
+        Notify.show({ title: _t('apps.contacts.saveFailedTitle'), body: error.message, type: 'error', appName: 'Contacts' });
         return false;
       }
     }
@@ -114,7 +114,7 @@ registerApp({
       style: 'padding:8px;border-bottom:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:6px;flex-shrink:0;',
     });
     const searchInp = createEl('input', {
-      type: 'text', placeholder: 'Search contacts…',
+      type: 'text', placeholder: _t('apps.contacts.searchPlaceholder'),
       style: 'width:100%;background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:6px;padding:5px 8px;font-size:12px;color:var(--text-primary);outline:none;',
     });
     const addBtn = createEl('button', {
@@ -124,7 +124,7 @@ registerApp({
     // Safe: svgIcon returns trusted runtime SVG; text node for label
     addBtn.appendChild(createEl('span', {}));  // icon slot, set below
     addBtn.querySelector('span').innerHTML = svgIcon('plus', 12);
-    addBtn.appendChild(document.createTextNode(' New Contact'));
+    addBtn.appendChild(document.createTextNode(' ' + _t('apps.contacts.newContact')));
     listToolbar.append(searchInp, addBtn);
 
     const contactList = createEl('div', { style: 'flex:1;overflow-y:auto;' });
@@ -166,7 +166,7 @@ registerApp({
 
       if (!filtered.length) {
         const empty = createEl('div', { style: 'padding:20px;text-align:center;color:var(--text-muted);font-size:12px;' });
-        empty.textContent = searchQ ? 'No matches' : 'No contacts yet';
+        empty.textContent = searchQ ? _t('apps.contacts.noMatches') : _t('apps.contacts.noContactsYet');
         contactList.appendChild(empty);
         return;
       }
@@ -190,7 +190,7 @@ registerApp({
         const nameEl = createEl('div', {
           style: 'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
         });
-        nameEl.textContent = c.name || '(no name)';
+        nameEl.textContent = c.name || _t('apps.contacts.noName');
         const subEl = createEl('div', {
           style: 'font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
         });
@@ -242,7 +242,7 @@ registerApp({
         const ico = createEl('span', {});
         ico.innerHTML = svgIcon('users', 36);   // trusted runtime value
         const lbl = createEl('div', { style: 'font-size:13px;margin-top:10px;' });
-        lbl.textContent = 'Select a contact';
+        lbl.textContent = _t('apps.contacts.selectContact');
         empty.append(ico, lbl);
         detailArea.appendChild(empty);
         return;
@@ -276,9 +276,9 @@ registerApp({
           return inp;
         }
 
-        const nameInp  = buildField('Name',  'name');
-        const emailInp = buildField('Email', 'email', 'email');
-        const phoneInp = buildField('Phone', 'phone', 'tel');
+        const nameInp  = buildField(_t('apps.contacts.name'),  'name');
+        const emailInp = buildField(_t('apps.contacts.email'), 'email', 'email');
+        const phoneInp = buildField(_t('apps.contacts.phone'), 'phone', 'tel');
 
         // Notes textarea
         const notesId   = `nbosp-contacts-${uid}-notes`;
@@ -287,7 +287,7 @@ registerApp({
           htmlFor: notesId,
           style: 'font-size:11px;color:var(--text-muted);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;',
         });
-        notesLbl.textContent = 'Notes';
+        notesLbl.textContent = _t('apps.contacts.notes');
         const notesInp = createEl('textarea', {
           id: notesId,
           style: 'background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--text-primary);outline:none;width:100%;min-height:80px;resize:vertical;',
@@ -304,9 +304,9 @@ registerApp({
         const snapshot = { name: selected.name, email: selected.email, phone: selected.phone, notes: selected.notes };
 
         const saveBtn   = createEl('button', { className: 'btn btn-primary btn-sm' });
-        saveBtn.textContent = 'Save';
+        saveBtn.textContent = _t('common.save');
         const cancelBtn = createEl('button', { className: 'btn btn-sm' });
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = _t('common.cancel');
         actionBar.append(saveBtn, cancelBtn);
 
         saveBtn.addEventListener('click', () => {
@@ -345,7 +345,7 @@ registerApp({
         avatar.textContent = initials(selected.name);
 
         const nameEl = createEl('div', { style: 'font-size:17px;font-weight:700;margin-bottom:16px;' });
-        nameEl.textContent = selected.name || '(no name)';
+        nameEl.textContent = selected.name || _t('apps.contacts.noName');
         detailArea.append(avatar, nameEl);
 
         function buildInfoRow(iconName, labelText, value, clickFn, iconSrc) {
@@ -387,18 +387,18 @@ registerApp({
           detailArea.appendChild(row);
         }
 
-        buildInfoRow('mail', 'Email', selected.email, selected.email ? () => {
-          navigator.clipboard.writeText(selected.email).then(() => Notify.show({ title: 'Copied', body: selected.email, type: 'info', appName: 'Contacts' }));
+        buildInfoRow('mail', _t('apps.contacts.email'), selected.email, selected.email ? () => {
+          navigator.clipboard.writeText(selected.email).then(() => Notify.show({ title: _t('apps.contacts.copied'), body: selected.email, type: 'info', appName: 'Contacts' }));
         } : null);
-        buildInfoRow('phone', 'Phone', selected.phone, selected.phone ? () => {
-          navigator.clipboard.writeText(selected.phone).then(() => Notify.show({ title: 'Copied', body: selected.phone, type: 'info', appName: 'Contacts' }));
+        buildInfoRow('phone', _t('apps.contacts.phone'), selected.phone, selected.phone ? () => {
+          navigator.clipboard.writeText(selected.phone).then(() => Notify.show({ title: _t('apps.contacts.copied'), body: selected.phone, type: 'info', appName: 'Contacts' }));
         } : null, '/assets/icons8-call-94.png');
-        buildInfoRow('file',  'Notes', selected.notes, null);
+        buildInfoRow('file',  _t('apps.contacts.notes'), selected.notes, null);
 
         const editBtn = createEl('button', { className: 'btn btn-sm btn-primary' });
-        editBtn.textContent = 'Edit';
+        editBtn.textContent = _t('apps.contacts.edit');
         const delBtn = createEl('button', { className: 'btn btn-sm btn-danger' });
-        delBtn.textContent = 'Delete';
+        delBtn.textContent = _t('apps.contacts.delete');
         actionBar.append(editBtn, delBtn, createEl('span', { style: 'flex:1;' }));
 
         editBtn.addEventListener('click', () => { editMode = true; renderDetail(); });

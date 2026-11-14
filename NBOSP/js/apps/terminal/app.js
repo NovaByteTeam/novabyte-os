@@ -386,8 +386,8 @@ function clearOutput(tab) {
 }
 
 function welcomeTab(tab) {
-  writeHTML(tab, `<span class="shell-bold shell-blue">Terminal</span>  <span class="shell-dim">NovaByte ${escapeHtml(OS.version)} — ${escapeHtml(OS.username)}@novabyte</span>`);
-  writeHTML(tab, `<span class="shell-dim">Type <span class="shell-green">help</span> for commands  ·  <span class="shell-green">Tab</span> autocomplete</span>`);
+  writeHTML(tab, `<span class="shell-bold shell-blue">${escapeHtml(_t('apps.terminal.name'))}</span>  <span class="shell-dim">${escapeHtml(_t('apps.terminal.welcomeSub', { version: OS.version, user: OS.username }))}</span>`);
+  writeHTML(tab, `<span class="shell-dim">${escapeHtml(_t('apps.terminal.welcomeHintIntro'))}<span class="shell-green">help</span>${escapeHtml(_t('apps.terminal.welcomeHintMid'))}<span class="shell-green">Tab</span>${escapeHtml(_t('apps.terminal.welcomeHintOutro'))}</span>`);
   writeLine(tab, '');
 }
 
@@ -475,24 +475,24 @@ async function copyNodeRecursive(node, destParentId) {
 const COMMANDS = {
   help(tab) {
     const sections = [
-      ['Filesystem', 'ls  ll  la  l  cd  pwd  mkdir  rmdir  rm  touch  cp  mv  cat  head  tail  stat  chmod  find  tree  diff'],
-      ['Text', 'echo  printf  grep  sort  uniq  cut  wc  base64'],
-      ['System', 'clear  history  env  export  unset  alias  unalias  which  hostname  whoami  uname  uptime  date  ps  kill  sleep'],
-      ['Math', 'expr  seq'],
-      ['Fun', 'neofetch  fastfetch  yes  true  false  exit']
+      [_t('apps.terminal.helpSectionFilesystem'), 'ls  ll  la  l  cd  pwd  mkdir  rmdir  rm  touch  cp  mv  cat  head  tail  stat  chmod  find  tree  diff'],
+      [_t('apps.terminal.helpSectionText'), 'echo  printf  grep  sort  uniq  cut  wc  base64'],
+      [_t('apps.terminal.helpSectionSystem'), 'clear  history  env  export  unset  alias  unalias  which  hostname  whoami  uname  uptime  date  ps  kill  sleep'],
+      [_t('apps.terminal.helpSectionMath'), 'expr  seq'],
+      [_t('apps.terminal.helpSectionFun'), 'neofetch  fastfetch  yes  true  false  exit']
     ];
-    writeHTML(tab, `<span class="shell-bold shell-blue">Terminal</span> <span class="shell-dim">— ${escapeHtml(OS.username)}@novabyte</span>`);
+    writeHTML(tab, `<span class="shell-bold shell-blue">${escapeHtml(_t('apps.terminal.name'))}</span> <span class="shell-dim">${escapeHtml(_t('apps.terminal.helpHeaderUser', { user: OS.username }))}</span>`);
     for (const [s, cmds] of sections) {
-      writeHTML(tab, `  <span class="shell-yellow">${s}:</span> <span class="shell-dim">${cmds}</span>`);
+      writeHTML(tab, `  <span class="shell-yellow">${escapeHtml(s)}:</span> <span class="shell-dim">${cmds}</span>`);
     }
-    writeHTML(tab, `  <span class="shell-yellow">All commands:</span> <span class="shell-dim">${[...BUILTINS].join('  ')}</span>`);
-    writeHTML(tab, `  <span class="shell-yellow">Aliases:</span> <span class="shell-dim">${Object.keys(DEFAULT_ALIASES).join('  ')}</span>`);
-    writeHTML(tab, `\n  <span class="shell-dim">Shortcuts: <span class="shell-green">Tab</span>=autocomplete  <span class="shell-green">↑↓</span>=history  <span class="shell-green">Ctrl+L</span>=clear  <span class="shell-green">Ctrl+C</span>=cancel</span>`);
+    writeHTML(tab, `  <span class="shell-yellow">${escapeHtml(_t('apps.terminal.helpAllCommands'))}</span> <span class="shell-dim">${[...BUILTINS].join('  ')}</span>`);
+    writeHTML(tab, `  <span class="shell-yellow">${escapeHtml(_t('apps.terminal.helpAliases'))}</span> <span class="shell-dim">${Object.keys(DEFAULT_ALIASES).join('  ')}</span>`);
+    writeHTML(tab, `\n  <span class="shell-dim">${escapeHtml(_t('apps.terminal.shortcutsIntro'))}<span class="shell-green">Tab</span>${escapeHtml(_t('apps.terminal.shortcutsAutocomplete'))}<span class="shell-green">↑↓</span>${escapeHtml(_t('apps.terminal.shortcutsHistory'))}<span class="shell-green">Ctrl+L</span>${escapeHtml(_t('apps.terminal.shortcutsClear'))}<span class="shell-green">Ctrl+C</span>${escapeHtml(_t('apps.terminal.shortcutsCancel'))}</span>`);
     return '';
   },
 
   clear(tab) { clearOutput(tab); return ''; },
-  exit() { return 'Use the window close button to exit.'; },
+  exit() { return _t('apps.terminal.exitHint'); },
   true() { return ''; },
   false() { return 'Error: false returned exit code 1'; },
   pwd(tab) { return FS.getPath(tab.cwd); },
@@ -1236,7 +1236,7 @@ async function clipboardRead() {
     }
   }
   if (navigator.clipboard?.readText) return navigator.clipboard.readText();
-  throw new Error('Clipboard read unavailable');
+  throw new Error(_t('apps.terminal.clipboardReadUnavailable'));
 }
 
 async function clipboardWrite(text) {
@@ -1253,7 +1253,7 @@ async function clipboardWrite(text) {
     }
   }
   if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(String(text)); return true; }
-  throw new Error('Clipboard write unavailable');
+  throw new Error(_t('apps.terminal.clipboardWriteUnavailable'));
 }
 
 
@@ -1288,7 +1288,7 @@ function setupInput(tab, signal) {
       } catch (err) {
         // Shouldn't happen — command errors are returned as strings — but if a
         // handler throws, surface it instead of swallowing.
-        writeLine(tab, `Error: ${err?.message || err}`, 'shell-red');
+        writeLine(tab, _t('apps.terminal.errorLine', { message: err?.message || err }), 'shell-red');
       }
       updatePrompt(tab);
       scrollOutput(tab);
@@ -1338,7 +1338,7 @@ function setupInput(tab, signal) {
         const caret = start + text.length;
         tab.input.setSelectionRange(caret, caret);
       } catch (err) {
-        writeLine(tab, `Paste failed: ${err?.message || err}`, 'shell-red');
+        writeLine(tab, _t('apps.terminal.pasteFailedError', { message: err?.message || err }), 'shell-red');
       }
     } else if (e.key === 'l' && e.ctrlKey) {
       e.preventDefault();
@@ -1373,7 +1373,7 @@ function setupInput(tab, signal) {
 
 function showMissingOSMessage(content) {
   content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-  content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.terminal</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+  content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.terminal</b><br>' + _t('apps.terminal.appDataMissing') + '<br>' + _t('apps.terminal.requiresNovaByteOS') + '</div>';
 }
 
 // --- Selection helper (replaces deprecated document.execCommand) --------------
@@ -1397,14 +1397,14 @@ function initLinuxTerminal(content, state) {
   const root = createEl('div', { style: 'height:100%;display:flex;flex-direction:column;background:#0b0e14;color:#e6edf3;font:13px monospace;' });
   const output = createEl('pre', {
     role: 'log',
-    'aria-label': 'Terminal output',
+    'aria-label': _t('apps.terminal.outputAria'),
     style: 'flex:1;overflow:auto;margin:0;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;'
   });
   const inputRow = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid #30363d;' });
   const prompt = createEl('span', { textContent: `${os.userInfo().username}@novabyte:$`, style: 'color:#79c0ff;white-space:nowrap;' });
   const input = createEl('input', {
     className: 'shell-input',
-    'aria-label': 'Shell command',
+    'aria-label': _t('apps.terminal.shellCommandAria'),
     autocomplete: 'off',
     spellcheck: 'false',
     style: 'flex:1;background:transparent;border:0;outline:none;color:inherit;font:inherit;'
@@ -1457,10 +1457,10 @@ function initLinuxTerminal(content, state) {
     // Writing to a dead shell raises EPIPE on stdin; swallow it, the exit
     // handler already told the user.
     child.stdin.on('error', () => {});
-    child.on('error', error => append(`\n[terminal error] ${error.message}\n`));
+    child.on('error', error => append(_t('apps.terminal.terminalError', { message: error.message })));
     child.on('close', code => {
       if (shell === child) shell = null;
-      append(`\n[Shell exited with status ${code ?? 'unknown'}. Press Enter to start a new one.]\n`);
+      append(_t('apps.terminal.shellExited', { status: code ?? _t('apps.terminal.unknownStatus') }));
     });
     shell = child;
   };
@@ -1546,7 +1546,7 @@ registerApp({
 
     function createTab(label) {
       const tab = {
-        label: label || 'Terminal',
+        label: label || _t('apps.terminal.name'),
         cwd: FS.rootId,
         prevCwd: null,
         history: [],
@@ -1561,14 +1561,14 @@ registerApp({
       };
 
       const pane = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
-      const output = createEl('div', { className: 'shell-output', role: 'log', 'aria-label': 'Terminal output' });
+      const output = createEl('div', { className: 'shell-output', role: 'log', 'aria-label': _t('apps.terminal.outputAria') });
       const inputLine = createEl('div', { className: 'shell-input-line' });
       const promptEl = createEl('span', { className: 'shell-prompt' });
       const inputEl = createEl('input', {
         className: 'shell-input',
         id: 'shell-command-input',
         name: 'shell-command',
-        'aria-label': 'Command input',
+        'aria-label': _t('apps.terminal.commandInputAria'),
         autocomplete: 'off',
         spellcheck: 'false'
       });
@@ -1619,19 +1619,19 @@ registerApp({
       const items = [];
       if (sel) {
         items.push({
-          label: 'Copy', icon: shellPackagedIcon('icons8-copy-94.png'),
+          label: _t('apps.terminal.contextCopy'), icon: shellPackagedIcon('icons8-copy-94.png'),
           action() {
             const p = clipboardWrite(sel);
             if (p) p.then(
-              () => Notify.show({ title: 'Copied', body: 'Text copied', type: 'info', appName: 'Terminal' }),
-              () => Notify.show({ title: 'Copy failed', body: 'Clipboard write denied', type: 'error', appName: 'Terminal' })
+              () => Notify.show({ title: _t('apps.terminal.copiedTitle'), body: _t('apps.terminal.copiedBody'), type: 'info', appName: 'Terminal' }),
+              () => Notify.show({ title: _t('apps.terminal.copyFailedTitle'), body: _t('apps.terminal.copyFailedBody'), type: 'error', appName: 'Terminal' })
             );
           }
         });
         items.push({ separator: true });
       }
       items.push({
-        label: 'Paste', icon: shellPackagedIcon('icons8-document-94.png'),
+        label: _t('apps.terminal.contextPaste'), icon: shellPackagedIcon('icons8-document-94.png'),
         action() {
           const p = clipboardRead();
           if (p) p.then(
@@ -1639,12 +1639,12 @@ registerApp({
               const t = tabs[activeTabIdx];
               if (t?.input) t.input.value += text;
             },
-            () => Notify.show({ title: 'Paste failed', body: 'Clipboard read denied', type: 'error', appName: 'Terminal' })
+            () => Notify.show({ title: _t('apps.terminal.pasteFailedTitle'), body: _t('apps.terminal.pasteFailedBody'), type: 'error', appName: 'Terminal' })
           );
         }
       });
       items.push({
-        label: 'Clear', icon: shellPackagedIcon('icons8-trash-94.png'),
+        label: _t('apps.terminal.contextClear'), icon: shellPackagedIcon('icons8-trash-94.png'),
         action() {
           const t = tabs[activeTabIdx];
           if (t?.output) t.output.innerHTML = '';
@@ -1652,7 +1652,7 @@ registerApp({
       });
       items.push({ separator: true });
       items.push({
-        label: 'Select All', icon: 'maximize',
+        label: _t('apps.terminal.contextSelectAll'), icon: 'maximize',
         action() { selectAllInOutput(tabs[activeTabIdx]); }
       });
       ContextMenu.show(e.clientX, e.clientY, items);
@@ -1665,7 +1665,7 @@ registerApp({
       if (!win || win.dataset.appId !== 'com.nbosp.terminal') return;
       if (e.ctrlKey && e.shiftKey && e.key === 'T') {
         e.preventDefault();
-        const t = createTab('Terminal ' + (tabs.length + 1));
+        const t = createTab(_t('apps.terminal.tabLabel', { index: tabs.length + 1 }));
         switchTab(tabs.length - 1);
         welcomeTab(t);
         updatePrompt(t);
@@ -1678,7 +1678,7 @@ registerApp({
     document.addEventListener('keydown', onKeyDown, { signal: ac.signal });
 
     // First tab.
-    const t0 = createTab('Terminal');
+    const t0 = createTab(_t('apps.terminal.name'));
     switchTab(0);
     welcomeTab(t0);
     updatePrompt(t0);

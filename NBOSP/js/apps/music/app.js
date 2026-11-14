@@ -218,15 +218,15 @@
           'display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;background:var(--bg-elevated);',
       });
       const libTitle = createEl('span', {
-        textContent: 'Library',
+        textContent: _t('apps.music.library.title'),
         style: 'font-size:13px;font-weight:600;flex:1;',
       });
       const libCount = createEl('span', { style: 'font-size:11px;color:var(--text-muted);' });
       const refreshBtn = createEl('button', {
         className: 'browser-nav-btn',
-        title: 'Rescan library',
+        title: _t('apps.music.library.rescan'),
       });
-      refreshBtn.setAttribute('aria-label', 'Rescan library');
+      refreshBtn.setAttribute('aria-label', _t('apps.music.library.rescan'));
       refreshBtn.innerHTML = svgIcon('refresh', 15);
       libHeader.append(libTitle, libCount, refreshBtn);
       root.appendChild(libHeader);
@@ -236,7 +236,7 @@
         style: 'flex:1;overflow-y:auto;min-height:0;',
       });
       trackList.setAttribute('role', 'list');
-      trackList.setAttribute('aria-label', 'Music library');
+      trackList.setAttribute('aria-label', _t('apps.music.library.aria'));
       root.appendChild(trackList);
 
       // ---- Now-playing bar ----
@@ -255,7 +255,7 @@
       albumArt.innerHTML = svgIcon('music', 18);
       const trackNameEl = createEl('div', { style: 'flex:1;min-width:0;' });
       const trackTitle = createEl('div', {
-        textContent: 'No track selected',
+        textContent: _t('apps.music.player.noTrackSelected'),
         style:
           'font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
       });
@@ -274,17 +274,17 @@
           'font-size:10px;color:var(--text-muted);width:30px;text-align:right;font-variant-numeric:tabular-nums;',
       });
       const scrubWrap = createEl('div', {
-        title: 'Seek',
+        title: _t('apps.music.player.seek'),
         style:
           'flex:1;height:4px;background:var(--border-subtle);border-radius:2px;cursor:pointer;position:relative;',
       });
       scrubWrap.setAttribute('role', 'slider');
       scrubWrap.tabIndex = 0;
-      scrubWrap.setAttribute('aria-label', 'Seek');
+      scrubWrap.setAttribute('aria-label', _t('apps.music.player.seek'));
       scrubWrap.setAttribute('aria-valuemin', '0');
       scrubWrap.setAttribute('aria-valuemax', '0');
       scrubWrap.setAttribute('aria-valuenow', '0');
-      scrubWrap.setAttribute('aria-valuetext', '0:00 of 0:00');
+      scrubWrap.setAttribute('aria-valuetext', _t('apps.music.player.timeOf', { current: '0:00', total: '0:00' }));
       const scrubFill = createEl('div', {
         style:
           'height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width 0.25s linear;pointer-events:none;',
@@ -313,17 +313,17 @@
         return b;
       }
 
-      const shuffleBtn = ctrlBtn('shuffle', 14, 'Shuffle');
-      const prevBtn = ctrlBtn('arrow-left', 16, 'Previous track');
+      const shuffleBtn = ctrlBtn('shuffle', 14, _t('apps.music.controls.shuffle'));
+      const prevBtn = ctrlBtn('arrow-left', 16, _t('apps.music.controls.previousTrack'));
       const playPauseBtn = createEl('button', {
         style:
           'width:38px;height:38px;border-radius:50%;background:var(--accent);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform 0.1s,background 0.1s;',
-        title: 'Play/Pause',
+        title: _t('apps.music.controls.playPause'),
       });
-      playPauseBtn.setAttribute('aria-label', 'Play');
+      playPauseBtn.setAttribute('aria-label', _t('apps.music.controls.play'));
       playPauseBtn.innerHTML = svgIcon('play', 18);
-      const nextBtn = ctrlBtn('arrow-right', 16, 'Next track');
-      const repeatBtn = ctrlBtn('repeat', 14, 'Repeat');
+      const nextBtn = ctrlBtn('arrow-right', 16, _t('apps.music.controls.nextTrack'));
+      const repeatBtn = ctrlBtn('repeat', 14, _t('apps.music.controls.repeat'));
 
       // Volume row.
       const volRow = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
@@ -342,7 +342,7 @@
         )),
         style: 'flex:1;accent-color:var(--accent);height:4px;cursor:pointer;',
       });
-      volSlider.setAttribute('aria-label', 'Volume');
+      volSlider.setAttribute('aria-label', _t('apps.music.controls.volume'));
       volRow.append(volIco, volSlider);
 
       controlsRow.append(
@@ -376,7 +376,7 @@
       function syncPlayPauseLabel() {
         const playing = !audio.paused;
         playPauseBtn.innerHTML = svgIcon(playing ? 'pause' : 'play', 18);
-        playPauseBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+        playPauseBtn.setAttribute('aria-label', playing ? _t('apps.music.controls.pause') : _t('apps.music.controls.play'));
       }
 
       function syncShuffleBtn() {
@@ -406,7 +406,7 @@
         const dur = audio.duration || 0;
         scrubWrap.setAttribute('aria-valuenow', String(Math.floor(cur)));
         scrubWrap.setAttribute('aria-valuemax', String(Math.floor(dur) || 0));
-        scrubWrap.setAttribute('aria-valuetext', `${fmtTime(cur)} of ${fmtTime(dur)}`);
+        scrubWrap.setAttribute('aria-valuetext', _t('apps.music.player.timeOf', { current: fmtTime(cur), total: fmtTime(dur) }));
       }
 
       on(audio, 'timeupdate', () => {
@@ -436,8 +436,8 @@
         const err = audio.error;
         console.warn('[Music] <audio> error:', err?.code, err?.message);
         Notify.show({
-          title: 'Music',
-          body: 'Could not play ' + (queue[queueIdx]?.name ?? 'track'),
+          title: _t('apps.music.notify.title'),
+          body: _t('apps.music.notify.couldNotPlay', { name: queue[queueIdx]?.name ?? _t('apps.music.notify.trackFallback') }),
           type: 'error',
           appName: 'Music',
         });
@@ -550,8 +550,8 @@
           if (err?.name === 'AbortError') return;
           console.warn('[Music] Playback failed:', err);
           Notify.show({
-            title: 'Music',
-            body: 'Could not play ' + (queue[queueIdx]?.name ?? 'track'),
+            title: _t('apps.music.notify.title'),
+            body: _t('apps.music.notify.couldNotPlay', { name: queue[queueIdx]?.name ?? _t('apps.music.notify.trackFallback') }),
             type: 'error',
             appName: 'Music',
           });
@@ -620,8 +620,8 @@
         if (generation !== loadGeneration) return;
         if (!url) {
           Notify.show({
-            title: 'Music',
-            body: 'Cannot load ' + track.name,
+            title: _t('apps.music.notify.title'),
+            body: _t('apps.music.notify.cannotLoad', { name: track.name }),
             type: 'error',
             appName: 'Music',
           });
@@ -681,7 +681,7 @@
           for (const track of found) tracks.push(track);
         } catch (err) {
           console.error('[Music] Library scan failed:', err);
-          Notify.show({ title: 'Music', body: 'Could not read the Music folder: ' + err.message, type: 'error', appName: 'Music' });
+          Notify.show({ title: _t('apps.music.notify.title'), body: _t('apps.music.notify.couldNotReadFolder', { message: err.message }), type: 'error', appName: 'Music' });
         }
 
         // Revoke object URLs for tracks that have disappeared — without
@@ -695,7 +695,7 @@
         }
 
         const n = tracks.length;
-        libCount.textContent = n ? `${n} track${n > 1 ? 's' : ''}` : '';
+        libCount.textContent = n ? _t('apps.music.library.trackCount', { count: n, s: n > 1 ? 's' : '' }) : '';
         // Keep the cursor on the current track if it is still in the
         // library; otherwise queueIdx is left as-is and playIdx wraps
         // to a valid index on the next interaction.
@@ -778,11 +778,11 @@
           });
           const iconSpan = createEl('span', { innerHTML: svgIcon('music', 36) });
           const msg = createEl('div', {
-            textContent: 'No audio files found',
+            textContent: _t('apps.music.library.noFiles'),
             style: 'font-size:13px;margin-top:10px;color:var(--text-secondary);',
           });
           const hint = createEl('div', {
-            textContent: 'Save audio files via Files to play them here',
+            textContent: _t('apps.music.library.noFilesHint'),
             style: 'font-size:11px;margin-top:4px;',
           });
           empty.append(iconSpan, msg, hint);
@@ -810,7 +810,7 @@
           row.dataset.current = String(isCurrent);
           row.setAttribute(
             'aria-label',
-            stripExtension(track.name) + (isCurrent ? (isActuallyPlaying ? ', playing' : ', paused') : ''),
+            stripExtension(track.name) + (isCurrent ? (isActuallyPlaying ? _t('apps.music.list.playingSuffix') : _t('apps.music.list.pausedSuffix')) : ''),
           );
 
           const numEl = createEl('div', {
@@ -901,9 +901,9 @@
     msg.append(
       appName,
       document.createElement('br'),
-      document.createTextNode('App data directory missing.'),
+      document.createTextNode(_t('apps.music.guard.appDataMissing')),
       document.createElement('br'),
-      document.createTextNode('This app requires NovaByte OS.'),
+      document.createTextNode(_t('apps.music.guard.requiresNovaByte')),
     );
     content.replaceChildren(icon, msg);
   }

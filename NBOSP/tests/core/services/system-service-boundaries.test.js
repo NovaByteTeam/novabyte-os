@@ -669,6 +669,10 @@ describe('built-in service boundaries', () => {
       TextDecoder,
       Uint8Array,
       atob,
+      // The service now localises human-readable reasons through the host
+      // _t() global; this bare-context host provides the identity stub the
+      // same way the trusted page provides the real engine.
+      _t: key => key,
       window: {},
     };
     runInNewContext(serviceSource, context);
