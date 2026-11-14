@@ -2076,9 +2076,9 @@ registerApp({
 
     // Apps
     function renderApps() {
-      mainContent.appendChild(createEl('h2', { textContent: 'App Permissions', style: { marginBottom: '4px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: _t('settings.appPermissions.title'), style: { marginBottom: '4px' } }));
       mainContent.appendChild(createEl('p', {
-        textContent: 'Manage what each app is allowed to access. Denied permissions can be re-enabled here.',
+        textContent: _t('settings.appPermissions.subtitle'),
         style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }
       }));
 
@@ -2187,27 +2187,36 @@ registerApp({
 
         // Badge row — refreshed in-place on toggle
         const badgeRow = createEl('div', { style: 'display:flex;gap:4px;margin-top:3px;flex-wrap:wrap;' });
-        function refreshBadges() {
+        function permLabel(permission) {
+        if (mgr?.permissionLabel) return mgr.permissionLabel(permission);
+        return PERM_LABELS[permission] ?? permission;
+      }
+      function permRiskLabel(risk) {
+        if (mgr?.riskLabel) return mgr.riskLabel(risk);
+        return risk.charAt(0).toUpperCase() + risk.slice(1);
+      }
+
+      function refreshBadges() {
           badgeRow.replaceChildren();
           const grantedCount = dangerous.filter(p => mgr.isGranted(p, appId)).length;
           const deniedCount  = dangerous.filter(p => mgr.isDenied ? mgr.isDenied(p, appId) : false).length;
           const pendingCount = dangerous.length - grantedCount - deniedCount;
-          if (grantedCount > 0) badgeRow.appendChild(createEl('span', { textContent: grantedCount + ' allowed',    style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(63,185,80,0.12);color:#3fb950;border:1px solid rgba(63,185,80,0.3);' }));
-          if (deniedCount  > 0) badgeRow.appendChild(createEl('span', { textContent: deniedCount  + ' denied',     style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(248,81,73,0.12);color:#f85149;border:1px solid rgba(248,81,73,0.3);' }));
-          if (pendingCount > 0) badgeRow.appendChild(createEl('span', { textContent: pendingCount + ' not asked',  style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
+          if (grantedCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeAllowed', { count: grantedCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(63,185,80,0.12);color:#3fb950;border:1px solid rgba(63,185,80,0.3);' }));
+          if (deniedCount  > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeDenied', { count: deniedCount }),  style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(248,81,73,0.12);color:#f85149;border:1px solid rgba(248,81,73,0.3);' }));
+          if (pendingCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeNotAsked', { count: pendingCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
           if (dangerous.length === 0 && normal.length === 0)
-            badgeRow.appendChild(createEl('span', { textContent: 'No permissions',           style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
+            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noPermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
           else if (dangerous.length === 0)
-            badgeRow.appendChild(createEl('span', { textContent: 'No sensitive permissions', style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
+            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noSensitivePermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
         }
         refreshBadges();
 
         if (appVersion || appAuthor || appVerified !== null) {
           const metaRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:3px;align-items:center;flex-wrap:wrap;' });
           if (appVersion)        metaRow.appendChild(createEl('span', { textContent: 'v' + appVersion,  style: 'font-size:10px;color:var(--text-muted);font-family:monospace;' }));
-          if (appAuthor)         metaRow.appendChild(createEl('span', { textContent: 'by ' + appAuthor, style: 'font-size:10px;color:var(--text-muted);' }));
-          if (appVerified === true)  metaRow.appendChild(createEl('span', { textContent: '\u2713 Verified',   style: 'font-size:10px;color:#3fb950;' }));
-          if (appVerified === false) metaRow.appendChild(createEl('span', { textContent: '\u26A0 Unverified', style: 'font-size:10px;color:#d29922;' }));
+          if (appAuthor)         metaRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.byAuthor', { author: appAuthor }), style: 'font-size:10px;color:var(--text-muted);' }));
+          if (appVerified === true)  metaRow.appendChild(createEl('span', { textContent: '\u2713 ' + _t('settings.appPermissions.verified'),   style: 'font-size:10px;color:#3fb950;' }));
+          if (appVerified === false) metaRow.appendChild(createEl('span', { textContent: '\u26A0 ' + _t('settings.appPermissions.unverified'), style: 'font-size:10px;color:#d29922;' }));
           nameEl.appendChild(metaRow);
         }
         nameEl.appendChild(badgeRow);
@@ -2227,14 +2236,14 @@ registerApp({
         if (dangerous.length > 0) {
           const section = createEl('div', { style: 'padding:10px 14px 6px;' });
           section.appendChild(createEl('div', {
-            textContent: 'SENSITIVE PERMISSIONS',
-            style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:8px;'
+            textContent: _t('settings.appPermissions.sensitivePermissions'),
+            style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;'
           }));
 
           for (const perm of dangerous) {
             const cat       = AppPermissionManager.PERMISSION_CATEGORIES?.[perm];
             const risk      = cat?.risk ?? 'medium';
-            const label     = PERM_LABELS[perm] ?? perm;
+            const label     = permLabel(perm);
             const isGranted = mgr.isGranted(perm, appId);
             const isDenied  = mgr.isDenied ? mgr.isDenied(perm, appId) : false;
 
@@ -2242,7 +2251,7 @@ registerApp({
             const left = createEl('div', { style: 'display:flex;align-items:center;gap:8px;' });
 
             const riskBadge = createEl('span', {
-              textContent: risk.charAt(0).toUpperCase() + risk.slice(1),
+              textContent: permRiskLabel(risk),
               style: 'font-size:9px;padding:1px 6px;border-radius:20px;background:' + RISK_BG[risk] + ';color:' + RISK_COLOR[risk] + ';border:1px solid ' + RISK_COLOR[risk] + '40;font-weight:600;'
             });
             const labelEl = createEl('div');
@@ -2250,7 +2259,7 @@ registerApp({
             labelEl.appendChild(createEl('div', { textContent: perm,  style: 'font-size:10px;color:var(--text-muted);font-family:monospace;' }));
             if (cat?.specialAccess) {
               labelEl.appendChild(createEl('div', {
-                textContent: 'Special access: enable or revoke here; apps cannot prompt for it.',
+                textContent: _t('settings.appPermissions.specialAccess'),
                 style: 'font-size:10px;color:var(--text-muted);margin-top:2px;',
               }));
             }
@@ -2297,13 +2306,13 @@ registerApp({
         if (normal.length > 0) {
           const normSection = createEl('div', { style: 'padding:8px 14px 10px;' });
           normSection.appendChild(createEl('div', {
-            textContent: 'AUTOMATIC PERMISSIONS',
-            style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:6px;'
+            textContent: _t('settings.appPermissions.automaticPermissions'),
+            style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;'
           }));
           const normList = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:5px;' });
           for (const perm of normal) {
             normList.appendChild(createEl('span', {
-              textContent: PERM_LABELS[perm] ?? perm,
+              textContent: permLabel(perm),
               style: 'font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(63,185,80,0.08);color:#3fb950;border:1px solid rgba(63,185,80,0.2);'
             }));
           }
@@ -2318,7 +2327,7 @@ registerApp({
           const liveCounts = [];
           if (mgr.isGranted && mgr.isGranted('secrets:store', appId) && typeof AppSecrets !== 'undefined' && AppSecrets.count) {
             const n = AppSecrets.count(appId);
-            liveCounts.push(n + (n === 1 ? ' secret' : ' secrets'));
+            liveCounts.push(_t(n === 1 ? 'settings.appPermissions.secretOne' : 'settings.appPermissions.secretsMany', { count: n }));
           }
           if (mgr.isGranted && mgr.isGranted('system:schedule', appId)) {
             let alarmCount = 0;
@@ -2330,12 +2339,12 @@ registerApp({
               const rec = state && state.apps && state.apps[appId];
               if (rec && rec.alarms) alarmCount = Object.keys(rec.alarms).length;
             } catch (_) {}
-            liveCounts.push(alarmCount + (alarmCount === 1 ? ' alarm' : ' alarms'));
+            liveCounts.push(_t(alarmCount === 1 ? 'settings.appPermissions.alarmOne' : 'settings.appPermissions.alarmsMany', { count: alarmCount }));
           }
           if (mgr.isGranted && mgr.isGranted('fs:watch', appId) && typeof AppSandbox !== 'undefined' && AppSandbox._internal && AppSandbox._internal.fsWatchers) {
             let watcherCount = 0;
             for (const w of AppSandbox._internal.fsWatchers.values()) if (w.appId === appId) watcherCount++;
-            liveCounts.push(watcherCount + (watcherCount === 1 ? ' watcher' : ' watchers'));
+            liveCounts.push(_t(watcherCount === 1 ? 'settings.appPermissions.watcherOne' : 'settings.appPermissions.watchersMany', { count: watcherCount }));
           }
           if (mgr.isGranted && mgr.isGranted('push:receive', appId) && typeof AppSandbox !== 'undefined'
             && AppSandbox._internal && AppSandbox._internal.loadPushState) {
@@ -2345,14 +2354,14 @@ registerApp({
             try { pushState = AppSandbox._internal.loadPushState() || pushState; } catch (_) {}
             const registered = !!(pushState.tokens && pushState.tokens[appId]);
             const pushQueue = pushState.queue && Array.isArray(pushState.queue[appId]) ? pushState.queue[appId].length : 0;
-            if (registered) liveCounts.push('push registered');
-            if (pushQueue > 0) liveCounts.push(pushQueue + (pushQueue === 1 ? ' queued push' : ' queued pushes'));
+            if (registered) liveCounts.push(_t('settings.appPermissions.pushRegistered'));
+            if (pushQueue > 0) liveCounts.push(_t(pushQueue === 1 ? 'settings.appPermissions.queuedPushOne' : 'settings.appPermissions.queuedPushesMany', { count: pushQueue }));
           }
           if (liveCounts.length > 0) {
             const liveSection = createEl('div', { style: 'padding:0 14px 10px;' });
             liveSection.appendChild(createEl('div', {
-              textContent: 'IN USE',
-              style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:4px;'
+              textContent: _t('settings.appPermissions.inUse'),
+              style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;'
             }));
             liveSection.appendChild(createEl('div', {
               textContent: liveCounts.join(' · '),
@@ -2364,7 +2373,7 @@ registerApp({
 
         if (dangerous.length > 0) {
           const footer   = createEl('div', { style: 'padding:8px 14px;border-top:1px solid var(--border-subtle);display:flex;justify-content:flex-end;' });
-          const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset All Permissions', style: 'font-size:11px;' });
+          const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.appPermissions.resetAll'), style: 'font-size:11px;' });
           resetBtn.addEventListener('click', async () => {
             if (mgr.resetPermission) {
               for (const p of dangerous) await mgr.resetPermission(p, appId);
@@ -2380,7 +2389,7 @@ registerApp({
               t.slider.style.background = 'var(--bg-elevated)';
               t.knob.style.left = '2px';
             }
-            Notify.show({ title: 'Permissions Reset', body: appName + ' will be asked again next launch.', type: 'info', appName: 'Settings' });
+            Notify.show({ title: _t('settings.appPermissions.resetTitle'), body: _t('settings.appPermissions.resetBody', { app: appName }), type: 'info', appName: 'Settings' });
             refreshBadges();
           }, { signal: lifecycle.signal });
           footer.appendChild(resetBtn);
@@ -2400,7 +2409,7 @@ registerApp({
       }
 
       if (visibleBuiltIns.length > 0 || visibleSystemNovaApps.length > 0) {
-        mainContent.appendChild(createEl('div', { textContent: 'BUILT-IN APPS', style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:10px;' }));
+        mainContent.appendChild(createEl('div', { textContent: _t('settings.appPermissions.builtInApps'), style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:10px;text-transform:uppercase;' }));
         for (const id of visibleBuiltIns) {
           const card = buildAppCard(id);
           if (card) mainContent.appendChild(card);
@@ -2414,7 +2423,7 @@ registerApp({
       }
 
       if (visibleUserNovaApps.length > 0) {
-        mainContent.appendChild(createEl('div', { textContent: 'INSTALLED PACKAGES', style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin:16px 0 10px;' }));
+        mainContent.appendChild(createEl('div', { textContent: _t('settings.appPermissions.installedPackages'), style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin:16px 0 10px;text-transform:uppercase;' }));
         for (const novaData of visibleUserNovaApps) {
           const card = buildAppCard(novaData.id, novaData);
           if (card) mainContent.appendChild(card);
@@ -2422,7 +2431,7 @@ registerApp({
       }
 
       if (webApps.length > 0) {
-        mainContent.appendChild(createEl('div', { textContent: 'WEB APPS', style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin:16px 0 10px;' }));
+        mainContent.appendChild(createEl('div', { textContent: _t('settings.appPermissions.webApps'), style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin:16px 0 10px;text-transform:uppercase;' }));
         for (const id of webApps) {
           const card = buildAppCard(id);
           if (card) mainContent.appendChild(card);
@@ -2603,7 +2612,7 @@ registerApp({
         const resetRow = createEl('button', {
           type: 'button',
           textContent: _t('settings.defaultApps.useSystemDefault'),
-          style: 'width:100%;text-align:left;padding:10px;border:0;border-radius:8px;background:transparent;color:var(--text-secondary);font-size:12.5px;cursor:pointer;'
+          style: 'width:100%;text-align:start;padding:10px;border:0;border-radius:8px;background:transparent;color:var(--text-secondary);font-size:12.5px;cursor:pointer;'
         });
         resetRow.addEventListener('click', () => {
           try {

@@ -1962,14 +1962,14 @@ registerApp({
             const granted = manager.isGranted(permission, app.id);
             const denied = manager.isDenied(permission, app.id);
             row.input.checked = granted;
-            row.input.setAttribute('aria-label', _t('apps.appmanager.permissionAria', { permission: manager.PERMISSION_CATEGORIES[permission]?.label || permission, app: app.name }));
+            row.input.setAttribute('aria-label', _t('apps.appmanager.permissionAria', { permission: manager.permissionLabel ? manager.permissionLabel(permission) : (manager.PERMISSION_CATEGORIES[permission]?.label || permission), app: app.name }));
             row.slider.style.background = granted ? 'var(--accent)' : denied ? 'rgba(248,81,73,0.3)' : 'var(--bg-sunken)';
             row.knob.style.left = granted ? '20px' : '2px';
           }
 
           for (const permission of permissions) {
             const metadata = manager.PERMISSION_CATEGORIES[permission];
-            const label = metadata?.label || permission;
+            const label = manager.permissionLabel ? manager.permissionLabel(permission) : (metadata?.label || permission);
             const row = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 10px;background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:9px;' });
             const text = createEl('div', { style: 'min-width:0;' });
             text.appendChild(createEl('div', { textContent: label, style: 'font-size:12px;font-weight:600;color:var(--text-primary);' }));

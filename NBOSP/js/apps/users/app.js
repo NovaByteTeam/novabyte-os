@@ -55,7 +55,7 @@ registerApp({
       .nbusers-btn.ghost { background:transparent;color:var(--text-muted); }
       .nbusers-add-btn { display:inline-flex;align-items:center;gap:6px; }
       .nbusers-table { width:100%;border-collapse:collapse;font-size:13px; }
-      .nbusers-table th { text-align:left;color:var(--text-muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--border-subtle); }
+      .nbusers-table th { text-align:start;color:var(--text-muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--border-subtle); }
       .nbusers-table td { padding:9px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle; }
       .nbusers-account-info { display:flex;align-items:center;gap:10px; }
       .nbusers-avatar { width:34px;height:34px;border-radius:50%;background:var(--accent-muted);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:600; }

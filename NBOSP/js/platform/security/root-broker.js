@@ -56,6 +56,13 @@
 
   const SESSION_SOFT_TTL_MS = 15 * 60 * 1000; // display hint only; sudo enforces the real one
 
+  // Shell i18n with English fallback — the localisation engine loads before
+  // this module and dialogs render at runtime, but tests run without it.
+  function t(key, vars) {
+    if (typeof window === 'undefined' || typeof window._t !== 'function') return undefined;
+    try { return window._t(key, vars); } catch { return undefined; }
+  }
+
   let lastAuthAt = 0;
   let activePrompt = null;   // Promise while the OS prompt is open
   let inFlightSession = null; // coalesce concurrent requestSession() calls
@@ -253,7 +260,7 @@
 
       const title = document.createElement('div');
       title.className = 'modal-title';
-      title.textContent = 'Root access confirmation';
+      title.textContent = t('shell.rootBroker.title') || 'Root access confirmation';
       dialog.appendChild(title);
 
       const body = document.createElement('div');
@@ -266,10 +273,9 @@
 
       const line1 = document.createElement('div');
       line1.style.cssText = 'margin-bottom:6px;';
-      const strong = document.createElement('b');
-      strong.textContent = appName || 'An application';
-      line1.appendChild(strong);
-      line1.appendChild(document.createTextNode(' wants to run operations with real administrator (root) privileges.'));
+      line1.textContent = t('shell.rootBroker.request',
+        { app: appName || t('shell.rootBroker.appFallback') || 'An application' })
+        || `${appName || 'An application'} wants to run operations with real administrator (root) privileges.`;
       body.appendChild(line1);
 
       if (reason) {
@@ -281,17 +287,18 @@
 
       const note = document.createElement('div');
       note.style.cssText = 'color:var(--text-secondary,#8b949e);margin-bottom:12px;';
-      note.textContent = 'No password is required. Only continue if you trust this app — every privileged operation is written to the security log.';
+      note.textContent = t('shell.rootBroker.note')
+        || 'No password is required. Only continue if you trust this app — every privileged operation is written to the security log.';
       body.appendChild(note);
 
       const btnRow = document.createElement('div');
       btnRow.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;margin-top:10px;';
       const cancel = document.createElement('button');
-      cancel.textContent = 'Cancel';
+      cancel.textContent = t('common.cancel') || 'Cancel';
       cancel.style.cssText = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border-color,#30363d);' +
         'background:transparent;color:var(--text-primary,#e6edf3);cursor:pointer;font-size:13px;';
       const ok = document.createElement('button');
-      ok.textContent = 'Allow';
+      ok.textContent = t('shell.permissions.dialog.allow') || 'Allow';
       ok.style.cssText = 'padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-size:13px;' +
         'background:var(--danger-color,#d29922);color:#fff;';
       ok.style.background = 'var(--accent-color,#238636)';

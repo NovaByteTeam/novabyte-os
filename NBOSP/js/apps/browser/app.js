@@ -4250,7 +4250,7 @@ registerApp({
                  (id === activeCategory ? 'rgba(88,166,255,0.12)' : 'transparent') +
                  ';color:' + (id === activeCategory ? 'var(--accent)' : 'var(--text-secondary)') +
                  ';font-size:12px;font-weight:' + (id === activeCategory ? '600' : '400') +
-                 ';cursor:pointer;text-align:left;border-radius:0;transition:background 0.15s;border-left:2px solid ' +
+                 ';cursor:pointer;text-align:start;border-radius:0;transition:background 0.15s;border-inline-start:2px solid ' +
                  (id === activeCategory ? 'var(--accent)' : 'transparent') + ';',
           'aria-current': id === activeCategory ? 'page' : 'false'
         });

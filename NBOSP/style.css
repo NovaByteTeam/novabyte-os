@@ -1064,11 +1064,16 @@
     border: none;
     background: none;
     width: 100%;
-    text-align: left;
+    text-align: start;
   }
   .ctx-item:hover {
     background: var(--accent-muted);
     transform: translateX(2px);
+  }
+  /* RTL mirrors the context menu's hover nudge toward inline-start. */
+  [dir="rtl"] .ctx-item:hover {
+    background: var(--accent-muted);
+    transform: translateX(-2px);
   }
   .ctx-item:active {
     transform: scale(0.98);
@@ -2132,7 +2137,7 @@
     border: none;
     background: transparent;
     width: 100%;
-    text-align: left;
+    text-align: start;
     min-height: 36px;
   }
   .nook-section-btn:hover {
@@ -2409,7 +2414,7 @@
     border-collapse: collapse;
   }
   .nook-shortcuts-table th {
-    text-align: left;
+    text-align: start;
     padding: 10px 12px;
     font-size: 11px;
     font-weight: 600;

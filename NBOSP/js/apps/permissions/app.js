@@ -100,7 +100,9 @@ registerApp({
     function riskBadge(permission) {
       const cat = managerAvailable ? AppPermissionManager.PERMISSION_CATEGORIES[permission] : null;
       const risk = cat?.risk ?? 'low';
-      const label = cat?.label ?? permission;
+      const label = managerAvailable && AppPermissionManager.permissionLabel
+        ? AppPermissionManager.permissionLabel(permission)
+        : (cat?.label ?? permission);
       return { risk, label, color: RISK_COLORS[risk] || RISK_COLORS.low };
     }
 
@@ -172,10 +174,10 @@ registerApp({
       const table = createEl('table', { style: 'width:100%;border-collapse:collapse;font-size:12px;' });
       table.appendChild(createEl('thead', {},
         [createEl('tr', {}, [
-          createEl('th', { textContent: _t('apps.permissions.list.colApp'), style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
-          createEl('th', { textContent: _t('apps.permissions.list.colGranted'), style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
-          createEl('th', { textContent: _t('apps.permissions.list.colDenied'), style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
-          createEl('th', { textContent: _t('apps.permissions.list.colPending'), style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
+          createEl('th', { textContent: _t('apps.permissions.list.colApp'), style: 'text-align:start;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
+          createEl('th', { textContent: _t('apps.permissions.list.colGranted'), style: 'text-align:start;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
+          createEl('th', { textContent: _t('apps.permissions.list.colDenied'), style: 'text-align:start;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
+          createEl('th', { textContent: _t('apps.permissions.list.colPending'), style: 'text-align:start;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
           createEl('th', { textContent: '', style: 'padding:6px;border-bottom:1px solid var(--border-subtle);' }),
         ])]
       ));
@@ -199,7 +201,7 @@ registerApp({
         row.appendChild(createEl('td', { textContent: String(denied), style: 'padding:6px;color:#f85149;' }));
         row.appendChild(createEl('td', { textContent: unknown ? '—' : String(pending), style: 'padding:6px;color:#d29922;', title: unknown ? _t('apps.permissions.list.managerUnavailableTitle') : '' }));
 
-        const actionsCell = createEl('td', { style: 'padding:6px;text-align:right;white-space:nowrap;' });
+        const actionsCell = createEl('td', { style: 'padding:6px;text-align:end;white-space:nowrap;' });
         if (managerAvailable && granted > 0) {
           const revokeAllBtn = createEl('button', {
             textContent: _t('apps.permissions.list.revokeAll'),
@@ -231,7 +233,11 @@ registerApp({
       for (const [key, val] of Object.entries(cats)) {
         const row = createEl('div', { style: `padding:4px 6px;background:var(--bg-elevated);border-radius:4px;border-left:3px solid ${RISK_COLORS[val.risk] || RISK_COLORS.low};` });
         row.appendChild(createEl('div', { textContent: key, style: 'color:var(--text-primary);' }));
-        row.appendChild(createEl('div', { textContent: `${val.label} · ${val.risk}`, style: 'color:var(--text-muted);font-size:10px;' }));
+        const glossLabel = managerAvailable && AppPermissionManager.permissionLabel
+          ? AppPermissionManager.permissionLabel(key) : (val.label ?? key);
+        const glossRisk = managerAvailable && AppPermissionManager.riskLabel
+          ? AppPermissionManager.riskLabel(val.risk) : val.risk;
+        row.appendChild(createEl('div', { textContent: `${glossLabel} · ${glossRisk}`, style: 'color:var(--text-muted);font-size:10px;' }));
         list.appendChild(row);
       }
       ref.appendChild(list);
@@ -322,6 +328,9 @@ registerApp({
         const grant = grantMap.get(permission);
         const status = grant ? (grant.granted ? 'granted' : 'denied') : 'pending';
         const statusColor = status === 'granted' ? '#3fb950' : status === 'denied' ? '#f85149' : '#d29922';
+        const statusText = _t(status === 'granted' ? 'apps.permissions.detail.statusGranted'
+          : status === 'denied' ? 'apps.permissions.detail.statusDenied'
+          : 'apps.permissions.detail.statusPending');
         const { risk, label, color } = riskBadge(permission);
 
         const row = createEl('div', { style: `padding:10px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);border-left:3px solid ${color};margin-bottom:8px;` });
@@ -329,9 +338,14 @@ registerApp({
         const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
         const left = createEl('div', {});
         left.appendChild(createEl('div', { textContent: permission, style: 'font-family:monospace;font-size:12px;font-weight:600;' }));
-        left.appendChild(createEl('div', { textContent: _t('apps.permissions.detail.permMeta', { label, risk, tier }), style: 'font-size:11px;color:var(--text-muted);' }));
+        const riskText = managerAvailable && AppPermissionManager.riskLabel
+          ? AppPermissionManager.riskLabel(risk) : risk;
+        const tierText = _t(tier === 'dangerous' ? 'apps.permissions.detail.tierDangerous'
+          : tier === 'normal' ? 'apps.permissions.detail.tierNormal'
+          : 'apps.permissions.detail.tierDeclared');
+        left.appendChild(createEl('div', { textContent: _t('apps.permissions.detail.permMeta', { label, risk: riskText, tier: tierText }), style: 'font-size:11px;color:var(--text-muted);' }));
         header.appendChild(left);
-        header.appendChild(createEl('span', { textContent: status, style: `font-size:11px;color:${statusColor};border:1px solid ${statusColor};border-radius:3px;padding:1px 6px;flex-shrink:0;text-transform:uppercase;` }));
+        header.appendChild(createEl('span', { textContent: statusText, style: `font-size:11px;color:${statusColor};border:1px solid ${statusColor};border-radius:3px;padding:1px 6px;flex-shrink:0;text-transform:uppercase;` }));
         row.appendChild(header);
 
         if (managerAvailable) {
@@ -467,5 +481,14 @@ registerApp({
       clearTimeout(timeoutId);
       clearInterval(intervalId);
     });
+
+    // Live re-localisation — the 5s poll keeps permission state fresh but
+    // never fires on a language switch; this hook re-renders immediately so
+    // catalogue labels, risk names and chrome follow the OS language in
+    // real time. Same focus guard as pollRender so a keystroke in flight
+    // is never destroyed; the next poll picks the change up after blur.
+    const localeHandler = () => { pollRender(); };
+    OS.events?.on?.('languageChanged', localeHandler);
+    state.cleanups.push(() => OS.events?.off?.('languageChanged', localeHandler));
   }
 });

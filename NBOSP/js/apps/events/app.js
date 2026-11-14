@@ -771,7 +771,7 @@ registerApp({
       for (const s of otherSessions) {
         const row = createEl('button', {
           className: 'btn',
-          style: 'text-align:left;font-size:11px;padding:6px 8px;',
+          style: 'text-align:start;font-size:11px;padding:6px 8px;',
           textContent: `${s.id}  (${new Date(s.startedAt).toLocaleString()})`
         });
         row.addEventListener('click', () => showDiff(s));

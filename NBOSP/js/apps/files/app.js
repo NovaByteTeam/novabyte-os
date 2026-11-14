@@ -376,7 +376,7 @@
       LIST_HEADER_LABELS.forEach((label, i) => {
         const key = LIST_HEADER_SORT_KEYS[i];
         const th = createEl('button', {
-          style: 'padding:6px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);background:none;border:none;cursor:pointer;',
+          style: 'padding:6px 12px;text-align:start;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);background:none;border:none;cursor:pointer;',
           textContent: _t(LIST_HEADER_I18N[i]),
           'aria-label': _t(LIST_HEADER_SORT_I18N[i]),
         });
@@ -1598,7 +1598,7 @@
             role: 'option',
             'data-path': entry.path,
             'aria-selected': String(this.selectedPaths.has(entry.path)),
-            style: `width:100%;display:grid;grid-template-columns:minmax(0,1fr) 100px 170px;gap:10px;text-align:left;padding:8px;border:0;border-radius:6px;background:${this.selectedPaths.has(entry.path) ? 'var(--accent-muted)' : 'transparent'};color:inherit;cursor:pointer;user-select:none;`
+            style: `width:100%;display:grid;grid-template-columns:minmax(0,1fr) 100px 170px;gap:10px;text-align:start;padding:8px;border:0;border-radius:6px;background:${this.selectedPaths.has(entry.path) ? 'var(--accent-muted)' : 'transparent'};color:inherit;cursor:pointer;user-select:none;`
           });
           row._entry = entry;
           row.append(

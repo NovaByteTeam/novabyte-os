@@ -256,6 +256,48 @@ const AppPermissionManager = (() => {
     'vfs:metadata': 'fs:metadata',
   });
 
+  // Localisation ---------------------------------------------------------
+  //
+  // The catalogue's labels/risk/category names are developer-facing English
+  // by design; UI renders them through the shell's i18n engine
+  // (shell.permissions.*) with the English catalogue text as the guaranteed
+  // fallback, so the permission system stays readable even before the
+  // localisation service registers (or in test harnesses without it).
+  // Keys slug the permission id ([.:] -> '-') because i18next treats ':' as
+  // its namespace separator and '.' as its key separator.
+  function t(key, vars) {
+    if (typeof window === 'undefined' || typeof window._t !== 'function') return undefined;
+    try { return window._t(key, vars); } catch { return undefined; }
+  }
+
+  function permissionSlug(permission) {
+    return String(permission).replace(/[:.]/g, '-');
+  }
+
+  /** Localised display label for any permission id (English fallback). */
+  function permissionLabel(permission) {
+    const key = `shell.permissions.label.${permissionSlug(permission)}`;
+    const translated = t(key);
+    if (translated && translated !== key) return translated;
+    return PERMISSION_CATEGORIES[permission]?.label ?? permission;
+  }
+
+  /** Localised risk tier name for 'low'|'medium'|'high'|'critical'. */
+  function riskLabel(risk) {
+    const key = `shell.permissions.risk.${risk}`;
+    const translated = t(key);
+    if (translated && translated !== key) return translated;
+    return String(risk).charAt(0).toUpperCase() + String(risk).slice(1);
+  }
+
+  /** Localised category name for the permission dialog's risk row. */
+  function categoryLabel(category) {
+    const key = `shell.permissions.category.${category}`;
+    const translated = t(key);
+    if (translated && translated !== key) return translated;
+    return String(category);
+  }
+
   const STORAGE_KEY = 'nova_app_permissions';
   const SWEEP_KEY   = 'nova_perm_last_sweep';
   const UNUSED_DAYS = 30;
@@ -817,7 +859,8 @@ const AppPermissionManager = (() => {
       const record = typeof AppRegistry !== 'undefined' ? AppRegistry.getApp(appId) : null;
       const systemSigned = record?.verified === true && record?.signer === 'NovaByte System';
       if (!systemSigned) {
-        trustNote = 'UNVERIFIED PUBLISHER — this package was NOT signed by any trusted signing authority. Granting root lets its code run unrestricted inside the OS host process.';
+        trustNote = t('shell.permissions.dialog.trustNote')
+          || 'UNVERIFIED PUBLISHER — this package was NOT signed by any trusted signing authority. Granting root lets its code run unrestricted inside the OS host process.';
       }
     }
     const riskLevel = PERMISSION_CATEGORIES[permission]?.risk ?? 'low';
@@ -1061,7 +1104,7 @@ const AppPermissionManager = (() => {
     });
     row.append(el('span', {
       style: 'font-size:11px;color:#8b949e;letter-spacing:.05em;text-transform:uppercase;',
-      text : `Permission ${current} of ${total}`,
+      text : t('shell.permissions.dialog.pager', { current, total }) || `Permission ${current} of ${total}`,
     }));
     const dots = el('div', { style: 'display:flex;gap:4px;' });
     for (let i = 0; i < total; i++) {
@@ -1088,8 +1131,8 @@ const AppPermissionManager = (() => {
       text : label,
     }));
     const requestedBy = el('p', { style: 'color:#8b949e;font-size:12px;margin:0;' });
-    requestedBy.append(document.createTextNode('Requested by '));
-    requestedBy.append(el('strong', { style: 'color:#c9d1d9', text: appName }));
+    requestedBy.append(document.createTextNode(
+      t('shell.permissions.dialog.requestedBy', { app: appName }) || `Requested by ${appName}`));
     textCol.append(requestedBy);
     row.append(textCol);
     return row;
@@ -1109,7 +1152,7 @@ const AppPermissionManager = (() => {
   function buildNoReasonBlock() {
     return el('p', {
       style: 'color:#6e7681;font-size:12px;font-style:italic;margin:0 0 14px;padding:10px 12px;background:rgba(255,255,255,0.02);border-radius:8px;border-left:3px solid rgba(255,255,255,0.12);',
-      text : 'This app declared no reason why it needs this permission.',
+      text : t('shell.permissions.dialog.noReason') || 'This app declared no reason why it needs this permission.',
     });
   }
 
@@ -1119,14 +1162,14 @@ const AppPermissionManager = (() => {
     });
     row.append(el('span', {
       style: 'font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;',
-      text : 'Risk',
+      text : t('shell.permissions.dialog.risk') || 'Risk',
     }));
     row.append(el('span', {
       style: `font-size:12px;font-weight:600;color:${riskColor};`,
-      text : riskLevel.toUpperCase(),
+      text : riskLabel(riskLevel),
     }));
     row.append(el('span', { style: 'color:rgba(255,255,255,0.15);margin:0 2px;', text: '·' }));
-    row.append(el('span', { style: 'font-size:12px;color:#8b949e;', text: category }));
+    row.append(el('span', { style: 'font-size:12px;color:#8b949e;', text: categoryLabel(category) }));
     return row;
   }
 
@@ -1134,12 +1177,12 @@ const AppPermissionManager = (() => {
     const row = el('div', { style: 'display:flex;gap:10px;' });
     const denyBtn = el('button', {
       style: 'flex:1;padding:11px 16px;border:1px solid rgba(255,255,255,0.12);border-radius:9px;background:transparent;color:#8b949e;font-size:14px;cursor:pointer;transition:border-color .15s,color .15s;',
-      text : 'Deny',
+      text : t('shell.permissions.dialog.deny') || 'Deny',
       attrs: { type: 'button', 'data-action': 'deny' },
     });
     const grantBtn = el('button', {
       style: 'flex:1;padding:11px 16px;border:none;border-radius:9px;background:#58a6ff;color:#0d1117;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;',
-      text : 'Allow',
+      text : t('shell.permissions.dialog.allow') || 'Allow',
       attrs: { type: 'button', 'data-action': 'grant' },
     });
     row.append(denyBtn, grantBtn);
@@ -1156,7 +1199,7 @@ const AppPermissionManager = (() => {
       const riskColor = RISK_COLORS[riskLevel] ?? RISK_COLORS.low;
       const riskIcon  = RISK_ICONS[riskLevel] ?? RISK_ICONS.low;
       const meta      = PERMISSION_CATEGORIES[permission];
-      const label     = meta?.label ?? permission;
+      const label     = permissionLabel(permission);
       const category  = meta?.category ?? 'general';
       const isRootRequest = permission === PERMISSION_TYPES.SYSTEM_ROOT;
 
@@ -1194,11 +1237,12 @@ const AppPermissionManager = (() => {
         warning.append(
           el('strong', {
             style: 'display:block;color:#ff7b72;font-size:14px;margin-bottom:8px;',
-            text: 'This app will run inside the OS, not in its sandbox.',
+            text: t('shell.permissions.dialog.rootTitle') || 'This app will run inside the OS, not in its sandbox.',
           }),
           el('p', {
             style: 'color:#e6edf3;font-size:12px;line-height:1.55;margin:0 0 12px;',
-            text: `${appName} may read or change OS data, manipulate system UI, and access host-page APIs. Root API calls are recorded, but direct JavaScript and browser activity cannot be completely observed.`,
+            text: t('shell.permissions.dialog.rootBody', { app: appName })
+              || `${appName} may read or change OS data, manipulate system UI, and access host-page APIs. Root API calls are recorded, but direct JavaScript and browser activity cannot be completely observed.`,
           })
         );
         const acknowledgement = el('label', {
@@ -1206,10 +1250,12 @@ const AppPermissionManager = (() => {
         });
         const checkbox = el('input', { attrs: { type: 'checkbox' } });
         checkbox.style.cssText = 'margin:2px 0 0;flex:none;';
-        acknowledgement.append(checkbox, document.createTextNode('I understand this app can access and change the OS outside its sandbox.'));
+        acknowledgement.append(checkbox, document.createTextNode(
+          t('shell.permissions.dialog.rootAcknowledge')
+            || 'I understand this app can access and change the OS outside its sandbox.'));
         warning.appendChild(acknowledgement);
         grantBtn.disabled = true;
-        grantBtn.textContent = 'Grant Root Access';
+        grantBtn.textContent = t('shell.permissions.dialog.grantRoot') || 'Grant Root Access';
         grantBtn.style.cssText = 'flex:1;padding:11px 16px;border:none;border-radius:9px;background:#b42318;color:#fff;font-size:14px;font-weight:700;opacity:.65;cursor:not-allowed;';
         checkbox.addEventListener('change', () => {
           grantBtn.disabled = !checkbox.checked;
@@ -1308,6 +1354,9 @@ const AppPermissionManager = (() => {
     getStats,
     closeAllDialogs,
     resolvePermissionReason,
+    permissionLabel,
+    riskLabel,
+    categoryLabel,
     PERMISSION_TYPES,
     PERMISSION_CATEGORIES,
     LEGACY_PERMISSION_ALIASES,
