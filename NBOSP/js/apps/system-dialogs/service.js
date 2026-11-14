@@ -28,6 +28,13 @@
 const SystemDialogs = (() => {
   'use strict';
 
+  // Localised strings — NovaI18n core engine (js/core/core/i18n.js)
+  // evaluated before this service script; identity fallback for
+  // stripped-down host contexts.
+  var _t = (typeof window !== 'undefined' && typeof window._t === 'function')
+    ? window._t
+    : (key, vars) => key;
+
   const fs   = require('fs');
   const path = require('path');
   const os   = require('os');
@@ -177,7 +184,7 @@ const SystemDialogs = (() => {
     // { path, name, mimeType, size } only, for callers that stream the file
     // themselves instead of holding all of it in memory.
     const pathOnly  = !isSave && opts.pathOnly === true;
-    const title     = opts.title || (isSave ? 'Save As' : pickDir ? 'Select Folder' : 'Open');
+    const title     = opts.title || (isSave ? _t('shell.files.saveAs') : pickDir ? _t('shell.files.selectFolder') : _t('shell.files.open'));
     // accept: an <input accept> style list, combined with filter if both are given.
     const customFilter = typeof opts.filter === 'function' ? opts.filter : null;
     const acceptRule   = acceptFilter(opts.accept);
@@ -229,14 +236,14 @@ const SystemDialogs = (() => {
 
       const backBtn = document.createElement('button');
       backBtn.className = 'system-file-dialog-nav-btn';
-      backBtn.title = 'Back';
-      backBtn.setAttribute('aria-label', 'Back');
+      backBtn.title = _t('shell.files.back');
+      backBtn.setAttribute('aria-label', _t('shell.files.back'));
       backBtn.innerHTML = chevronLeft();
 
       const upBtn = document.createElement('button');
       upBtn.className = 'system-file-dialog-nav-btn';
-      upBtn.title = 'Up';
-      upBtn.setAttribute('aria-label', 'Parent folder');
+      upBtn.title = _t('shell.files.up');
+      upBtn.setAttribute('aria-label', _t('shell.files.parentFolder'));
       upBtn.innerHTML = chevronUp();
 
       const pathBarWrap = document.createElement('div');
@@ -244,7 +251,7 @@ const SystemDialogs = (() => {
 
       const pathBar = document.createElement('input');
       pathBar.className = 'system-file-dialog-path';
-      pathBar.setAttribute('aria-label', 'Current folder');
+      pathBar.setAttribute('aria-label', _t('shell.files.currentFolder'));
       pathBar.spellcheck = false;
       pathBar.type = 'text';
 
@@ -255,7 +262,7 @@ const SystemDialogs = (() => {
       const grid = document.createElement('div');
       grid.className = 'system-file-dialog-grid';
       grid.setAttribute('role', 'grid');
-      grid.setAttribute('aria-label', 'Files');
+      grid.setAttribute('aria-label', _t('shell.files.filesAria'));
 
       // ── Footer ───────────────────────────────────────────────────────
       const footer = document.createElement('div');
@@ -265,18 +272,18 @@ const SystemDialogs = (() => {
       nameInput.className = 'input';
       nameInput.type = 'text';
       nameInput.style.flex = '1';
-      nameInput.setAttribute('aria-label', isSave ? 'File name' : 'Selected file');
-      nameInput.placeholder = isSave ? 'File name…' : pickDir ? 'Current folder' : multi ? 'Select files…' : 'Select a file…';
+      nameInput.setAttribute('aria-label', isSave ? _t('shell.files.fileNameAria') : _t('shell.files.selectedFileAria'));
+      nameInput.placeholder = isSave ? _t('shell.files.fileNamePlaceholder') : pickDir ? _t('shell.files.currentFolder') : multi ? _t('shell.files.selectFilesPlaceholder') : _t('shell.files.selectAFilePlaceholder');
       if (isSave) nameInput.value = opts.suggestedName || '';
       else nameInput.readOnly = true;
 
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn btn-sm';
-      cancelBtn.textContent = 'Cancel';
+      cancelBtn.textContent = _t('common.cancel');
 
       const confirmBtn = document.createElement('button');
       confirmBtn.className = 'btn btn-sm btn-primary';
-      confirmBtn.textContent = isSave ? 'Save' : pickDir ? 'Select' : 'Open';
+      confirmBtn.textContent = isSave ? _t('common.save') : pickDir ? _t('common.select') : _t('common.open');
       confirmBtn.disabled = pickDir ? false : (!isSave || !nameInput.value.trim());
 
       footer.append(nameInput, cancelBtn, confirmBtn);
@@ -299,7 +306,7 @@ const SystemDialogs = (() => {
         const nextPath = path.resolve(dirPath);
         try {
           const target = await fs.promises.stat(nextPath);
-          if (!target.isDirectory()) throw new Error('The selected path is not a folder');
+          if (!target.isDirectory()) throw new Error(_t('shell.files.notAFolder'));
         } catch (error) {
           pathBar.value = cwd;
           if (typeof Notify !== 'undefined') {
@@ -360,10 +367,10 @@ const SystemDialogs = (() => {
         } catch (error) {
           const message = document.createElement('div');
           message.style.cssText = 'grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted);font-size:12px;';
-          message.textContent = `Unable to read folder: ${error.message}`;
+          message.textContent = _t('shell.files.unableToReadFolder', { message: error.message });
           grid.appendChild(message);
           if (typeof Notify !== 'undefined') {
-            Notify.show({ title: 'Folder unavailable', body: error.message, type: 'error' });
+            Notify.show({ title: _t('shell.files.folderUnavailable'), body: error.message, type: 'error' });
           }
           return;
         }
@@ -374,7 +381,7 @@ const SystemDialogs = (() => {
         if (visible.length === 0) {
           const empty = document.createElement('div');
           empty.style.cssText = 'grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted);font-size:12px;';
-          empty.textContent = '(empty folder)';
+          empty.textContent = _t('shell.files.emptyFolder');
           grid.appendChild(empty);
           return;
         }
@@ -415,7 +422,7 @@ const SystemDialogs = (() => {
                 item.classList.toggle('selected', on);
                 item.setAttribute('aria-selected', String(on));
                 if (on) selectedSet.add(entry.name); else selectedSet.delete(entry.name);
-                nameInput.value = selectedSet.size > 1 ? `${selectedSet.size} files selected` : ([...selectedSet][0] || '');
+                nameInput.value = selectedSet.size > 1 ? _t('shell.files.filesSelected', { count: selectedSet.size }) : ([...selectedSet][0] || '');
                 confirmBtn.disabled = selectedSet.size === 0;
                 return;
               }
@@ -478,7 +485,7 @@ const SystemDialogs = (() => {
               results.push({ path: fp, name: n, content: isText ? buf.toString('utf8') : buf, mimeType: mime, size: buf.length });
             } catch (err) {
               if (typeof Notify !== 'undefined') {
-                Notify.show({ title: 'Open failed', body: `${n}: ${err.message}`, type: 'error' });
+                Notify.show({ title: _t('shell.files.openFailed'), body: `${n}: ${err.message}`, type: 'error' });
               }
               return;
             }
@@ -491,7 +498,7 @@ const SystemDialogs = (() => {
         if (isSave && (name === '.' || name === '..' || name.includes('\0') ||
             path.basename(name) !== name)) {
           if (typeof Notify !== 'undefined') {
-            Notify.show({ title: 'Invalid file name', body: 'Enter a file name, not a path.', type: 'error' });
+            Notify.show({ title: _t('shell.files.invalidFileName'), body: _t('shell.files.enterFileName'), type: 'error' });
           }
           return;
         }
@@ -503,7 +510,7 @@ const SystemDialogs = (() => {
           fs.stat(fullPath, (err, stat) => {
             if (err) {
               if (typeof Notify !== 'undefined') {
-                Notify.show({ title: 'Open failed', body: err.message, type: 'error' });
+                Notify.show({ title: _t('shell.files.openFailed'), body: err.message, type: 'error' });
               }
               return;
             }
@@ -514,7 +521,7 @@ const SystemDialogs = (() => {
           fs.readFile(fullPath, (err, buf) => {
             if (err) {
               if (typeof Notify !== 'undefined') {
-                Notify.show({ title: 'Open failed', body: err.message, type: 'error' });
+                Notify.show({ title: _t('shell.files.openFailed'), body: err.message, type: 'error' });
               }
               return;
             }

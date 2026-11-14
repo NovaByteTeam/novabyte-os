@@ -1,9 +1,9 @@
-  <div id="desktop" role="application" aria-label="Desktop"></div>
+  <div id="desktop" role="application" aria-label="Desktop" data-i18n-aria="shell.launchpad.desktopAria"></div>
   <div id="selection-rect" aria-hidden="true"></div>
   <!-- Taskbar -->
-  <div id="taskbar" role="toolbar" aria-label="Taskbar">
+  <div id="taskbar" role="toolbar" aria-label="Taskbar" data-i18n-aria="shell.launchpad.taskbarAria">
     <div class="taskbar-start">
-      <button type="button" id="start-btn" name="start-btn" class="taskbar-start-btn" aria-label="Open Launchpad">
+      <button type="button" id="start-btn" name="start-btn" class="taskbar-start-btn" aria-label="Open Launchpad" data-i18n-aria="shell.launchpad.openLaunchpadAria">
         <svg width="24" height="24" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="tb-g" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -17,11 +17,11 @@
         </svg>
       </button>
     </div>
-    <div id="taskbar-apps" class="taskbar-apps" role="group" aria-label="Running applications"></div>
+    <div id="taskbar-apps" class="taskbar-apps" role="group" aria-label="Running applications" data-i18n-aria="shell.launchpad.runningAppsAria"></div>
     <div id="system-tray-slot"></div>
   </div>
-  <div id="launchpad" role="dialog" aria-modal="true" aria-label="Application launcher">
-    <label class="sr-only" for="launchpad-search">Search applications</label>
-    <input type="text" id="launchpad-search" name="launchpad-search" class="launchpad-search" placeholder="Search apps..." aria-label="Search applications">
+  <div id="launchpad" role="dialog" aria-modal="true" aria-label="Application launcher" data-i18n-aria="shell.launchpad.launcherAria">
+    <label class="sr-only" for="launchpad-search" data-i18n="shell.launchpad.searchLabel">Search applications</label>
+    <input type="text" id="launchpad-search" name="launchpad-search" class="launchpad-search" placeholder="Search apps..." data-i18n-placeholder="shell.launchpad.searchPlaceholder" aria-label="Search applications" data-i18n-aria="shell.launchpad.searchAria">
     <div class="launchpad-grid" id="launchpad-grid" role="grid"></div>
   </div>

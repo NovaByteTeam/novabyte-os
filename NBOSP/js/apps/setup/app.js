@@ -22,7 +22,7 @@
  * completed-state screen instead of the wizard — setup is a one-way door.
  *
  * Steps (bare bones, AOSP-like):
- *   1. Welcome        — keyboard-layout picker, Start
+ *   1. Welcome        — language + keyboard-layout picker, Start
  *   2. Network        — connectivity check, skippable
  *   3. Date and Region — timezone and locale
  *   4. Data & privacy — per-account storage notice and guest access
@@ -30,6 +30,12 @@
  *   6. Appearance     — theme + accent
  *   7. All set        — apply + finish
  */
+
+// NovaI18n is a core engine script (js/core/core/i18n.js) that has always
+// evaluated before the setup app can render — the wizard runs in the
+// trusted host. The key-echo fallback only fires if localisation is
+// offline entirely, which the boot log surfaces loudly.
+var _t = window.NovaI18n?.t?.bind(window.NovaI18n) ?? ((key, vars) => window.NovaI18n?.t ? window.NovaI18n.t(key, vars) : key);
 
 const SETUP_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA5NiIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0Ij48Y2lyY2xlIGN4PSI0OCIgY3k9IjQ4IiByPSIzOCIgZmlsbD0iIzkzYzVmZCIvPjxjaXJjbGUgY3g9IjQ4IiBjeT0iNDgiIHI9IjMwIiBmaWxsPSIjMjU2M2ViIi8+PHBhdGggZD0iTTQwIDM2IEw0OCA1MCA1NiAzNiIgc3Ryb2tlPSIjZmRlNjhhIiBzdHJva2Utd2lkdGg9IjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSIvPjxyZWN0IHg9IjM2IiB5PSI1NiIgd2lkdGg9IjI0IiBoZWlnaHQ9IjUiIHJ4PSIyLjUiIGZpbGw9IiNmZGU2OGEiLz48L3N2Zz4=';
 
@@ -123,6 +129,9 @@ registerApp({
         ((typeof Intl !== 'undefined' && Intl.DateTimeFormat)
           ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
           : 'UTC'),
+      language: (typeof window.NovaI18n?.getLanguage === 'function')
+        ? window.NovaI18n.getLanguage()
+        : (OS.settings.get('language') || 'en'),
     };
 
     const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
@@ -194,7 +203,7 @@ registerApp({
     const logo = createEl('span', { className: 'nvsetup-logo', 'aria-hidden': 'true' });
     logo.innerHTML = svgIcon(SETUP_ICON, 22);
     brand.append(logo, createEl('span', { textContent: 'NovaByte Setup' }));
-    const dots = createEl('div', { className: 'nvsetup-progress', role: 'progressbar', 'aria-label': 'Setup progress' });
+    const dots = createEl('div', { className: 'nvsetup-progress', role: 'progressbar', 'aria-label': _t('setup.progressAria') });
     for (let i = 0; i <= LAST_STEP; i++) {
       dots.appendChild(createEl('div', { className: 'nvsetup-dot' }));
     }
@@ -205,9 +214,9 @@ registerApp({
     root.appendChild(body);
 
     const bottom = createEl('div', { className: 'nvsetup-bottom' });
-    const backBtn = createEl('button', { className: 'nvsetup-btn ghost', textContent: 'Back', 'aria-label': 'Previous step' });
-    const skipBtn = createEl('button', { className: 'nvsetup-btn ghost', textContent: 'Skip', 'aria-label': 'Skip this step' });
-    const nextBtn = createEl('button', { className: 'nvsetup-btn primary', textContent: 'Next', 'aria-label': 'Next step' });
+    const backBtn = createEl('button', { className: 'nvsetup-btn ghost', textContent: _t('setup.back'), 'aria-label': _t('setup.backAria') });
+    const skipBtn = createEl('button', { className: 'nvsetup-btn ghost', textContent: _t('setup.skip'), 'aria-label': _t('setup.skipAria') });
+    const nextBtn = createEl('button', { className: 'nvsetup-btn primary', textContent: _t('setup.next'), 'aria-label': _t('setup.nextAria') });
     bottom.append(backBtn, skipBtn, nextBtn);
     root.appendChild(bottom);
 
@@ -215,7 +224,7 @@ registerApp({
       [...dots.children].forEach((dot, i) => dot.classList.toggle('on', i <= step));
     }
 
-    function setButtons({ next = 'Next', nextDisabled = false, skip = false, back = true } = {}) {
+    function setButtons({ next = _t('setup.next'), nextDisabled = false, skip = false, back = true } = {}) {
       nextBtn.textContent = next;
       nextBtn.disabled = nextDisabled;
       skipBtn.style.visibility = skip ? 'visible' : 'hidden';
@@ -225,14 +234,42 @@ registerApp({
     // ── Step 1: Welcome ───────────────────────────────────────────────────
     function stepWelcome() {
       const card = createEl('div', { className: 'nvsetup-card' });
-      const title = createEl('h1', { className: 'nvsetup-title', textContent: 'NovaByte OS' });
-      const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'Choose your keyboard layout to get started. NovaByte is currently available in English; you can change the keyboard layout later in Settings.' });
+      const title = createEl('h1', { className: 'nvsetup-title', textContent: _t('setup.welcome.title') });
+      const sub = createEl('div', { className: 'nvsetup-sub', textContent: _t('setup.welcome.sub') });
 
-      const layoutLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-keyboard-layout', textContent: 'Keyboard layout' });
+      // Language picker — switching re-localises the ENTIRE wizard live
+      // (and every other shell surface) through NovaI18n.changeLanguage.
+      // persist:false because the owner's registry hive is not mounted
+      // yet — finish() writes the final choice with the other preferences.
+      const languageLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-language', textContent: _t('setup.welcome.language') });
+      const languageSelect = createEl('select', {
+        id: 'nvsetup-language',
+        className: 'nvsetup-input nvsetup-layout',
+        'aria-label': _t('setup.welcome.languageAria'),
+      });
+      const languages = (typeof window.NovaI18n?.getLanguages === 'function')
+        ? window.NovaI18n.getLanguages()
+        : [{ code: 'en' }];
+      for (const language of languages) {
+        languageSelect.appendChild(createEl('option', {
+          value: language.code,
+          textContent: language.nativeName || language.code,
+        }));
+      }
+      languageSelect.value = pending.language;
+      languageSelect.addEventListener('change', () => {
+        pending.language = languageSelect.value;
+        if (typeof window.NovaI18n?.changeLanguage === 'function') {
+          window.NovaI18n.changeLanguage(languageSelect.value, { persist: false })
+            .catch(err => console.warn('[NovaByteSetup] Language switch failed:', err));
+        }
+      });
+
+      const layoutLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-keyboard-layout', textContent: _t('setup.welcome.keyboardLayout') });
       const layoutSelect = createEl('select', {
         id: 'nvsetup-keyboard-layout',
         className: 'nvsetup-input nvsetup-layout',
-        'aria-label': 'Keyboard layout',
+        'aria-label': _t('setup.welcome.keyboardAria'),
       });
       for (const layout of KEYBOARD_LAYOUTS) {
         layoutSelect.appendChild(createEl('option', {
@@ -243,9 +280,9 @@ registerApp({
       layoutSelect.value = pending.keyboardLayout;
       layoutSelect.addEventListener('change', () => { pending.keyboardLayout = layoutSelect.value; });
 
-      card.append(title, sub, layoutLabel, layoutSelect);
+      card.append(title, sub, languageLabel, languageSelect, layoutLabel, layoutSelect);
       body.replaceChildren(card);
-      setButtons({ next: 'Start' });
+      setButtons({ next: _t('setup.welcome.start') });
       title.setAttribute('tabindex', '-1');
       title.focus();
     }
@@ -254,39 +291,39 @@ registerApp({
     function stepNetwork() {
       const card = createEl('div', { className: 'nvsetup-card nvsetup-center' });
       const icon = createEl('div', { className: 'nvsetup-neticon', textContent: '🌐', 'aria-hidden': 'true' });
-      const title = createEl('h1', { className: 'nvsetup-title', textContent: 'Connect to network' });
-      const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'NovaByte can check for updates and finish faster when connected. You can skip this and set up network later from the tray.' });
+      const title = createEl('h1', { className: 'nvsetup-title', textContent: _t('setup.network.title') });
+      const sub = createEl('div', { className: 'nvsetup-sub', textContent: _t('setup.network.sub') });
       const status = createEl('div', { className: 'nvsetup-status', role: 'status', 'aria-live': 'polite' });
 
-      const refresh = createEl('button', { className: 'nvsetup-btn', textContent: 'Check again', 'aria-label': 'Re-check network status' });
+      const refresh = createEl('button', { className: 'nvsetup-btn', textContent: _t('setup.network.checkAgain'), 'aria-label': _t('setup.network.checkAgainAria') });
       refresh.addEventListener('click', () => check());
 
       card.append(icon, title, sub, status, refresh);
       body.replaceChildren(card);
-      setButtons({ next: 'Next', skip: true });
+      setButtons({ next: _t('setup.next'), skip: true });
 
       async function check() {
         status.className = 'nvsetup-status';
-        status.textContent = 'Checking…';
+        status.textContent = _t('setup.network.checking');
         const nm = window.NovaByteSystem?.hardware?.network;
         if (nm && typeof nm.getStatus === 'function') {
           try {
             const s = await nm.getStatus();
             if (s?.connectivity === 'full') {
               status.className = 'nvsetup-status ok';
-              status.textContent = 'Connected to the internet';
+              status.textContent = _t('setup.network.connectedInternet');
             } else if (s?.connectivity === 'limited' || s?.connectivity === 'portal') {
-              status.textContent = 'Connected, but no internet access';
+              status.textContent = _t('setup.network.connectedNoInternet');
             } else if (/^connected/.test(String(s?.networkState || ''))) {
               status.className = 'nvsetup-status ok';
-              status.textContent = 'Connected to a network';
+              status.textContent = _t('setup.network.connectedNetwork');
             } else {
-              status.textContent = 'Not connected';
+              status.textContent = _t('setup.network.notConnected');
             }
             return;
           } catch (_) { /* fall through */ }
         }
-        status.textContent = navigator.onLine ? 'Connected to a network' : 'Not connected';
+        status.textContent = navigator.onLine ? _t('setup.network.connectedNetwork') : _t('setup.network.notConnected');
       }
       check();
     }
@@ -294,13 +331,13 @@ registerApp({
     // ── Step 3: Date and Region ───────────────────────────────────────────
     function stepDateAndRegion() {
       const card = createEl('div', { className: 'nvsetup-card' });
-      const title = createEl('h1', { className: 'nvsetup-title', textContent: 'Date and Region' });
-      const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'Choose the locale used for dates and regional formats, and set your timezone. You can change these later in Settings.' });
-      const regionLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-region', textContent: 'Region and format' });
+      const title = createEl('h1', { className: 'nvsetup-title', textContent: _t('setup.region.title') });
+      const sub = createEl('div', { className: 'nvsetup-sub', textContent: _t('setup.region.sub') });
+      const regionLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-region', textContent: _t('setup.region.regionFormat') });
       const regionSelect = createEl('select', {
         id: 'nvsetup-region',
         className: 'nvsetup-input nvsetup-layout',
-        'aria-label': 'Region and date format',
+        'aria-label': _t('setup.region.regionFormatAria'),
       });
       const regions = [...REGIONS];
       if (!regions.some(([code]) => code === pending.region)) {
@@ -312,11 +349,11 @@ registerApp({
       regionSelect.value = pending.region;
       regionSelect.addEventListener('change', () => { pending.region = regionSelect.value; });
 
-      const timezoneLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-timezone', textContent: 'Timezone' });
+      const timezoneLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-timezone', textContent: _t('setup.region.timezone') });
       const timezoneSelect = createEl('select', {
         id: 'nvsetup-timezone',
         className: 'nvsetup-input nvsetup-layout',
-        'aria-label': 'Timezone',
+        'aria-label': _t('setup.region.timezone'),
       });
       for (const timezone of TIMEZONES) {
         timezoneSelect.appendChild(createEl('option', { value: timezone, textContent: timezone }));
@@ -326,7 +363,7 @@ registerApp({
 
       card.append(title, sub, regionLabel, regionSelect, timezoneLabel, timezoneSelect);
       body.replaceChildren(card);
-      setButtons({ next: 'Next' });
+      setButtons({ next: _t('setup.next') });
       title.setAttribute('tabindex', '-1');
       title.focus();
     }
@@ -334,12 +371,12 @@ registerApp({
     // ── Step 4: Data & privacy ────────────────────────────────────────────
     function stepPrivacy() {
       const card = createEl('div', { className: 'nvsetup-card' });
-      const title = createEl('h1', { className: 'nvsetup-title', textContent: 'Your data' });
-      const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'NovaByte is multi-user: every account gets its own filesystem, registry and apps — one account never reads another\u2019s files.' });
+      const title = createEl('h1', { className: 'nvsetup-title', textContent: _t('setup.privacy.title') });
+      const sub = createEl('div', { className: 'nvsetup-sub', textContent: _t('setup.privacy.sub') });
 
       const note = createEl('div', { className: 'nvsetup-note' });
       note.innerHTML = '';
-      note.appendChild(createEl('div', { textContent: 'Each account lives under its own directory — users/<username>/ is the account\u2019s filesystem (files, folders, Trash and app data all inside it), users/<username>/registry holds its settings — with a machine-wide Shared drop box in between. The account you create next becomes this machine\u2019s owner (administrator).' }));
+      note.appendChild(createEl('div', { textContent: _t('setup.privacy.note') }));
 
       const mkRow = (heading, small, value, key, onToggle) => {
         const row = createEl('button', { className: 'nvsetup-row', type: 'button', 'aria-pressed': String(value) });
@@ -358,11 +395,11 @@ registerApp({
         });
         return row;
       };
-      const guestRow = mkRow('Guest access', 'Let people use this machine without an account (ephemeral sessions)', pending.guestAccess, 'guestAccess');
+      const guestRow = mkRow(_t('setup.privacy.guestAccess'), _t('setup.privacy.guestAccessSub'), pending.guestAccess, 'guestAccess');
 
       card.append(title, sub, note, guestRow);
       body.replaceChildren(card);
-      setButtons({ next: 'Next' });
+      setButtons({ next: _t('setup.next') });
       title.setAttribute('tabindex', '-1');
       title.focus();
     }
@@ -370,34 +407,34 @@ registerApp({
     // ── Step 5: Owner account ────────────────────────────────────────────
     function stepAccount() {
       const card = createEl('div', { className: 'nvsetup-card' });
-      const title = createEl('h1', { className: 'nvsetup-title', textContent: 'Create the owner account' });
-      const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'This account owns the machine — it manages other accounts, policies and system settings.' });
+      const title = createEl('h1', { className: 'nvsetup-title', textContent: _t('setup.account.title') });
+      const sub = createEl('div', { className: 'nvsetup-sub', textContent: _t('setup.account.sub') });
 
-      const display = createEl('input', { className: 'nvsetup-input', type: 'text', placeholder: 'Ada Nova', autocomplete: 'name', maxLength: 64 });
-      const username = createEl('input', { className: 'nvsetup-input', type: 'text', placeholder: 'ada', autocomplete: 'username', maxLength: 32, spellcheck: 'false' });
-      const pin = createEl('input', { className: 'nvsetup-input', type: 'password', placeholder: '4\u20136 digits', inputMode: 'numeric', pattern: '[0-9]*', maxLength: 6, autocomplete: 'new-password' });
-      const pin2 = createEl('input', { className: 'nvsetup-input', type: 'password', placeholder: 'Confirm PIN', inputMode: 'numeric', pattern: '[0-9]*', maxLength: 6, autocomplete: 'new-password' });
-      const pass = createEl('input', { className: 'nvsetup-input', type: 'password', placeholder: 'Optional \u2014 8+ characters', autocomplete: 'new-password' });
+      const display = createEl('input', { className: 'nvsetup-input', type: 'text', placeholder: _t('setup.account.namePlaceholder'), autocomplete: 'name', maxLength: 64 });
+      const username = createEl('input', { className: 'nvsetup-input', type: 'text', placeholder: _t('setup.account.usernamePlaceholder'), autocomplete: 'username', maxLength: 32, spellcheck: 'false' });
+      const pin = createEl('input', { className: 'nvsetup-input', type: 'password', placeholder: _t('setup.account.pinPlaceholder'), inputMode: 'numeric', pattern: '[0-9]*', maxLength: 6, autocomplete: 'new-password' });
+      const pin2 = createEl('input', { className: 'nvsetup-input', type: 'password', placeholder: _t('setup.account.confirmPinPlaceholder'), inputMode: 'numeric', pattern: '[0-9]*', maxLength: 6, autocomplete: 'new-password' });
+      const pass = createEl('input', { className: 'nvsetup-input', type: 'password', placeholder: _t('setup.account.passphrasePlaceholder'), autocomplete: 'new-password' });
 
       const nameRow = createEl('div');
       nameRow.append(
-        Object.assign(createEl('div', { className: 'nvsetup-label', textContent: 'Your name' })),
+        Object.assign(createEl('div', { className: 'nvsetup-label', textContent: _t('setup.account.yourName') })),
         display,
       );
       const userRow = createEl('div');
       userRow.append(
-        Object.assign(createEl('div', { className: 'nvsetup-label', textContent: 'Username \u2014 your storage directory (users/<username>)' })),
+        Object.assign(createEl('div', { className: 'nvsetup-label', textContent: _t('setup.account.usernameLabel') })),
         username,
       );
       const credsGrid = createEl('div', { className: 'nvsetup-grid2' });
       const pinBox = createEl('div');
-      pinBox.append(Object.assign(createEl('div', { className: 'nvsetup-label', textContent: 'PIN' })), pin);
+      pinBox.append(Object.assign(createEl('div', { className: 'nvsetup-label', textContent: _t('setup.account.pin') })), pin);
       const pin2Box = createEl('div');
-      pin2Box.append(Object.assign(createEl('div', { className: 'nvsetup-label', textContent: 'Confirm PIN' })), pin2);
+      pin2Box.append(Object.assign(createEl('div', { className: 'nvsetup-label', textContent: _t('setup.account.confirmPin') })), pin2);
       credsGrid.append(pinBox, pin2Box);
       const passRow = createEl('div');
       passRow.append(
-        Object.assign(createEl('div', { className: 'nvsetup-label', textContent: 'Passphrase (optional, for recovery-grade sign-in)' })),
+        Object.assign(createEl('div', { className: 'nvsetup-label', textContent: _t('setup.account.passphraseLabel') })),
         pass,
       );
 
@@ -424,17 +461,17 @@ registerApp({
 
       card.append(title, sub, nameRow, userRow, credsGrid, passRow, status);
       body.replaceChildren(card);
-      setButtons({ next: 'Create account', nextDisabled: true });
+      setButtons({ next: _t('setup.account.createAccount'), nextDisabled: true });
       validate();
       display.focus();
     }
 
     async function createOwner(statusEl) {
       if (!manager || typeof manager.setupOwner !== 'function') {
-        statusEl.textContent = 'The session service is unavailable — restart the machine.';
+        statusEl.textContent = _t('setup.account.sessionUnavailable');
         return false;
       }
-      statusEl.textContent = 'Creating your account…';
+      statusEl.textContent = _t('setup.account.creating');
       const result = await manager.setupOwner({
         displayName: pending.displayName,
         username: pending.username,
@@ -443,7 +480,7 @@ registerApp({
         avatar: String(pending.displayName).charAt(0).toUpperCase(),
       });
       if (result.ok) return true;
-      statusEl.textContent = result.message || 'Setup failed \u2014 try again.';
+      statusEl.textContent = result.message || _t('setup.account.setupFailed');
       nextBtn.disabled = false;
       return false;
     }
@@ -451,10 +488,10 @@ registerApp({
     // ── Step 6: Appearance ────────────────────────────────────────────────
     function stepAppearance() {
       const card = createEl('div', { className: 'nvsetup-card' });
-      const title = createEl('h1', { className: 'nvsetup-title', textContent: 'Make it yours' });
-      const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'Pick a theme and an accent colour. You can change these any time in Settings \u2192 Appearance.' });
+      const title = createEl('h1', { className: 'nvsetup-title', textContent: _t('setup.appearance.title') });
+      const sub = createEl('div', { className: 'nvsetup-sub', textContent: _t('setup.appearance.sub') });
 
-      const themeLabel = createEl('div', { className: 'nvsetup-label', textContent: 'Theme' });
+      const themeLabel = createEl('div', { className: 'nvsetup-label', textContent: _t('setup.appearance.theme') });
       const themeRows = createEl('div', { className: 'nvsetup-grid2 nvsetup-theme-options' });
       for (const theme of THEMES) {
         const btn = createEl('button', { className: 'nvsetup-row', type: 'button', 'aria-pressed': String(pending.theme === theme.id) });
@@ -469,8 +506,8 @@ registerApp({
         themeRows.appendChild(btn);
       }
 
-      const accentLabel = createEl('div', { className: 'nvsetup-label', textContent: 'Accent colour' });
-      const swatches = createEl('div', { className: 'nvsetup-swatches', role: 'radiogroup', 'aria-label': 'Accent colour' });
+      const accentLabel = createEl('div', { className: 'nvsetup-label', textContent: _t('setup.appearance.accent') });
+      const swatches = createEl('div', { className: 'nvsetup-swatches', role: 'radiogroup', 'aria-label': _t('setup.appearance.accentAria') });
       for (const accent of ACCENTS) {
         const sw = createEl('button', {
           className: 'nvsetup-swatch' + (accent === pending.accent ? ' on' : ''),
@@ -490,7 +527,7 @@ registerApp({
 
       card.append(title, sub, themeLabel, themeRows, accentLabel, swatches);
       body.replaceChildren(card);
-      setButtons({ next: 'Next' });
+      setButtons({ next: _t('setup.next') });
       title.setAttribute('tabindex', '-1');
       title.focus();
     }
@@ -499,11 +536,14 @@ registerApp({
     function stepDone() {
       const card = createEl('div', { className: 'nvsetup-done' });
       const big = createEl('div', { className: 'nvsetup-big', textContent: '\u2705', 'aria-hidden': 'true' });
-      const title = createEl('h1', { className: 'nvsetup-title', textContent: 'You\u2019re all set' });
-      const sub = createEl('div', { className: 'nvsetup-sub', textContent: `Welcome to NovaByte OS, ${pending.displayName || 'owner'}. Your account\u2019s files live under users/${pending.username || 'owner'}/home \u2014 add more accounts any time from the Users app.` });
+      const title = createEl('h1', { className: 'nvsetup-title', textContent: _t('setup.done.title') });
+      const sub = createEl('div', { className: 'nvsetup-sub', textContent: _t('setup.done.sub', {
+        name: pending.displayName || 'owner',
+        username: pending.username || 'owner',
+      }) });
       card.append(big, title, sub);
       body.replaceChildren(card);
-      setButtons({ next: 'Finish', skip: false, back: false });
+      setButtons({ next: _t('setup.done.finish'), skip: false, back: false });
       title.setAttribute('tabindex', '-1');
       title.focus();
     }
@@ -518,6 +558,7 @@ registerApp({
         OS.settings.set('keyboardLayout', pending.keyboardLayout);
         OS.settings.set('region', pending.region);
         OS.settings.set('timezone', pending.timezone);
+        OS.settings.set('language', pending.language);
         OS.settings.set('doNotDisturb', false);
       } catch (err) {
         console.warn('[NovaByteSetup] Preference apply failed:', err);
@@ -558,13 +599,13 @@ registerApp({
       const card = createEl('div', { className: 'nvsetup-done' });
       card.append(
         Object.assign(createEl('div', { className: 'nvsetup-big', textContent: '\uD83D\uDD27', 'aria-hidden': 'true' })),
-        Object.assign(createEl('h1', { className: 'nvsetup-title', textContent: 'Setup is already complete' })),
-        Object.assign(createEl('div', { className: 'nvsetup-sub', textContent: 'This machine already has accounts. First-boot setup only runs once \u2014 manage accounts from the Users app, and preferences from Settings.' })),
+        Object.assign(createEl('h1', { className: 'nvsetup-title', textContent: _t('setup.completed.title') })),
+        Object.assign(createEl('div', { className: 'nvsetup-sub', textContent: _t('setup.completed.sub') })),
       );
       wrap.appendChild(card);
       root.appendChild(wrap);
       const bar = createEl('div', { className: 'nvsetup-bottom' });
-      const close = createEl('button', { className: 'nvsetup-btn primary', textContent: 'Close', 'aria-label': 'Close NovaByte Setup' });
+      const close = createEl('button', { className: 'nvsetup-btn primary', textContent: _t('setup.completed.close'), 'aria-label': _t('setup.completed.closeAria') });
       close.addEventListener('click', () => {
         if (typeof WM !== 'undefined' && typeof WM.closeWindow === 'function') WM.closeWindow(state.id);
       });
@@ -617,5 +658,23 @@ registerApp({
 
     renderDots();
     stepWelcome();
+
+    // Live re-localisation: when the language changes on the Welcome step
+    // (the only step that hosts the picker), re-render the current step and
+    // the shared chrome so the wizard itself switches language instantly.
+    try {
+      OS.events?.on?.('languageChanged', () => {
+        if (!content.isConnected) return;
+        if (step === 0) {
+          renderDots();
+          steps[step]();
+        }
+        backBtn.textContent = _t('setup.back');
+        backBtn.setAttribute('aria-label', _t('setup.backAria'));
+        skipBtn.textContent = _t('setup.skip');
+        skipBtn.setAttribute('aria-label', _t('setup.skipAria'));
+        dots.setAttribute('aria-label', _t('setup.progressAria'));
+      });
+    } catch (_) { /* event bus unavailable (tests) */ }
   },
 });

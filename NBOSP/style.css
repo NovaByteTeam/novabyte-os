@@ -2863,3 +2863,35 @@
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ── RTL (right-to-left) shell mirroring ──────────────────────────────
+   NovaI18n sets <html dir="rtl"> for RTL languages (Arabic). Setting the
+   dir attribute already flips inline base direction for text, but the
+   shell's flex rows and physical paddings need explicit mirroring so the
+   chrome (titlebars, menus, panels, dialogs) reads correctly end-to-end. */
+[dir="rtl"] .window-titlebar { flex-direction: row-reverse; }
+[dir="rtl"] .window-controls { flex-direction: row-reverse; }
+[dir="rtl"] .tray-menu { direction: rtl; }
+[dir="rtl"] .tray-menu-item { flex-direction: row-reverse; text-align: right; }
+[dir="rtl"] .volume-popup { direction: rtl; text-align: right; }
+[dir="rtl"] .calendar-popup { direction: rtl; }
+[dir="rtl"] .calendar-popup-header { flex-direction: row-reverse; }
+[dir="rtl"] #notification-panel { direction: rtl; }
+[dir="rtl"] .notif-header { flex-direction: row-reverse; }
+[dir="rtl"] .notif-header-actions { flex-direction: row-reverse; }
+[dir="rtl"] .notif-item { flex-direction: row-reverse; }
+[dir="rtl"] .notif-item-controls { justify-content: flex-start; }
+[dir="rtl"] .modal-dialog { direction: rtl; }
+[dir="rtl"] .modal-actions { flex-direction: row-reverse; }
+[dir="rtl"] .context-menu { direction: rtl; }
+[dir="rtl"] .launchpad-search { direction: rtl; text-align: right; }
+[dir="rtl"] .toast { direction: rtl; }
+[dir="rtl"] .toast-content { flex-direction: row-reverse; }
+[dir="rtl"] .lock-picker { direction: rtl; }
+[dir="rtl"] .lock-picker-power { flex-direction: row-reverse; }
+[dir="rtl"] .lock-picker-tiles { direction: rtl; }
+[dir="rtl"] .system-file-dialog-toolbar { flex-direction: row-reverse; }
+[dir="rtl"] .system-file-dialog-footer { flex-direction: row-reverse; }
+[dir="rtl"] .taskbar-window-preview { direction: rtl; }
+[dir="rtl"] .preview-window-item { flex-direction: row-reverse; }
+[dir="rtl"] .app-switcher-item { flex-direction: row-reverse; }

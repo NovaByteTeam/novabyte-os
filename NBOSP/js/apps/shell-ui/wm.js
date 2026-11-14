@@ -39,6 +39,13 @@
 //  • Dead code removed: the redundant window.WM assignment and the undefined
 //    WindowInstance guard at the original EOF.
 
+// Localised strings — the NovaI18n core engine (js/core/core/i18n.js) has
+// always evaluated before this service script; the identity fallback keeps
+// this file safe in stripped-down host contexts (service unit tests).
+var _t = (typeof window !== 'undefined' && typeof window._t === 'function')
+  ? window._t
+  : (key, vars) => key;
+
 const WM = window.WM = (() => {
   // ── Work-area cache ────────────────────────────────────────────────────────
   // Invalidated by window resize, taskbar class changes, and taskbar resizes.
@@ -144,7 +151,7 @@ const WM = window.WM = (() => {
           zIndex: ++OS.windowZCounter,
         },
         role:         'dialog',
-        'aria-label': `${app.name} window`,
+        'aria-label': _t('shell.window.windowAria', { app: app.name }),
       });
       if (options.fullscreen === true) win.classList.add('app-window--fullscreen');
       win.dataset.windowId = id;
@@ -164,9 +171,9 @@ const WM = window.WM = (() => {
       icon.innerHTML  = svgIcon(app.icon, 16);
       const titleText = createEl('span', { className: 'window-titlebar-text', textContent: app.name });
       const controls  = createEl('div', { className: 'window-controls' });
-      const closeBtn  = createEl('button', { className: 'window-control-btn close',    'aria-label': 'Close window' });
-      const minBtn    = createEl('button', { className: 'window-control-btn minimize', 'aria-label': 'Minimize window' });
-      const maxBtn    = createEl('button', { className: 'window-control-btn maximize', 'aria-label': 'Maximize window' });
+      const closeBtn  = createEl('button', { className: 'window-control-btn close',    'aria-label': _t('shell.window.closeAria') });
+      const minBtn    = createEl('button', { className: 'window-control-btn minimize', 'aria-label': _t('shell.window.minimizeAria') });
+      const maxBtn    = createEl('button', { className: 'window-control-btn maximize', 'aria-label': _t('shell.window.maximizeAria') });
 
       controls.append(closeBtn, minBtn, maxBtn);
       titlebar.append(icon, titleText, controls);
@@ -261,10 +268,10 @@ const WM = window.WM = (() => {
               verdict = await window.Scanner.scan(file);
             } catch (err) {
               console.warn('[WM] Scanner error:', err);
-              verdict = { safe: false, reason: `Could not verify "${file.name}" — dropped in a safe state and skipped.` };
+              verdict = { safe: false, reason: _t('shell.window.couldNotVerify', { file: file.name }) };
             }
             if (!verdict.safe) {
-              Notify.show({ title: 'File Blocked', body: verdict.reason, type: 'error', appName: 'Security' });
+              Notify.show({ title: _t('shell.window.fileBlocked'), body: verdict.reason, type: 'error', appName: 'Security' });
               continue;
             }
           }
@@ -490,7 +497,7 @@ const WM = window.WM = (() => {
         if (keptAlive && typeof Notify !== 'undefined' && Notify.pinBackgroundApp) {
           const appName = app?.name || state.appId;
           if (isFirstBackground) {
-            Notify.show({ title: `${appName} started running in the background`, type: 'info', appName, appId: state.appId });
+            Notify.show({ title: _t('shell.window.backgroundStarted', { app: appName }), type: 'info', appName, appId: state.appId });
           }
           Notify.pinBackgroundApp(state.appId, {
             appName,
@@ -1103,3 +1110,26 @@ const WM = window.WM = (() => {
 
   return wm;
 })();
+
+// Live re-localisation — patch every open window's titlebar aria labels
+// when the OS language changes (title text itself is the app's name, which
+// does not change with the OS language). Wired once per host page; the
+// launcher (not the WM) owns the taskbar/launchpad re-render.
+if (typeof OS !== 'undefined' && OS.events?.on && !window.__wmLocaleWired) {
+  window.__wmLocaleWired = true;
+  OS.events.on('languageChanged', () => {
+    try {
+      for (const state of OS.windows.values()) {
+        const app = OS.apps?.[state.appId];
+        state.element?.setAttribute('aria-label',
+          _t('shell.window.windowAria', { app: app?.name || state.appId }));
+        state.element?.querySelector('.window-control-btn.close')
+          ?.setAttribute('aria-label', _t('shell.window.closeAria'));
+        state.element?.querySelector('.window-control-btn.minimize')
+          ?.setAttribute('aria-label', _t('shell.window.minimizeAria'));
+        state.element?.querySelector('.window-control-btn.maximize')
+          ?.setAttribute('aria-label', _t('shell.window.maximizeAria'));
+      }
+    } catch (_) { /* best-effort chrome patch */ }
+  });
+}

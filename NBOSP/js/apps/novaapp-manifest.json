@@ -299,5 +299,11 @@
     "id": "com.nbosp.setup",
     "file": "js/apps/com.nbosp.setup.novaapp",
     "cacheKey": "4e81ef370df7ef74d46b84ab5594e8d7d5e614adfdb08b7039912a3ebf5d024f"
+  },
+  {
+    "id": "com.nbosp.localisation",
+    "file": "js/apps/com.nbosp.localisation.novaapp",
+    "cacheKey": "4af22ebb0e630e8a30d9b70754cb855d5df0b0ab557a0234cd4eb3c0eda00f80",
+    "systemService": true
   }
 ]

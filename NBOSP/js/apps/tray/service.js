@@ -1,5 +1,11 @@
 'use strict';
 
+// Localised strings — NovaI18n core engine (js/core/core/i18n.js) evaluated
+// before this service script; identity fallback for stripped-down contexts.
+var _t = (typeof window !== 'undefined' && typeof window._t === 'function')
+  ? window._t
+  : (key, vars) => key;
+
 // TRAY — WiFi
 
 const trayWifi = document.getElementById('tray-wifi');
@@ -26,7 +32,7 @@ if (trayWifi) {
 
     const header = document.createElement('div');
     header.style.cssText = 'font-weight:600;margin-bottom:8px;';
-    header.textContent = 'Network';
+    header.textContent = _t('shell.tray.network');
 
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;';
@@ -38,7 +44,7 @@ if (trayWifi) {
       dot.style.color = color;
       statusText.textContent = text;
     };
-    setState('var(--text-muted)', 'Checking network…');
+    setState('var(--text-muted)', _t('shell.tray.checkingNetwork'));
     row.append(dot, statusText);
 
     popup.append(header, row);
@@ -48,21 +54,21 @@ if (trayWifi) {
       nm.getStatus().then((status) => {
         if (!status || !status.supported) {
           const up = navigator.onLine;
-          setState(up ? 'var(--text-success)' : 'var(--text-danger)', up ? 'Connected to network' : 'No internet connection');
+          setState(up ? 'var(--text-success)' : 'var(--text-danger)', up ? _t('shell.tray.connectedToNetwork') : _t('shell.tray.noInternet'));
         } else if (status.connectivity === 'full') {
-          setState('var(--text-success)', 'Connected to the internet');
+          setState('var(--text-success)', _t('shell.tray.connectedToInternet'));
         } else if (status.connectivity === 'limited' || status.connectivity === 'portal') {
-          setState('var(--text-warning, orange)', 'Connected, but no internet access');
+          setState('var(--text-warning, orange)', _t('shell.tray.connectedNoInternet'));
         } else if (status.connectivity === 'unknown' && /^connected/.test(status.networkState)) {
           // NM has no connectivity-check URI configured; trust the link state.
-          setState('var(--text-success)', 'Connected to network');
+          setState('var(--text-success)', _t('shell.tray.connectedToNetwork'));
         } else {
-          setState('var(--text-danger)', status.networkState === 'disconnected' ? 'Not connected (check the network cable/adapter)' : 'No internet connection');
+          setState('var(--text-danger)', status.networkState === 'disconnected' ? _t('shell.tray.notConnectedCable') : _t('shell.tray.noInternet'));
         }
-      }).catch(() => setState('var(--text-danger)', 'Network status unavailable'));
+      }).catch(() => setState('var(--text-danger)', _t('shell.tray.networkStatusUnavailable')));
     } else {
       const up = navigator.onLine;
-      setState(up ? 'var(--text-success)' : 'var(--text-danger)', up ? 'Connected to network' : 'No internet connection');
+      setState(up ? 'var(--text-success)' : 'var(--text-danger)', up ? _t('shell.tray.connectedToNetwork') : _t('shell.tray.noInternet'));
     }
   });
 }
@@ -359,23 +365,25 @@ updateBattery();
     runPowerAction(item.dataset.powerAction);
   });
 
+  // Copy is resolved at call time so the confirmation dialog follows the
+  // active language without re-wiring the menu.
   const COPY = {
     logoff: {
-      title: 'Log off?',
-      body: 'Your apps will be closed and you will return to the sign-in screen.',
-      confirm: 'Log off',
+      get title() { return _t('shell.tray.confirmLogoffTitle'); },
+      get body() { return _t('shell.tray.confirmLogoffBody'); },
+      get confirm() { return _t('shell.power.logoff'); },
       danger: false,
     },
     restart: {
-      title: 'Restart NovaByte?',
-      body: 'The system will close running apps and restart.',
-      confirm: 'Restart',
+      get title() { return _t('shell.tray.confirmRestartTitle'); },
+      get body() { return _t('shell.tray.confirmRestartBody'); },
+      get confirm() { return _t('shell.power.restart'); },
       danger: true,
     },
     poweroff: {
-      title: 'Power off NovaByte?',
-      body: 'The system will close running apps and power off.',
-      confirm: 'Power off',
+      get title() { return _t('shell.tray.confirmPowerOffTitle'); },
+      get body() { return _t('shell.tray.confirmPowerOffBody'); },
+      get confirm() { return _t('shell.power.powerOff'); },
       danger: true,
     },
   };
@@ -386,7 +394,7 @@ updateBattery();
     // No dialog means no confirmation, and we don't power off without one.
     if (typeof showModal !== 'function') return;
     const answer = await showModal(copy.title, copy.body, [
-      { label: 'Cancel' },
+      { label: _t('common.cancel'), value: null },
       { label: copy.confirm, danger: copy.danger, value: 'confirm' },
     ]);
     if (answer !== 'confirm') return;
@@ -394,7 +402,7 @@ updateBattery();
     try {
       if (action === 'logoff') {
         const result = await SessionManager.logout();
-        if (result?.ok === false) throw new Error(result.message || 'Log off failed');
+        if (result?.ok === false) throw new Error(result.message || _t('shell.tray.actionFailed', { action: copy.confirm }));
         return;
       }
       const power = window.NovaByteSystem?.hardware?.power;
@@ -404,7 +412,7 @@ updateBattery();
     } catch (error) {
       console.error(`[Tray] ${action} failed:`, error);
       if (typeof Notify !== 'undefined') {
-        Notify.show({ title: `${copy.confirm} failed`, body: error.message, type: 'error', appName: 'System' });
+        Notify.show({ title: _t('shell.tray.actionFailed', { action: copy.confirm }), body: error.message, type: 'error', appName: 'System' });
       }
     }
   }

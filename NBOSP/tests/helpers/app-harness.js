@@ -21,6 +21,19 @@ import { JSDOM } from 'jsdom';
 
 const APPS_BASE = new URL('../../js/apps/', import.meta.url);
 const BASE_UTILS_URL = new URL('../../js/core/utils/base-utils.js', import.meta.url);
+// Localisation — the OS page loads js/core/core/i18n.js before any app or
+// service script, and the com.nbosp.localisation service registers the
+// English catalogue before boot(). Mirror that ordering here: evaluate the
+// real engine, then register the real en.json, so app tests exercise the
+// same translation path the shell does (instead of asserting on stale
+// hardcoded copies of the English strings).
+const I18N_CORE_URL = new URL('../../js/core/core/i18n.js', import.meta.url);
+const EN_LOCALE_URL = new URL('../../js/apps/localisation/locales/en.json', import.meta.url);
+let enCataloguePromise = null;
+function enCatalogue() {
+  enCataloguePromise ??= readFile(EN_LOCALE_URL, 'utf8').then(raw => JSON.parse(raw));
+  return enCataloguePromise;
+}
 // Platform prefs helper — index.html loads it globally, so every app harness
 // gets it too. Without window.NovaRegistry it falls back to the legacy
 // localStorage keys, matching the pre-registry behavior these tests wrote
@@ -110,6 +123,17 @@ async function evalScripts(dom, appBase, scripts, extraFirst = []) {
 }
 
 /**
+ * Bring the NovaI18n engine online exactly the way the OS page does: eval
+ * the real core script, then register the real English catalogue into it.
+ * App code under test resolves _t() through genuine lookups, so assertions
+ * stay honest against the shipped locale bundle.
+ */
+async function installI18n(w) {
+  w.eval(await readFile(I18N_CORE_URL, 'utf8'));
+  w.NovaI18n.registerResources({ en: await enCatalogue() });
+}
+
+/**
  * Load a window app (index.html + app.js) into JSDOM and capture what it
  * registers with registerApp().
  * @param {string} appName folder name under js/apps/
@@ -126,6 +150,7 @@ export async function loadWindowApp(appName, opts = {}) {
   installCommonStubs(dom.window, stubs);
   const registered = [];
   dom.window.registerApp = (config) => registered.push(config);
+  await installI18n(dom.window);
   const extras = withBaseUtils ? [BASE_UTILS_URL, REGISTRY_PREFS_URL] : [REGISTRY_PREFS_URL];
   await evalScripts(dom, appBase, scripts, extras);
   return { dom, window: dom.window, document: dom.window.document, registered, app: registered[0] ?? null };
@@ -148,6 +173,7 @@ export async function loadServiceApp(appName, opts = {}) {
   installCommonStubs(dom.window, stubs);
   const registered = [];
   dom.window.registerApp = (config) => registered.push(config);
+  await installI18n(dom.window);
   const extras = withBaseUtils ? [BASE_UTILS_URL, REGISTRY_PREFS_URL] : [REGISTRY_PREFS_URL];
   await evalScripts(dom, appBase, scripts, extras);
   return { dom, window: dom.window, document: dom.window.document, registered };

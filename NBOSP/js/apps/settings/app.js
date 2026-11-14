@@ -529,8 +529,11 @@ registerApp({
       'nova_manual_recovery', 'nova_safe_mode', 'nova_boot_attempts', 'nova_force_recovery'
     ]);
     // i18next is optional — load it once at init, not on every render
+    // (superseded by the core NovaI18n engine, kept as a fallback probe so
+    // nothing else in this file needs to change if the engine is absent)
     let i18n = null;
     try { i18n = require('i18next'); } catch { /* i18next not installed */ }
+    const NovaI18n = window.NovaI18n || null;
 
     // State
     const validIds = new Set(SECTIONS.map(s => s.id));
@@ -1051,7 +1054,7 @@ registerApp({
 
     // Date and Region
     function renderDateAndRegion() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Date and Region', style: { marginBottom: '20px' } }));
+      mainContent.appendChild(createEl('h2', { textContent: NovaI18n ? NovaI18n.t('settings.dateRegion.title') : 'Date and Region', style: { marginBottom: '20px' } }));
 
       const savedRegion = systemSettings.get('region') || navigator.language || 'en-US';
       const currentRegion = REGIONS.some(r => r.code === savedRegion) ? savedRegion : 'en-US';
@@ -1060,11 +1063,68 @@ registerApp({
       const savedTimezone = systemSettings.get('timezone') || detectedTz;
       const currentTimezone = TIMEZONES.includes(savedTimezone) ? savedTimezone : detectedTz;
 
+      const t = (key, vars) => NovaI18n ? NovaI18n.t(key, vars) : key;
+
+      // Language Display — the system-wide UI language, switching live
+      // through the core NovaI18n engine. Options show each language in its
+      // own native name (Español, 日本語, العربية, …) per OS convention.
+      const languageGroup = createEl('div', { className: 'nook-group' });
+      languageGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: t('settings.dateRegion.language') }));
+      const languageRow = createEl('div', { className: 'nook-row' });
+      languageRow.appendChild(createEl('label', {
+        className: 'nook-row-label',
+        htmlFor: 'language-display-select',
+        textContent: t('settings.dateRegion.languageDisplay'),
+      }));
+
+      const languageSelect = document.createElement('select');
+      languageSelect.className = 'input';
+      languageSelect.id = 'language-display-select';
+      languageSelect.setAttribute('aria-label', t('settings.dateRegion.languageDisplay'));
+      const languages = NovaI18n?.getLanguages?.() || [{ code: 'en', nativeName: 'English' }];
+      const currentLanguage = NovaI18n?.getLanguage?.() || systemSettings.get('language') || 'en';
+      for (const language of languages) {
+        const opt = document.createElement('option');
+        opt.value = language.code;
+        opt.textContent = language.nativeName || language.code;
+        opt.selected = language.code === currentLanguage;
+        languageSelect.appendChild(opt);
+      }
+      languageRow.appendChild(languageSelect);
+      languageGroup.appendChild(languageRow);
+      languageGroup.appendChild(createEl('p', {
+        style: 'font-size:11px;color:var(--text-muted);padding:4px 0;',
+        textContent: t('settings.dateRegion.languageHint'),
+      }));
+      languageSelect.addEventListener('change', async () => {
+        const selected = languageSelect.value;
+        if (NovaI18n?.changeLanguage) {
+          try {
+            await NovaI18n.changeLanguage(selected);
+          } catch (err) {
+            console.error('[Settings] Language switch failed:', err);
+            Notify.show({
+              title: t('common.error'),
+              body: String(err?.message || err),
+              type: 'error',
+              appName: 'Settings'
+            });
+          }
+        } else if (i18n) {
+          try { await i18n.changeLanguage(selected); } catch (err) { devLog('i18next changeLanguage failed:', err); }
+        }
+        // renderContent() re-renders the panel in the new language; the
+        // engine's languageChanged fan-out re-renders every other shell
+        // surface at the same time.
+        renderContent();
+      }, { signal: lifecycle.signal });
+      mainContent.appendChild(languageGroup);
+
       // Region select
       const regionGroup = createEl('div', { className: 'nook-group' });
-      regionGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Region' }));
+      regionGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: t('settings.dateRegion.region') }));
       const regionRow = createEl('div', { className: 'nook-row' });
-      const regionLabel = createEl('label', { className: 'nook-row-label', htmlFor: 'region-select', textContent: 'Date & Currency Format' });
+      const regionLabel = createEl('label', { className: 'nook-row-label', htmlFor: 'region-select', textContent: t('settings.dateRegion.regionFormat') });
       regionRow.appendChild(regionLabel);
 
       const regionSelect = document.createElement('select');
@@ -1098,9 +1158,9 @@ registerApp({
       }, { signal: lifecycle.signal });
 
       const timezoneGroup = createEl('div', { className: 'nook-group' });
-      timezoneGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Timezone' }));
+      timezoneGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: t('settings.dateRegion.timezone') }));
       const timezoneRow = createEl('div', { className: 'nook-row' });
-      const tzLabel = createEl('label', { className: 'nook-row-label', htmlFor: 'timezone-select', textContent: 'Current Timezone' });
+      const tzLabel = createEl('label', { className: 'nook-row-label', htmlFor: 'timezone-select', textContent: t('settings.dateRegion.currentTimezone') });
       timezoneRow.appendChild(tzLabel);
       timezoneRow.appendChild(timezoneSelect);
       timezoneGroup.appendChild(timezoneRow);
@@ -1114,16 +1174,14 @@ registerApp({
           systemSettings.set('timezone', mappedTz);
           timezoneSelect.value = mappedTz;
         }
-        if (i18n) {
-          try { await i18n.changeLanguage(selected); } catch (err) { devLog('i18next changeLanguage failed:', err); }
-        }
-        try { document.documentElement.lang = selected; } catch { /* read-only */ }
+        // Region is the date/currency format locale — the display language
+        // is a separate, dedicated control (Language Display) above.
         renderContent();
       }, { signal: lifecycle.signal });
 
       // Keyboard layout
       const kbGroup = createEl('div', { className: 'nook-group' });
-      kbGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Keyboard Layout' }));
+      kbGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: t('settings.dateRegion.keyboardLayout') }));
       const kbRow = createEl('div', { className: 'nook-row' });
       const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
       if (isLinux) {
@@ -1145,7 +1203,7 @@ registerApp({
         const kbLabel = createEl('label', {
           className: 'nook-row-label',
           htmlFor: 'keyboard-layout-select',
-          textContent: 'Input layout'
+          textContent: t('settings.dateRegion.inputLayout')
         });
         kbSelect.addEventListener('change', () => {
           const layout = KEYBOARD_LAYOUTS.find(item => item.code === kbSelect.value);
@@ -1153,15 +1211,15 @@ registerApp({
           try {
             systemSettings.set('keyboardLayout', layout.code);
             Notify.show({
-              title: 'Keyboard Layout Saved',
-              body: `${layout.label} will be used after restarting NovaByte OS.`,
+              title: t('settings.dateRegion.keyboardSavedTitle'),
+              body: t('settings.dateRegion.keyboardSavedBody', { layout: layout.label }),
               type: 'success',
               appName: 'Settings'
             });
           } catch (error) {
             console.error('[Settings] Failed to save keyboard layout:', error);
             Notify.show({
-              title: 'Keyboard Layout Not Saved',
+              title: t('settings.dateRegion.keyboardNotSavedTitle'),
               body: String(error?.message || error),
               type: 'error',
               appName: 'Settings'
@@ -1173,13 +1231,13 @@ registerApp({
         kbGroup.appendChild(kbRow);
         kbGroup.appendChild(createEl('p', {
           style: 'font-size:11px;color:var(--text-muted);padding:4px 0;',
-          textContent: 'Restart NovaByte OS for the new keyboard layout to take effect.'
+          textContent: t('settings.dateRegion.restartNote')
         }));
       } else {
-        kbRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Detected Layout' }));
+        kbRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: t('settings.dateRegion.detectedLayout') }));
         const kbValue = createEl('span', {
           style: 'color:var(--text-primary);font-weight:500;',
-          textContent: 'Detecting...'
+          textContent: t('settings.dateRegion.detecting')
         });
         kbRow.appendChild(kbValue);
         kbGroup.appendChild(kbRow);
@@ -1195,22 +1253,23 @@ registerApp({
             else if (a === 'a' && q === 'w') detected = 'QWERTZ';
             else if (a) detected = 'Custom (' + a + ')';
             kbValue.textContent = detected;
-          }).catch(() => { if (isAlive()) kbValue.textContent = 'Not available'; });
+          }).catch(() => { if (isAlive()) kbValue.textContent = t('settings.dateRegion.notAvailable'); });
         } else {
-          kbValue.textContent = 'Not supported';
+          kbValue.textContent = t('settings.dateRegion.notSupported');
         }
       }
       mainContent.appendChild(kbGroup);
 
       // Live preview
       const previewGroup = createEl('div', { className: 'nook-group' });
-      previewGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Live Preview' }));
+      previewGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: t('settings.dateRegion.livePreview') }));
       const previewRow = createEl('div', { style: 'padding:12px 0;font-size:12.5px;color:var(--text-secondary);', id: 'region-preview' });
       previewGroup.appendChild(previewRow);
       mainContent.appendChild(previewGroup);
 
       function getEffectiveLocale() {
-        if (i18n && typeof i18n.language === 'string' && i18n.language) return i18n.language;
+        const i18nLanguage = NovaI18n?.getLanguage?.() || (i18n && typeof i18n.language === 'string' ? i18n.language : null);
+        if (i18nLanguage) return i18nLanguage;
         return systemSettings.get('region') || navigator.language || 'en-US';
       }
 
@@ -1237,10 +1296,10 @@ registerApp({
         }
         // Build via DOM nodes — safe even if date/currency strings contained markup
         const dtDiv = createEl('div', { style: 'margin-bottom:8px;' });
-        dtDiv.appendChild(createEl('strong', { textContent: 'Date & Time: ' }));
+        dtDiv.appendChild(createEl('strong', { textContent: t('settings.dateRegion.dateAndTime') }));
         dtDiv.appendChild(document.createTextNode(dateStr));
         const curDiv = createEl('div');
-        curDiv.appendChild(createEl('strong', { textContent: 'Currency: ' }));
+        curDiv.appendChild(createEl('strong', { textContent: t('settings.dateRegion.currency') }));
         curDiv.appendChild(document.createTextNode(currencyStr));
         previewEl.replaceChildren(dtDiv, curDiv);
       }

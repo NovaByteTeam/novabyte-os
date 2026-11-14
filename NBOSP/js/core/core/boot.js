@@ -221,6 +221,17 @@ const Boot = {
       }
     });
 
+    // NovaI18n: the com.nbosp.localisation service registered its language
+    // catalogues before boot() started — activate the persisted language
+    // now, BEFORE any shell surface (taskbar, lock screen, OOBE wizard)
+    // renders, so the whole shell comes up already localised. Fail-soft: a
+    // broken localisation stack degrades to English, never blocks boot.
+    try {
+      await window.NovaI18n?.init?.();
+    } catch (i18nError) {
+      console.error('[BOOT] Localisation init failed:', i18nError);
+    }
+
     await window.OPFS?.init?.();
     await FS.init();
     await window.AppDirs?.bootstrap?.();
@@ -580,6 +591,10 @@ async function boot() {
     if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
     if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
     if (typeof renderLaunchpad === 'function') renderLaunchpad();
+    // The launcher DOM is injected fresh above — re-run the static-DOM
+    // localisation pass so data-i18n marked nodes (search placeholder,
+    // taskbar/launchpad aria labels) pick up the active language.
+    window.NovaI18n?.applyStaticDom?.();
 
     // Apps are now guaranteed to reflect the current bundled package contents.
     launchAutostartApps();

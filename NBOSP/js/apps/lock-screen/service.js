@@ -1,5 +1,12 @@
 'use strict';
 
+// Localised strings — the NovaI18n core engine (js/core/core/i18n.js)
+// evaluated before this service script; identity fallback for stripped-down
+// host contexts (service unit tests).
+var _t = (typeof window !== 'undefined' && typeof window._t === 'function')
+  ? window._t
+  : (key, vars) => key;
+
 /**
  * NovaByte OS — Lock Screen v2 (com.nbosp.service.lock-screen)
  *
@@ -104,7 +111,7 @@ function renderLockScreen() {
   if (multiUserEnabled()) {
     const manager = sessionManager();
     const account = sheetAccount || (manager ? manager.state() : null);
-    usernameEl.textContent = account?.displayName || account?.uname || 'Sign in';
+    usernameEl.textContent = account?.displayName || account?.uname || _t('shell.lock.signIn');
     const pinLength = Math.min(Math.max(account?.pinLength || 4, 4), 6);
     dotsEl.innerHTML = '';
     for (let i = 0; i < pinLength; i++) {
@@ -125,7 +132,7 @@ function renderLockScreen() {
     btn.addEventListener('click', () => enterPinDigit(String(i)));
     numpadEl.appendChild(btn);
   }
-  const clearBtn = createEl('button', { textContent: 'C', 'aria-label': 'Clear' });
+  const clearBtn = createEl('button', { textContent: 'C', 'aria-label': _t('shell.lock.clearAria') });
   clearBtn.addEventListener('click', clearPin);
   numpadEl.appendChild(clearBtn);
 
@@ -133,7 +140,7 @@ function renderLockScreen() {
   zeroBtn.addEventListener('click', () => enterPinDigit('0'));
   numpadEl.appendChild(zeroBtn);
 
-  const backBtn = createEl('button', { 'aria-label': 'Backspace' });
+  const backBtn = createEl('button', { 'aria-label': _t('shell.lock.backspaceAria') });
   backBtn.innerHTML = svgIcon('chevron-left', 18);
   backBtn.addEventListener('click', backspacePin);
   numpadEl.appendChild(backBtn);
@@ -149,7 +156,7 @@ function renderLockScreen() {
         className: 'biometric-btn',
         style: 'margin-top:16px;width:100%;padding:12px;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-weight:600;cursor:pointer;'
       });
-      bioBtn.textContent = '👆 Use Biometric';
+      bioBtn.textContent = _t('shell.lock.useBiometric');
       bioBtn.addEventListener('click', () => attemptBiometricUnlock(statusEl));
       numpadEl.parentNode?.appendChild(bioBtn);
     }
@@ -205,14 +212,14 @@ async function verifyPin() {
   // ── Legacy single-user path (multi-user disabled): byte-identical ──
   if (OS.lockoutUntil && Date.now() < OS.lockoutUntil) {
     const remaining = Math.ceil((OS.lockoutUntil - Date.now()) / 1000);
-    statusEl.textContent = `Locked out. Try again in ${remaining}s`;
+    statusEl.textContent = _t('shell.lock.lockedOut', { seconds: remaining });
     enteredPin = '';
     updatePinDots();
     EventLog?.log?.({ app: 'System', category: 'security', severity: 'warn', message: `PIN attempt blocked — lockout active (${remaining}s remaining)` });
     return;
   }
 
-  statusEl.textContent = 'Verifying...';
+  statusEl.textContent = _t('shell.lock.verifying');
 
   let hash;
   try {
@@ -220,7 +227,7 @@ async function verifyPin() {
     if (typeof getPinSalt !== 'function') throw new Error('PIN salt provider unavailable');
     hash = await OS.workers.crypto.call('pbkdf2', enteredPin, getPinSalt());
   } catch (err) {
-    statusEl.textContent = 'Verification unavailable: ' + (err?.message || 'try again');
+    statusEl.textContent = _t('shell.lock.verificationUnavailable', { message: err?.message || 'try again' });
     enteredPin = '';
     updatePinDots();
     EventLog?.log?.({ app: 'System', category: 'security', severity: 'error', message: `PIN verification failed: ${err?.message || err}` });
@@ -250,7 +257,7 @@ async function verifyPin() {
   } else if (OS.wrongPinCount >= 10) {
     triggerSecurityWipe(statusEl);
   } else {
-    statusEl.textContent = 'Incorrect PIN';
+    statusEl.textContent = _t('shell.lock.incorrectPin');
   }
 }
 
@@ -264,17 +271,17 @@ async function verifySheetSecret() {
   if (!statusEl) return;
   const manager = sessionManager();
   if (!manager) {
-    statusEl.textContent = 'Session service unavailable';
+    statusEl.textContent = _t('shell.lock.sessionUnavailable');
     return;
   }
 
   const secret = sheetMode === 'passphrase' ? passphraseValue : enteredPin;
   if (!secret) {
-    statusEl.textContent = sheetMode === 'passphrase' ? 'Enter your passphrase' : 'Enter your PIN';
+    statusEl.textContent = sheetMode === 'passphrase' ? _t('shell.lock.enterPassphrase') : _t('shell.lock.enterPin');
     return;
   }
 
-  statusEl.textContent = 'Verifying…';
+  statusEl.textContent = _t('shell.lock.verifying');
 
   let result;
   if (sheetResumable && sheetAccount) {
@@ -306,7 +313,7 @@ async function verifySheetSecret() {
   if (result?.retryAfterMs && result.retryAfterMs > 0) {
     startServerLockoutCountdown(statusEl, result.retryAfterMs, result.message);
   } else {
-    statusEl.textContent = result?.message || 'Incorrect PIN';
+    statusEl.textContent = result?.message || _t('shell.lock.incorrectPin');
   }
   EventLog?.log?.({
     app: 'System', category: 'security', severity: 'warn',
@@ -315,11 +322,11 @@ async function verifySheetSecret() {
 }
 
 function startServerLockoutCountdown(statusEl, durationMs, message) {
-  const label = message || 'Too many attempts';
+  const label = message || _t('shell.lock.tooManyAttempts');
   let remaining = Math.ceil(durationMs / 1000);
   const render = () => {
     statusEl.textContent = remaining > 0
-      ? `${label}. Try again in ${remaining}s`
+      ? _t('shell.lock.tryAgainIn', { label, seconds: remaining })
       : '';
   };
   render();
@@ -352,8 +359,8 @@ function showPassphraseField() {
     id: 'lock-passphrase',
     type: 'password',
     autocomplete: 'current-password',
-    placeholder: 'Passphrase',
-    'aria-label': 'Account passphrase',
+    placeholder: _t('shell.lock.passphrase'),
+    'aria-label': _t('shell.lock.passphraseAria'),
   });
   Object.assign(field.style, {
     width: '100%', maxWidth: '260px', padding: '12px 14px',
@@ -370,8 +377,8 @@ function showPassphraseField() {
 
   const back = createEl('button', {
     id: 'lock-passphrase-back',
-    textContent: 'Use PIN instead',
-    'aria-label': 'Switch back to PIN entry',
+    textContent: _t('shell.lock.usePinInstead'),
+    'aria-label': _t('shell.lock.usePinInsteadAria'),
   });
   Object.assign(back.style, {
     marginTop: '10px', padding: '6px 12px', borderRadius: '8px',
@@ -397,23 +404,23 @@ async function attemptBiometricUnlock(statusEl) {
   const manager = sessionManager();
   try {
     const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    if (!available) { statusEl.textContent = 'Biometric not available on this device'; return; }
+    if (!available) { statusEl.textContent = _t('shell.lock.biometricUnavailable'); return; }
     if (multiUserEnabled() && manager && sheetAccount?.uid) {
-      statusEl.textContent = 'Waiting for biometric…';
+      statusEl.textContent = _t('shell.lock.waitingBiometric');
       const result = await manager.webauthnLogin({ uid: sheetAccount.uid });
       if (result.ok) {
         unlockFromLockScreen();
         if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
-          Notify.show({ title: 'Welcome back', body: 'Authenticated via biometrics', type: 'success', appName: 'System' });
+          Notify.show({ title: _t('shell.lock.welcomeBack'), body: _t('shell.lock.authenticatedViaBiometrics'), type: 'success', appName: 'System' });
         }
       } else {
-        statusEl.textContent = 'Biometric failed: ' + (result.message || 'Try your PIN instead');
+        statusEl.textContent = _t('shell.lock.biometricFailed', { message: result.message || _t('shell.lock.tryYourPin') });
       }
       return;
     }
 
     // Legacy single-user path.
-    statusEl.textContent = 'Waiting for biometric...';
+    statusEl.textContent = _t('shell.lock.waitingBiometric');
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const credentialId = OS.settings.get('biometricCredentialId');
     const credBytes = Uint8Array.fromBase64
@@ -430,11 +437,11 @@ async function attemptBiometricUnlock(statusEl) {
     if (credential) {
       unlockFromLockScreen();
       if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
-        Notify.show({ title: 'Welcome back', body: 'Authenticated via biometrics', type: 'success', appName: 'System' });
+        Notify.show({ title: _t('shell.lock.welcomeBack'), body: _t('shell.lock.authenticatedViaBiometrics'), type: 'success', appName: 'System' });
       }
     }
   } catch (err) {
-    statusEl.textContent = 'Biometric failed: ' + (err?.message || 'Try PIN instead');
+    statusEl.textContent = _t('shell.lock.biometricFailed', { message: err?.message || _t('shell.lock.tryPin') });
   }
 }
 
@@ -562,7 +569,7 @@ async function showLoginPicker() {
   }
   lockScreenEl.querySelector('.lock-picker')?.remove();
 
-  const picker = createEl('div', { className: 'lock-picker', role: 'group', 'aria-label': 'Account picker' });
+  const picker = createEl('div', { className: 'lock-picker', role: 'group', 'aria-label': _t('shell.lock.accountPickerAria') });
 
   if (!accounts.users?.length) {
     picker.appendChild(buildSetupUnavailableNotice());
@@ -572,18 +579,18 @@ async function showLoginPicker() {
     clock.appendChild(createEl('div', {
       className: 'lp-time',
       textContent: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      'aria-label': 'Current time',
+      'aria-label': _t('shell.lock.currentTimeAria'),
     }));
     clock.appendChild(createEl('div', {
       className: 'lp-date',
       textContent: now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }),
-      'aria-label': 'Current date',
+      'aria-label': _t('shell.lock.currentDateAria'),
     }));
     picker.appendChild(clock);
 
     picker.appendChild(createEl('div', {
       className: 'lock-picker-title',
-      textContent: 'Who\u2019s signing in?',
+      textContent: _t('shell.lock.whoSigningIn'),
       role: 'heading', 'aria-level': 1,
     }));
 
@@ -625,7 +632,7 @@ function tileAvatar(user) {
 function buildAccountTile(user, { resumable = false, showUsername = false } = {}) {
   const tile = createEl('button', {
     className: 'lp-tile',
-    'aria-label': `Sign in as ${user.displayName || user.username}${user.roleLabel ? `, ${user.roleLabel}` : ''}`,
+    'aria-label': _t('shell.lock.signInAsAria', { name: `${user.displayName || user.username}${user.roleLabel ? `, ${user.roleLabel}` : ''}` }),
   });
   if (resumable) tile.classList.add('resumable');
   if (user.locked) tile.classList.add('locked');
@@ -638,12 +645,12 @@ function buildAccountTile(user, { resumable = false, showUsername = false } = {}
   // Admin accounts carry a small shield chip so anyone at the screen can
   // see who holds management power.
   if (user.role === 'admin' || user.role === 'owner') {
-    chips.appendChild(createEl('span', { className: 'lp-chip lp-chip-admin', title: `${user.roleLabel} account` }));
+    chips.appendChild(createEl('span', { className: 'lp-chip lp-chip-admin', title: _t('shell.lock.accountType', { role: user.roleLabel }) }));
   }
   if (user.locked) {
-    chips.appendChild(createEl('span', { className: 'lp-chip lp-chip-locked', textContent: 'Locked' }));
+    chips.appendChild(createEl('span', { className: 'lp-chip lp-chip-locked', textContent: _t('shell.lock.locked') }));
   } else if (resumable) {
-    chips.appendChild(createEl('span', { className: 'lp-chip lp-chip-resume', textContent: 'Resumable' }));
+    chips.appendChild(createEl('span', { className: 'lp-chip lp-chip-resume', textContent: _t('shell.lock.resumable') }));
   }
   tile.appendChild(chips);
 
@@ -652,11 +659,11 @@ function buildAccountTile(user, { resumable = false, showUsername = false } = {}
 }
 
 function buildGuestTile() {
-  const tile = createEl('button', { className: 'lp-tile lp-tile-guest', 'aria-label': 'Continue as guest' });
+  const tile = createEl('button', { className: 'lp-tile lp-tile-guest', 'aria-label': _t('shell.lock.continueAsGuestAria') });
   const avatar = createEl('div', { className: 'lp-avatar', 'aria-hidden': 'true', textContent: 'G' });
   tile.appendChild(avatar);
-  tile.appendChild(createEl('div', { className: 'lp-name', textContent: 'Guest' }));
-  tile.appendChild(createEl('div', { className: 'lp-uname', textContent: 'Ephemeral session' }));
+  tile.appendChild(createEl('div', { className: 'lp-name', textContent: _t('shell.lock.guest') }));
+  tile.appendChild(createEl('div', { className: 'lp-uname', textContent: _t('shell.lock.ephemeralSession') }));
   tile.addEventListener('click', async () => {
     const manager = sessionManager();
     if (!manager) return;
@@ -667,14 +674,14 @@ function buildGuestTile() {
 }
 
 function buildPowerControls() {
-  const row = createEl('div', { className: 'lock-picker-power', 'aria-label': 'Power controls' });
+  const row = createEl('div', { className: 'lock-picker-power', 'aria-label': _t('shell.lock.powerControlsAria') });
   const mk = (label, title, action) => {
     const btn = createEl('button', { className: 'lp-power-btn', textContent: label, title, 'aria-label': title });
     btn.addEventListener('click', action);
     return btn;
   };
-  row.appendChild(mk('Restart', 'Restart NovaByte OS', () => location.reload()));
-  row.appendChild(mk('Power off', 'Shut the machine down', () => {
+  row.appendChild(mk(_t('shell.lock.restart'), _t('shell.lock.restartNovaByte'), () => location.reload()));
+  row.appendChild(mk(_t('shell.lock.powerOff'), _t('shell.lock.powerOffAria'), () => {
     try {
       if (typeof nw !== 'undefined' && nw?.App?.quit) nw.App.quit();
       else window.close();
@@ -737,7 +744,7 @@ function selectAccountForAuth(user, { resumable = false } = {}) {
     // Back-to-picker affordance.
     const existingBack = document.getElementById('lock-picker-back');
     existingBack?.remove();
-    const back = createEl('button', { id: 'lock-picker-back', textContent: '← All accounts', 'aria-label': 'Back to account list' });
+    const back = createEl('button', { id: 'lock-picker-back', textContent: _t('shell.lock.allAccounts'), 'aria-label': _t('shell.lock.allAccountsAria') });
     Object.assign(back.style, {
       marginTop: '14px', padding: '6px 14px', borderRadius: '8px',
       border: '1px solid var(--border-default)', background: 'transparent',
@@ -750,7 +757,7 @@ function selectAccountForAuth(user, { resumable = false } = {}) {
     const existingToggle = document.getElementById('lock-passphrase-toggle');
     existingToggle?.remove();
     if (user.hasPassphrase) {
-      const toggle = createEl('button', { id: 'lock-passphrase-toggle', textContent: 'Use passphrase', 'aria-label': 'Sign in with passphrase' });
+      const toggle = createEl('button', { id: 'lock-passphrase-toggle', textContent: _t('shell.lock.usePassphrase'), 'aria-label': _t('shell.lock.usePassphraseAria') });
       Object.assign(toggle.style, {
         marginTop: '10px', padding: '6px 12px', borderRadius: '8px',
         border: '1px solid var(--border-default)', background: 'transparent',
@@ -765,7 +772,7 @@ function selectAccountForAuth(user, { resumable = false } = {}) {
     existingSwitch?.remove();
     const manager = sessionManager();
     if (manager?.active() && !resumable) {
-      const switchBtn = createEl('button', { id: 'lock-switch-user', textContent: 'Switch user', 'aria-label': 'Suspend this session and pick another account' });
+      const switchBtn = createEl('button', { id: 'lock-switch-user', textContent: _t('shell.lock.switchUser'), 'aria-label': _t('shell.lock.switchUserAria') });
       Object.assign(switchBtn.style, {
         marginTop: '10px', padding: '6px 12px', borderRadius: '8px',
         border: '1px solid var(--accent)', background: 'transparent',
@@ -841,12 +848,12 @@ async function launchFirstBootSetup(manager) {
 /** Fallback notice when the Setup app itself cannot run (damaged bundle). */
 function buildSetupUnavailableNotice() {
   const wrap = createEl('div', { className: 'lock-wizard', role: 'alert' });
-  wrap.appendChild(createEl('div', { className: 'lock-picker-title', textContent: 'Set up NovaByte OS', role: 'heading', 'aria-level': 1 }));
+  wrap.appendChild(createEl('div', { className: 'lock-picker-title', textContent: _t('shell.lock.setUpNovaByte'), role: 'heading', 'aria-level': 1 }));
   wrap.appendChild(createEl('div', {
     className: 'lock-wizard-sub',
-    textContent: 'The NovaByte Setup app could not start — the system package is damaged. Restart the machine to retry; if every restart lands here, reinstall NovaByte OS.',
+    textContent: _t('shell.lock.setupUnavailable'),
   }));
-  const retry = createEl('button', { className: 'fw-submit', textContent: 'Retry setup', 'aria-label': 'Retry launching NovaByte Setup' });
+  const retry = createEl('button', { className: 'fw-submit', textContent: _t('shell.lock.retrySetup'), 'aria-label': _t('shell.lock.retrySetupAria') });
   Object.assign(retry.style, {
     marginTop: '14px', padding: '12px 22px', borderRadius: '10px',
     border: '1px solid var(--accent)', background: 'var(--accent-muted)',
@@ -872,12 +879,12 @@ function showForcedPinChange() {
   const existing = document.getElementById('lock-forced-pin');
   existing?.remove();
 
-  const card = createEl('div', { id: 'lock-forced-pin', className: 'lock-forced-pin', role: 'form', 'aria-label': 'Set a new PIN' });
-  card.appendChild(createEl('div', { className: 'lock-picker-title', textContent: 'Choose a new PIN', role: 'heading', 'aria-level': 2 }));
-  card.appendChild(createEl('div', { className: 'lock-wizard-sub', textContent: 'Your account was reset — set a new PIN before continuing.' }));
+  const card = createEl('div', { id: 'lock-forced-pin', className: 'lock-forced-pin', role: 'form', 'aria-label': _t('shell.lock.setNewPinAria') });
+  card.appendChild(createEl('div', { className: 'lock-picker-title', textContent: _t('shell.lock.chooseNewPin'), role: 'heading', 'aria-level': 2 }));
+  card.appendChild(createEl('div', { className: 'lock-wizard-sub', textContent: _t('shell.lock.pinResetNotice') }));
 
-  const pin = createEl('input', { id: 'fp-pin', type: 'password', inputmode: 'numeric', maxlength: '6', placeholder: 'New PIN', 'aria-label': 'New PIN' });
-  const pin2 = createEl('input', { id: 'fp-pin2', type: 'password', inputmode: 'numeric', maxlength: '6', placeholder: 'Confirm new PIN', 'aria-label': 'Confirm new PIN' });
+  const pin = createEl('input', { id: 'fp-pin', type: 'password', inputmode: 'numeric', maxlength: '6', placeholder: _t('shell.lock.newPin'), 'aria-label': _t('shell.lock.newPin') });
+  const pin2 = createEl('input', { id: 'fp-pin2', type: 'password', inputmode: 'numeric', maxlength: '6', placeholder: _t('shell.lock.confirmNewPin'), 'aria-label': _t('shell.lock.confirmNewPin') });
   for (const input of [pin, pin2]) {
     Object.assign(input.style, {
       width: '260px', padding: '10px 12px', borderRadius: '10px', margin: '4px 0',
@@ -888,18 +895,18 @@ function showForcedPinChange() {
   }
   const status = createEl('div', { className: 'lock-picker-status', id: 'fp-status', 'aria-live': 'assertive' });
   card.appendChild(status);
-  const submit = createEl('button', { className: 'fw-submit', textContent: 'Save new PIN', 'aria-label': 'Save the new PIN' });
+  const submit = createEl('button', { className: 'fw-submit', textContent: _t('shell.lock.saveNewPin'), 'aria-label': _t('shell.lock.saveNewPinAria') });
   Object.assign(submit.style, {
     marginTop: '12px', padding: '12px 22px', borderRadius: '10px',
     border: '1px solid var(--accent)', background: 'var(--accent-muted)',
     color: 'var(--accent)', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
   });
   submit.addEventListener('click', async () => {
-    if (!/^\d{4,6}$/.test(pin.value)) { status.textContent = 'PIN must be 4–6 digits.'; return; }
-    if (pin.value !== pin2.value) { status.textContent = 'The PINs do not match.'; return; }
+    if (!/^\d{4,6}$/.test(pin.value)) { status.textContent = _t('shell.lock.pinDigits'); return; }
+    if (pin.value !== pin2.value) { status.textContent = _t('shell.lock.pinsNoMatch'); return; }
     const result = await manager.changePin(null, pin.value);
     if (result.ok) card.remove();
-    else status.textContent = result.message || 'Could not save the new PIN.';
+    else status.textContent = result.message || _t('shell.lock.couldNotSavePin');
   });
   card.appendChild(submit);
 
@@ -914,7 +921,7 @@ function showForcedPinChange() {
 function applyLockout(statusEl, durationMs) {
   const sec = Math.round(durationMs / 1000);
   const label = sec >= 60 ? `${Math.round(sec / 60)}min` : `${sec}s`;
-  statusEl.textContent = `Too many attempts. ${label} lockout.`;
+  statusEl.textContent = _t('shell.lock.lockout', { label });
   OS.lockoutUntil = Date.now() + durationMs;
   EventLog?.log?.({
     app: 'System', category: 'security', severity: 'warn',
@@ -929,7 +936,7 @@ function applyLockout(statusEl, durationMs) {
 }
 
 function triggerSecurityWipe(statusEl) {
-  statusEl.textContent = 'Security alert! Data will be wiped.';
+  statusEl.textContent = _t('shell.lock.securityAlert');
   EventLog?.log?.({
     app: 'System', category: 'security', severity: 'error',
     message: `Security wipe countdown started after ${OS.wrongPinCount} failed PIN attempts`,
@@ -939,7 +946,7 @@ function triggerSecurityWipe(statusEl) {
   let countdown = 10;
   _wipeCountdownId = setInterval(() => {
     countdown--;
-    statusEl.textContent = `Security alert! Wiping in ${countdown}s`;
+    statusEl.textContent = _t('shell.lock.securityWiping', { seconds: countdown });
     if (countdown > 0) return;
 
     clearInterval(_wipeCountdownId);
@@ -948,8 +955,8 @@ function triggerSecurityWipe(statusEl) {
     sessionStorage.clear();
     EventLog?.log?.({ app: 'System', category: 'security', severity: 'error', message: 'Security wipe executed — all local data cleared' });
     Notify.show({
-      title: 'Security Wipe',
-      body: 'All data has been wiped due to too many failed attempts.',
+      title: _t('shell.lock.securityWipe'),
+      body: _t('shell.lock.wipedBody'),
       type: 'error', appName: 'System'
     });
     setTimeout(() => location.reload(), 2000);

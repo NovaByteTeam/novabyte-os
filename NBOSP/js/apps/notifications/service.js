@@ -2,6 +2,12 @@
 // global we don't control, so we validate the key here at the boundary
 // before it ever reaches innerHTML, rather than trusting whatever string an
 // app passed into show().
+// Localised strings — NovaI18n core engine (js/core/core/i18n.js) evaluated
+// before this service script; identity fallback for stripped-down contexts.
+var _t = (typeof window !== 'undefined' && typeof window._t === 'function')
+  ? window._t
+  : (key, vars) => key;
+
 const KNOWN_ICONS = new Set(['bell', 'zap', 'x', 'info', 'error', 'warning', 'success']);
 
 function safeIconKey(icon) {
@@ -297,13 +303,13 @@ function timeAgoLabel(timestampMs, { running } = {}) {
   const minutes = Math.max(0, Math.floor((Date.now() - timestampMs) / 60000));
 
   if (running) {
-    if (minutes < 1) return 'Running';
-    if (minutes < 60) return `Running for ${minutes}m`;
-    return `Running for ${Math.floor(minutes / 60)}h`;
+    if (minutes < 1) return _t('shell.notifications.running');
+    if (minutes < 60) return _t('shell.notifications.runningMinutes', { minutes });
+    return _t('shell.notifications.runningHours', { hours: Math.floor(minutes / 60) });
   }
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.floor(minutes / 60)}h ago`;
+  if (minutes < 1) return _t('shell.notifications.justNow');
+  if (minutes < 60) return _t('shell.notifications.minutesAgo', { minutes });
+  return _t('shell.notifications.hoursAgo', { hours: Math.floor(minutes / 60) });
 }
 
 // Shared by markAllRead() and togglePanel()'s "opening the panel marks
@@ -566,7 +572,7 @@ const Notify = {
       title: title || '',
       body: body || '',
       type: type || 'info',
-      appName: appName || 'System',
+      appName: appName || _t('shell.notifications.systemName'),
       appId: appId || null,
       category: category || (appId ? 'app' : 'system'),
       icon: safeIconKey(icon || 'bell'),
@@ -657,7 +663,7 @@ const Notify = {
     // Replace rather than duplicate if one already exists for this app.
     Notify.unpin(pinId, { silent: true });
     const notif = Notify.show({
-      title: opts.title || `${opts.appName || appId} is running in the background`,
+      title: opts.title || _t('shell.notifications.backgroundTitle', { app: opts.appName || appId }),
       body: opts.body || '',
       type: 'info',
       appName: opts.appName || appId,
@@ -669,7 +675,7 @@ const Notify = {
       action: () => {
         try { opts.onTerminate?.(); } finally { Notify.unpin(pinId); }
       },
-      actionLabel: 'Terminate',
+      actionLabel: _t('shell.notifications.terminate'),
     });
     return notif;
   },
@@ -741,7 +747,7 @@ const Notify = {
       if (typeof EventLog !== 'undefined') {
         EventLog.log({ app: 'Notify', category: 'system', severity: 'error', message: `Action failed: ${err?.message || err}`, data: { appName: notif.appName } });
       }
-      Notify.show({ title: 'Action Failed', body: err?.message || 'An unknown error occurred.', type: 'error', appName: notif.appName || 'System' });
+      Notify.show({ title: _t('shell.notifications.actionFailed'), body: err?.message || _t('shell.notifications.unknownError'), type: 'error', appName: notif.appName || _t('shell.notifications.systemName') });
     }
   },
 
@@ -792,7 +798,7 @@ const Notify = {
       content.appendChild(actionBtn);
     }
 
-    const closeBtn = createEl('button', { className: 'toast-close', 'aria-label': 'Dismiss notification' });
+    const closeBtn = createEl('button', { className: 'toast-close', 'aria-label': _t('shell.notifications.dismissAria') });
     closeBtn.innerHTML = svgIcon('x', 14);
 
     toast.appendChild(content);
@@ -840,7 +846,7 @@ const Notify = {
     if (!list) return;
     if (OS.notifications.length === 0) {
       const empty = createEl('div', { className: 'empty-state' });
-      empty.appendChild(createEl('div', { className: 'text-muted', textContent: 'No notifications' }));
+      empty.appendChild(createEl('div', { className: 'text-muted', textContent: _t('shell.notifications.noNotifications') }));
       list.replaceChildren(empty);
       return;
     }
@@ -907,7 +913,7 @@ const Notify = {
       }
 
       if (!n.read) {
-        const markReadBtn = createEl('button', { className: 'notif-item-action', textContent: 'Mark read' });
+        const markReadBtn = createEl('button', { className: 'notif-item-action', textContent: _t('shell.notifications.markRead') });
         markReadBtn.style.cssText = `flex:0 1 auto;min-width:0;${ACTION_BUTTON_STYLE}`;
         wireActionButtonHover(markReadBtn);
         markReadBtn.addEventListener('click', (e) => {
@@ -924,7 +930,7 @@ const Notify = {
       }
 
       if (!n.pinned) {
-        const dismissBtn = createEl('button', { className: 'notif-item-dismiss', 'aria-label': 'Dismiss notification' });
+        const dismissBtn = createEl('button', { className: 'notif-item-dismiss', 'aria-label': _t('shell.notifications.dismissAria') });
         dismissBtn.innerHTML = svgIcon('x', 14);
         dismissBtn.addEventListener('click', (e) => {
           e.stopPropagation();
