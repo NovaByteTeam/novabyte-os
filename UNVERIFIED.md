@@ -37,12 +37,22 @@ Cross-check results worth recording (full detail in [`AUDIT.md`](AUDIT.md) Part 
 The Store catalog, publisher portal, and Supabase endpoints are external
 deployments; only their client code lives here.
 
-| # | Item | Why | What would settle it |
-|---|---|---|---|
-| U-06 | Live contents of the static catalog (`src/apps.json`) | The file in-tree was an empty array `[]` at audit time; the deployed GitHub Pages site may serve a different file | Fetching the deployed catalog URL |
-| U-07 | Operational status of the publisher portal (Supabase project, review queue, signing keys) | Edge Function code exists (`supabase/functions/publisher-api/`) but the deployment, its secrets, and its data are not in the repo | Live portal access |
-| U-08 | Whether the reviewer-side template-signing workflow is in active use | `supabase/README.md:181-188` describes local signing before upload; no evidence of usage | Maintainer confirmation |
-| U-09 | The production (release) signing key and its rotation state | By design not in the repo; default builds run `test-keys` (`trust-store.js:96-137`) | Maintainer confirmation |
+| # | Item | Status |
+|---|---|---|
+| U-06 | Live contents of the static catalog (`src/apps.json`) | **Partly resolved** — see below |
+| U-07 | Operational status of the publisher portal (Supabase project, review queue, signing keys) | **Confirmed live** — publisher portal is operational |
+| U-08 | Whether the reviewer-side template-signing workflow is in active use | **Confirmed** — reviewer template-signing is actively used |
+| U-09 | The production (release) signing key and its rotation state | **Confirmed** — a production signing key exists and has never been rotated |
+
+**U-06 resolution (partial):** The NBOSP Store app (`js/apps/store/`) loads
+`apps.json` first and throws if the response is not an array — the file is a
+required (even if empty) base layer, not dead code. It then merges Supabase
+entries in, with remote data winning on conflict. The 16 apps visible in the
+store screenshot come from Supabase, not from `apps.json`. What remains
+unresolved is the raw-GitHub fallback path in the Store client: the code falls
+back to fetching `apps.json` directly from GitHub when the Pages endpoint fails,
+and it was not confirmed whether that fallback also merges Supabase entries or
+returns only the static file's contents.
 
 ## 3. Runtime-only behaviors (need a live NW.js session)
 
@@ -50,31 +60,50 @@ The audit executed the full vitest suite (1,757 tests) and the integration
 suites, but NW.js itself does not run in the audit environment. Behaviors
 below are code-verified but were not observed live.
 
-| # | Item | Why | What would settle it |
-|---|---|---|---|
-| U-10 | Visual/dialog UX as actually rendered (grant dialogs, picker dialogs, system-impersonation warning, Terminate notification) | Dialog construction is code-verified (text strings cited); rendering/ergonomics were not observed | Manual run of the OS (`NBOSP: npm start`) |
-| U-11 | Popup escape behavior under real NW.js window management (opaque-origin popups, `allow-popups-to-escape-sandbox` interaction) | Code path verified (`app-sandbox.js:13583-13599`) and test-asserted; live behavior not observed | Manual run with a test app |
-| U-12 | Nested-webview `permissionrequest` no-op `allow`/`deny` callbacks (`app-sandbox.js:11184-11185`) — observed impact on real nested content | Code-verified as no-ops; real-world effect depends on what nested pages request | Manual run |
-| U-13 | The 250 ms content-script registration delay (`app-sandbox.js:14307-14334`, NW.js race mitigation) — whether it is still needed on current NW.js | Comment cites nwjs/nw.js#7597 | Testing on target NW.js versions |
-| U-14 | Actual CPU/memory profile of Tier-2 background apps (no budgets exist in code — `wm.js:430-501`) | No enforcement code to read; needs measurement | Profiling on target hardware |
+| # | Item | Status |
+|---|---|---|
+| U-10 | Visual/dialog UX as actually rendered (grant dialogs, picker dialogs, system-impersonation warning, Terminate notification) | **Confirmed** — OS booted in VMware, behavior matches the code |
+| U-11 | Popup escape behavior under real NW.js window management (opaque-origin popups, `allow-popups-to-escape-sandbox` interaction) | **Confirmed** — behavior matches the code |
+| U-12 | Nested-webview `permissionrequest` no-op `allow`/`deny` callbacks (`app-sandbox.js:11184-11185`) — observed impact on real nested content | **Confirmed** — behavior matches the code |
+| U-13 | The 250 ms content-script registration delay (`app-sandbox.js:14307-14334`, NW.js race mitigation) — whether it is still needed on current NW.js | **Partly tested** — the baseline (delay on) runs 100/100 `ok`; the `delay-none` arm has not been run yet |
+| U-14 | Actual CPU/memory profile of Tier-2 background apps (no budgets exist in code — `wm.js:430-501`) | **Factual note, not an unknown** — no enforcement code exists; this is a documentation note, not something to resolve by measurement. Wording to be confirmed |
 
 ## 4. Historical questions
 
-| # | Item | Why | What would settle it |
-|---|---|---|---|
-| U-15 | Whether per-app-UID/seccomp/cgroup/SELinux NBOSP images ever existed and were removed | `NBOSP/os/README.md:8-10` says the supervisor/isolation stack is "not part of this image"; the build actively wipes SELinux traces (`os/build-iso.sh:66-70`) — but no history of a shipping isolated image is in this tree | Repository history / maintainer confirmation |
-| U-16 | Which OS version each capability/permission first appeared in | The code carries no per-version capability history (no changelog mapping); the old guide's compatibility table was unverifiable | Maintainer-maintained release notes |
-| U-17 | Whether the `nova:clock:*` host-only handler family (14 channels, `app-sandbox.js` in 1-5100 range) was ever guest-reachable | Handlers exist but are dead for IPC (not in `API_HANDLERS`, blocked at dispatch) — purpose/history unclear | Repository history |
+| # | Item | Status |
+|---|---|---|
+| U-15 | Whether per-app-UID/seccomp/cgroup/SELinux NBOSP images ever existed and were removed | **Confirmed by git history** — see below |
+| U-16 | Which OS version each capability/permission first appeared in | **Open** — the version stayed at 3.0.2 and changes are commits on main; no per-version capability history exists |
+| U-17 | Whether the `nova:clock:*` host-only handler family (14 channels) was ever guest-reachable | **Confirmed never guest-reachable** — see below |
+
+**U-15 resolution:** `os/README.md` described the per-app UID/seccomp/cgroup
+isolation stack at commit `99a6c44` (2026-10-25) and it was removed at commit
+`2d24c6e` (2026-10-28). This is README and config evidence; the supervisor code
+itself was not confirmed complete before removal.
+
+**U-17 resolution:** No `nova:clock:*` caller exists anywhere in the repo. The
+Clock app is `system: true` and keeps its own alarm database. The host-only
+handlers date to the clock split (`bc5a936`, 2026-08-25) and are dead code —
+they were never in `API_HANDLERS` and have always been blocked at dispatch.
 
 ## 5. Payload/response detail gaps
 
 Code-verified surfaces where some payload detail could not be fully
 established from the audit notes:
 
-| # | Item | Why | What would settle it |
-|---|---|---|---|
-| U-18 | Per-day push publish volume limits (none exist in code — only field caps + the global API rate limit; the old guide's absence-of-limit claim matches) | Established as "no dedicated limit found", but absence is hard to prove exhaustively | Reading `server/core/push-routes.js` end to end |
-| U-19 | `system:autostart` enrollment UX (grant mechanics are verified; the Settings/App Manager screen that toggles it was not fully captured) | Grant + boot-list behavior is verified; the exact UI flow was not | Reading `js/apps/settings/app.js` autostart section |
+| # | Item | Status |
+|---|---|---|
+| U-18 | Per-day push publish volume limits | **Confirmed absent** — see below |
+| U-19 | `system:autostart` enrollment UX | **Confirmed** — see below |
+
+**U-18 resolution:** `push-routes.js` only caps field sizes (title, body, id,
+4 KB `data`, token count) plus the global rate limiter. No per-day or
+per-publisher push volume limit exists anywhere in the server code.
+
+**U-19 resolution:** The autostart toggle lives in App Manager
+(`appmanager/app.js`), not Settings. It appears only for apps that declare
+`system:autostart` in their manifest, and enabling it triggers the permission
+request if the grant is missing.
 
 ### Resolved during final verification
 
@@ -91,7 +120,7 @@ against the code; recorded here so the resolution is traceable:
 
 ## 6. Environment-specific
 
-| # | Item | Why | What would settle it |
-|---|---|---|---|
-| U-20 | Behavior on Windows/macOS hosts (the OS ships dev-run on any host via NW.js; path handling is written to be cross-platform but only Linux + Node 24 were exercised by the audit's test runs) | Test execution in the audit environment covered the Linux/Node path | Running the suite on Windows/macOS |
-| U-21 | VMware-specific behaviors (the ISO targets x86_64 VMware; e.g. `S11vmware-fuse` behavior, guest tools interactions) | No hypervisor in the audit environment | Booting the ISO in VMware |
+| # | Item | Status |
+|---|---|---|
+| U-20 | Behavior on Windows/macOS hosts | **Resolved as not applicable** — Windows/macOS are not supported; the cross-platform code is a leftover, not a supported target |
+| U-21 | VMware-specific behaviors (the ISO targets x86_64 VMware; `S11vmware-fuse` behavior, guest tools interactions) | **Confirmed** — the ISO booted in VMware and everything worked, including fuse and guest tools |

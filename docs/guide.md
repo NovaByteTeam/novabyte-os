@@ -909,8 +909,16 @@ background.v2  permissions.v2  net.v2  registry.v1
 
 > NovaByte Studio items that were listed here (UI workflow, `novaapp.json` acceptance, `emcc` compilation, integrity defaults) were resolved by auditing the Studio source — see [§5.6](#56-novabyte-studio--the-gui-packager) and the addendum in [`AUDIT.md`](../AUDIT.md).
 >
-> **Unverified:** current live contents of the static catalog (`src/apps.json` was `[]` at audit time) and the operational status/uptime of the publisher portal, Supabase backend, and review queue — server-side state that changes independently of this repo.
+> **Partly resolved (U-06):** `apps.json` is a required base layer — the Store
+> client throws if it isn't an array — and Supabase entries are merged in with
+> remote data winning. The 16 apps in the store come from Supabase. What remains
+> open is whether the raw-GitHub fallback path also merges Supabase or returns
+> only the static file. The publisher portal, Supabase backend, and review queue
+> are confirmed operational (U-07).
 >
-> **Unverified:** whether the historical per-app-UID/SELinux NBOSP images ever existed (mentioned in old docs; no code trace either way).
+> **Resolved (U-15):** the per-app-UID/seccomp/cgroup isolation stack did exist
+> — described in `os/README.md` at `99a6c44` (2026-10-25), removed at `2d24c6e`
+> (2026-10-28). The supervisor code itself was not confirmed complete before
+> removal.
 >
 > **Unverified:** the exact set of emitters for OS-bus events on future versions — this guide states emitter status as of the audited tree (14 of 18 allowlisted event names have no emitter today).

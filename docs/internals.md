@@ -540,6 +540,8 @@ Validates the built NW.js bundle, deletes every non-linux-x64 `.node` prebuild, 
 | /proc masking, noexec tmpfs | none (plain proc; tmpfs hardening is nosuid/nodev only) | `.../S01mounts:14-19` |
 | Chromium sandbox | production session does not pass `--no-sandbox` (CI smoke test does, under Xvfb); relies on unprivileged user namespaces from the stock defconfig — unpinned/implicit | `test-nw-node.mjs:75` vs `S99nbosp:413` |
 
+The word "newer" in `os/README.md:8` ("The newer per-app Linux UID supervisor …") is accurate: git history confirms the isolation stack was described in the README at `99a6c44` (2026-10-25) and removed at `2d24c6e` (2026-10-28). Whether the supervisor code was complete before removal is not established — only README and config evidence survives.
+
 The kernel-route rationale is documented on the JS side: "The 'logical UID' layer. Kernel per-app UIDs don't fit this architecture (single browser process, single-user OS, webview renderers can't carry distinct kernel identities)" (`app-sandbox.js:234-237`). Privilege boundary kiosk-user → root: (a) setuid helpers `nbosp-power` (restart/poweroff only) and `nbosp-install`; (b) blanket sudoers `nbosp ALL=(ALL) NOPASSWD: ALL` backing NovaRoot (`NBOSP/os/board/nbosp/rootfs-overlay/etc/sudoers.d/nbosp:1`; enforced at build and pinned by `NBOSP/tests/system/os-kiosk-config.test.js:40-76`).
 
 ### 10.4 Installer and recovery
