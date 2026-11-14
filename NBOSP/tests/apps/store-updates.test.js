@@ -3,14 +3,22 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { resetTestStorage } from '../setup.js';
 import { loadServiceApp, settle } from '../helpers/app-harness.js';
 
-const CATALOG_URL = 'https://novabyteteam.github.io/novabyte-os/apps.json';
-const CATALOG_FALLBACK_URL = 'https://raw.githubusercontent.com/NovaByteTeam/novabyte-os/main/src/apps.json';
+const CATALOG_URL = 'https://jcrptxtmieveoijdbtqa.supabase.co/rest/v1/publisher_catalog_apps';
 
 function fetchServing(catalog, calls = []) {
   return (url) => {
     calls.push(url);
     if (catalog === null) return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
-    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(catalog) });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(Array.isArray(catalog) ? catalog.map(app => ({
+        ...app,
+        app_id: app.id,
+        release_notes: app.releaseNotes,
+        version_history: app.versionHistory,
+      })) : catalog),
+    });
   };
 }
 
@@ -71,7 +79,9 @@ describe('StoreUpdateService service (js/apps/store-updates)', () => {
     ]));
 
     const updates = await window.StoreUpdateService.checkNow();
-    expect(calls).toEqual([CATALOG_URL]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain(CATALOG_URL);
+    expect(calls[0]).not.toContain('.json');
     expect(updates).toEqual([{ id: 'com.a', name: 'Alpha', installedVersion: '1.0.0', version: '1.2.0', releaseNotes: 'Bug fixes' }]);
     expect(notifyCalls).toHaveLength(1);
     expect(notifyCalls[0]).toMatchObject({
@@ -91,20 +101,21 @@ describe('StoreUpdateService service (js/apps/store-updates)', () => {
     expect(notifyCalls).toHaveLength(1);
   });
 
-  it('falls back to the raw GitHub catalog when the Pages host cannot be resolved', async () => {
+  it('checks updates through the publisher API without requesting a static JSON catalog', async () => {
     const calls = [];
     const { window } = await loadServiceApp('store-updates', {
       stubs: {
         fetch: async (url) => {
           calls.push(url);
-          if (url === CATALOG_URL) throw new TypeError('Failed to fetch');
           return { ok: true, status: 200, json: () => Promise.resolve([]) };
         },
       },
     });
 
     await expect(window.StoreUpdateService.checkNow()).resolves.toEqual([]);
-    expect(calls).toEqual([CATALOG_URL, CATALOG_FALLBACK_URL]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain(CATALOG_URL);
+    expect(calls[0]).not.toContain('.json');
   });
 
   it('falls back to versionHistory notes and honors semver prerelease ordering', async () => {
@@ -153,7 +164,8 @@ describe('StoreUpdateService service (js/apps/store-updates)', () => {
     const p1 = w3.StoreUpdateService.checkNow();
     const p2 = w3.StoreUpdateService.checkNow();
     await Promise.all([p1, p2]);
-    expect(calls3).toEqual([CATALOG_URL]); // second call joined the in-flight check: one fetch
+    expect(calls3).toHaveLength(1); // second call joined the in-flight check
+    expect(calls3[0]).toContain(CATALOG_URL);
   });
 
   it('start() runs one immediate check, schedules nothing when the interval is 0, and is idempotent', async () => {
@@ -162,10 +174,12 @@ describe('StoreUpdateService service (js/apps/store-updates)', () => {
     window.localStorage.setItem('nova_store_update_interval_minutes', '0'); // disabled -> no repeat timer
     window.StoreUpdateService.start();
     await settle();
-    expect(calls).toEqual([CATALOG_URL]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain(CATALOG_URL);
     window.StoreUpdateService.start(); // idempotent
     window.StoreUpdateService.start();
     await settle();
-    expect(calls).toEqual([CATALOG_URL]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain(CATALOG_URL);
   });
 });

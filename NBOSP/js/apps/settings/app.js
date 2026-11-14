@@ -2842,20 +2842,42 @@ registerApp({
       // State lives server-side (not OS.settings/localStorage), so fetch the
       // current value and enable the control once known, rather than flash
       // an incorrect initial state.
+      async function requestAdminMode(method = 'GET', body) {
+        const sessionManager = window.SessionManager;
+        if (typeof sessionManager?.authFetch === 'function') {
+          const result = await sessionManager.authFetch('/api/security/admin-mode', { method, body });
+          if (!result.ok) {
+            throw new Error(result.json?.message || result.error || `Request failed (${result.status})`);
+          }
+          return result.json;
+        }
+
+        const headers = { 'Content-Type': 'application/json' };
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+        const response = await fetch('/api/security/admin-mode', {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body)
+        });
+        const json = await response.json();
+        if (!response.ok) {
+          throw new Error(json?.message || `Request failed (${response.status})`);
+        }
+        return json;
+      }
+
       (async () => {
         try {
-          const res = await fetch('/api/security/admin-mode');
-          const json = await res.json();
+          const json = await requestAdminMode();
           if (!isAlive()) return;
-          if (json && json.success) {
-            adminToggle.classList.toggle('active', !!json.adminEnabled);
-            adminToggle.setAttribute('aria-checked', String(!!json.adminEnabled));
-          }
-        } catch {
+          if (!json?.success) throw new Error(json?.message || 'Could not load admin status');
+          adminToggle.classList.toggle('active', !!json.adminEnabled);
+          adminToggle.setAttribute('aria-checked', String(!!json.adminEnabled));
+        } catch (error) {
           if (!isAlive()) return;
-          // Leave disabled — can't safely toggle a value we couldn't confirm.
           adminSection.appendChild(createEl('p', {
-            textContent: 'Could not reach the server to check admin status.',
+            textContent: `Could not check admin status: ${error?.message || 'Request failed'}`,
             style: { color: 'var(--danger, #f85149)', fontSize: '12px', marginTop: '8px' }
           }));
           return;
@@ -2868,27 +2890,18 @@ registerApp({
         const next = !adminToggle.classList.contains('active');
         adminToggle.disabled = true;
         try {
-          const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-          const res = await fetch('/api/security/admin-mode', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-            body: JSON.stringify({ enabled: next })
-          });
-          const json = await res.json();
+          const json = await requestAdminMode('POST', { enabled: next });
           if (!isAlive()) return;
-          if (json && json.success) {
-            adminToggle.classList.toggle('active', !!json.adminEnabled);
-            adminToggle.setAttribute('aria-checked', String(!!json.adminEnabled));
-            Notify.show({
-              title: json.adminEnabled ? 'Admin Mode Enabled' : 'Admin Mode Disabled',
-              body: json.adminEnabled
-                ? 'Apps granted admin permissions can now use them.'
-                : 'Admin permission grants are now inert again.',
-              type: 'success', appName: 'Nook'
-            });
-          } else {
-            throw new Error(json?.message || 'Request failed');
-          }
+          if (!json?.success) throw new Error(json?.message || 'Request failed');
+          adminToggle.classList.toggle('active', !!json.adminEnabled);
+          adminToggle.setAttribute('aria-checked', String(!!json.adminEnabled));
+          Notify.show({
+            title: json.adminEnabled ? 'Admin Mode Enabled' : 'Admin Mode Disabled',
+            body: json.adminEnabled
+              ? 'Apps granted admin permissions can now use them.'
+              : 'Admin permission grants are now inert again.',
+            type: 'success', appName: 'Nook'
+          });
         } catch (err) {
           if (!isAlive()) return;
           Notify.show({ title: 'Could Not Update Admin Mode', body: err?.message || 'Try again', type: 'error', appName: 'Nook' });

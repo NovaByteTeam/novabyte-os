@@ -268,6 +268,38 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(notice.style.justifyContent).toBe('flex-start');
   });
 
+  it('uses the active session transport for admin-mode reads and updates', async () => {
+    const calls = [];
+    const { content } = await loadSettings({
+      extra: {
+        SessionManager: {
+          authFetch: async (path, options = {}) => {
+            calls.push({ path, ...options });
+            return {
+              ok: true,
+              json: { success: true, adminEnabled: options.method === 'POST' ? options.body.enabled : false },
+            };
+          },
+        },
+      },
+    });
+
+    sidebarBtn(content, 'Privacy').click();
+    await settle();
+    const toggle = content.querySelector('[aria-label="Toggle admin mode"]');
+    expect(toggle.disabled).toBe(false);
+    expect(calls).toEqual([{ path: '/api/security/admin-mode', method: 'GET', body: undefined }]);
+
+    toggle.click();
+    await settle();
+    expect(calls[1]).toEqual({
+      path: '/api/security/admin-mode',
+      method: 'POST',
+      body: { enabled: true },
+    });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+  });
+
   it('degrades connectivity, default-apps and storage sections without host services', async () => {
     const { content } = await loadSettings();
 

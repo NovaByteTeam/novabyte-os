@@ -798,13 +798,13 @@ Two supported routes:
 
 ### 13.3 The Store and catalogs
 
-The Store app (`com.nbosp.store`) merges **two catalogs, deduped by id — community entries override static ones**: the static `apps.json` on GitHub Pages (currently `[]`) and the community Postgres catalog (Supabase). It degrades to whichever is reachable. Install from the Store: package identity check (`manifest.id === catalog id`), integrity + trust + revocation verification — revoked packages are blocked outright. **Caveat:** unverified/unsigned Store packages install with **no warning dialog**; the only signal is the absence of the `✓ Verified` badge (asserted by test: "unsigned package installs unverified").
+The Store app (`com.nbosp.store`) loads its catalog directly from the public Supabase `publisher_catalog_apps` table. It does not fetch `apps.json` or `app.json`; when the publisher API is unavailable, the Store shows a retryable catalog error. Each listed package is fetched separately from its catalog `file` URL. Install from the Store: package identity check (`manifest.id === catalog id`), integrity + trust + revocation verification — revoked packages are blocked outright. **Caveat:** unverified/unsigned Store packages install with **no warning dialog**; the only signal is the absence of the `✓ Verified` badge (asserted by test: "unsigned package installs unverified").
 
-Catalog entry fields (static and community entries share the shape): `id` (`^[a-z0-9][a-z0-9._-]{1,119}$`), `name` ≤80, `version` (strict semver), `author` ≤80, `description` ≤1000, `categories` 1–8 lowercase-hyphen entries of 2–32 chars, `icon` (data-URI built server-side), `file` (absolute https package URL, or relative to the store base), `size`, `screenshots` ≤5, `links {website, source, support}` (https only), `release_notes`, `version_history` ≤50, `featured` (static catalog only), `published_at`.
+The Store reads the Supabase columns `app_id`, `name`, `version`, `author`, `description`, `categories`, `icon`, `file`, `size`, `screenshots`, `links`, `release_notes`, and `version_history`, mapping `app_id` to the Store's `id` field. Listing validation and publication rules are enforced by the publisher API; the Store also requires a package `file` URL to install an app.
 
 ### 13.4 Updates
 
-- **The Store update service checks ONLY the static GitHub Pages `apps.json` catalog** (`store-updates/service.js:4-5`). **Community (Supabase-published) apps get no update checks or notifications at all.** Interval: 0/15/30/60 (default)/120/360/720/1440 minutes or 0 = startup only; one notification per app per version; system apps excluded.
+- **The Store update service checks the Supabase `publisher_catalog_apps` catalog**, so community-published apps are included in version checks and update notifications. The Store and update service do not fetch `apps.json` or `app.json`. Interval: 0/15/30/60 (default)/120/360/720/1440 minutes or 0 = startup only; one notification per app per version; system apps excluded.
 - **Direct-distribution updates** = installing a newer version over the old one via any install path. There is **no version comparison on the interactive paths** — the App Manager replace dialog happily installs an *older* version (downgrades allowed); only the Store (strictly newer + catalog match) and the IPC install (refuses any replace) enforce direction.
 - Store update flow preserves the original install date and records `lastUpdateSource`/`lastUpdatedAt`; the app is re-registered live (no restart) and data is untouched.
 
@@ -884,7 +884,7 @@ background.v2  permissions.v2  net.v2  registry.v1
 | **`.novaapp`** | The app package format: pretty-printed JSON (`novabyte_app`, `compiled_at`, `manifest`, `files` base64 map, `signing`, `signature`, `integrity`). Not a zip. |
 | **NovaByte Studio** | External GUI packager (`github.com/dirazcoder/novapack-studio`, Apache-2.0, NW.js desktop IDE; v1.2.34 verified @ `7236672`). Build flow: guide §5.6. |
 | **Publisher portal** | The Supabase-backed publishing site (account → submit → automated review → admin approval → server signing → catalog) at `novabyteteam.github.io/novabyte-os`. |
-| **Store** | `com.nbosp.store` — the built-in catalog app; merges the static `apps.json` and community catalogs, installs and updates apps. |
+| **Store** | `com.nbosp.store` — the built-in catalog app; reads the publisher catalog from Supabase, installs apps, and checks for updates. |
 | **App Manager** | `com.nbosp.appmanager` — install/uninstall/permissions/defaults management UI; the reference install path with the full scanner + trust gauntlet. |
 | **Packages app** | `com.nbosp.packages` — Developer-Mode-only signing/verification/install tool (Sign/Verify/Install tabs, bypass checkboxes). |
 | **NovaReg** | `com.nbosp.novareg` — the registry editor app (Developer Mode). |
@@ -909,12 +909,11 @@ background.v2  permissions.v2  net.v2  registry.v1
 
 > NovaByte Studio items that were listed here (UI workflow, `novaapp.json` acceptance, `emcc` compilation, integrity defaults) were resolved by auditing the Studio source — see [§5.6](#56-novabyte-studio--the-gui-packager) and the addendum in [`AUDIT.md`](../AUDIT.md).
 >
-> **Partly resolved (U-06):** `apps.json` is a required base layer — the Store
-> client throws if it isn't an array — and Supabase entries are merged in with
-> remote data winning. The 16 apps in the store come from Supabase. What remains
-> open is whether the raw-GitHub fallback path also merges Supabase or returns
-> only the static file. The publisher portal, Supabase backend, and review queue
-> are confirmed operational (U-07).
+> **U-06 update:** the Store and its update service query the Supabase
+> `publisher_catalog_apps` table directly; neither fetches `apps.json` or
+> `app.json`. The static catalog URL remains a publisher-API check for duplicate
+> app IDs, not a Store catalog source. The publisher portal, Supabase backend,
+> and review queue are confirmed operational (U-07).
 >
 > **Resolved (U-15):** the per-app-UID/seccomp/cgroup isolation stack did exist
 > — described in `os/README.md` at `99a6c44` (2026-10-25), removed at `2d24c6e`

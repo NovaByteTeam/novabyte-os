@@ -37,16 +37,30 @@ const NOTES_PKG = {
   compiled_at: '2026-01-01T00:00:00.000Z',
 };
 
-function makeFetch({ catalog = CATALOG, community = null, packages = { 'packages/notes-plus.novaapp': NOTES_PKG } } = {}) {
+function makeFetch({ community = CATALOG, packages = { 'packages/notes-plus.novaapp': NOTES_PKG } } = {}) {
   return async (url) => {
     const u = String(url);
-    if (u.includes('apps.json')) {
-      if (!catalog) return { ok: false, status: 404, json: async () => ({}) };
-      return { ok: true, status: 200, json: async () => catalog };
-    }
     if (u.includes('supabase.co')) {
       if (!community) return { ok: false, status: 500, json: async () => ({}) };
-      return { ok: true, status: 200, json: async () => community };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => community.map(app => ({
+          app_id: app.id,
+          name: app.name,
+          version: app.version,
+          author: app.author,
+          description: app.description,
+          categories: app.categories,
+          icon: app.icon,
+          file: app.file,
+          size: app.size,
+          screenshots: app.screenshots,
+          links: app.links,
+          release_notes: app.releaseNotes,
+          version_history: app.versionHistory,
+        })),
+      };
     }
     const file = Object.keys(packages).find((f) => u.endsWith(f));
     if (file) return { ok: true, status: 200, json: async () => packages[file] };
@@ -94,10 +108,10 @@ describe("'Store' app (js/apps/store)", () => {
     expect(typeof app.init).toBe('function');
   });
 
-  it('shows a retryable error when both catalogs are unreachable', async () => {
-    const { content } = await loadStore({ catalog: null });
+  it('shows a retryable error when the publisher catalog is unreachable', async () => {
+    const { content } = await loadStore({ community: null });
     expect(content.querySelector('.store-error h2').textContent).toBe('Could not load the app catalog');
-    expect(content.textContent).toContain('Could not load the static or community app catalogs');
+    expect(content.textContent).toContain('Failed to fetch app catalog (500)');
 
     // Retry still fails → same error surface, button re-enabled.
     const retry = [...content.querySelectorAll('button')].find((b) => b.textContent === 'Try again');
@@ -108,17 +122,18 @@ describe("'Store' app (js/apps/store)", () => {
     expect(content.querySelector('.store-error')).toBeTruthy();
   });
 
-  it('falls back to the raw GitHub catalog when the Pages host cannot be resolved', async () => {
+  it('loads the publisher catalog without requesting a static JSON catalog', async () => {
     const calls = [];
     const loaded = await loadWindowApp('store', {
       stubs: {
         fetch: async (url) => {
           const value = String(url);
           calls.push(value);
-          if (value.includes('apps.json')) {
-            if (value.includes('novabyteteam.github.io')) throw new TypeError('Failed to fetch');
-            return { ok: true, status: 200, json: async () => CATALOG };
-          }
+          if (value.includes('supabase.co')) return {
+            ok: true,
+            status: 200,
+            json: async () => CATALOG.map(app => ({ ...app, app_id: app.id })),
+          };
           return { ok: false, status: 500, json: async () => ({}) };
         },
         extra: { Notify: makeNotify() },
@@ -128,7 +143,8 @@ describe("'Store' app (js/apps/store)", () => {
     await settle(50);
 
     expect(cardOf(content, 'com.example.notes')).toBeTruthy();
-    expect(calls).toContain('https://raw.githubusercontent.com/NovaByteTeam/novabyte-os/main/src/apps.json');
+    expect(calls.some(url => url.includes('supabase.co/rest/v1/publisher_catalog_apps'))).toBe(true);
+    expect(calls.some(url => url.endsWith('.json'))).toBe(false);
   });
 
   it('renders the browse view: category bar, featured hero and app cards', async () => {

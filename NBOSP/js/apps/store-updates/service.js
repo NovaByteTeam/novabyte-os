@@ -1,8 +1,8 @@
 (() => {
   'use strict';
 
-  const CATALOG_URL = 'https://novabyteteam.github.io/novabyte-os/apps.json';
-  const CATALOG_FALLBACK_URL = 'https://raw.githubusercontent.com/NovaByteTeam/novabyte-os/main/src/apps.json';
+  const CATALOG_URL = 'https://jcrptxtmieveoijdbtqa.supabase.co/rest/v1/publisher_catalog_apps';
+  const CATALOG_KEY = 'sb_publishable_K_MKjtuMcwlXJyB67Bmu3A_2vFQ2PGX';
   const INSTALLED_APPS_KEY = 'nova_installed_apps';
   const SETTINGS_KEY = 'nova_store_update_interval_minutes';
   const NOTIFIED_KEY = 'nova_store_update_notified';
@@ -163,20 +163,25 @@
   async function checkNow() {
     if (checking) return checking;
     checking = (async () => {
-      let response;
-      try {
-        response = await fetch(CATALOG_URL, { cache: 'no-store' });
-      } catch (primaryError) {
-        console.warn('[StoreUpdateService] GitHub Pages catalog unavailable; trying the raw GitHub mirror.', primaryError);
-        response = await fetch(CATALOG_FALLBACK_URL, { cache: 'no-store' });
-      }
+      const params = new URLSearchParams({
+        select: 'app_id,name,version,release_notes,version_history',
+      });
+      const response = await fetch(`${CATALOG_URL}?${params}`, {
+        cache: 'no-store',
+        headers: { apikey: CATALOG_KEY, Accept: 'application/json' },
+      });
       if (!response.ok) throw new Error(`App catalog request failed (${response.status})`);
       const catalog = await response.json();
       if (!Array.isArray(catalog)) throw new Error('App catalog must contain a list.');
 
       const catalogById = new Map(catalog
-        .filter(app => app && typeof app.id === 'string' && typeof app.name === 'string')
-        .map(app => [app.id, app]));
+        .filter(app => app && typeof app.app_id === 'string' && typeof app.name === 'string')
+        .map(app => [app.app_id, {
+          ...app,
+          id: app.app_id,
+          releaseNotes: app.release_notes,
+          versionHistory: app.version_history,
+        }]));
       const notified = getNotifiedVersions();
       const updates = [];
       let notificationHistoryChanged = false;
