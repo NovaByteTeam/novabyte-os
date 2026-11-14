@@ -50,12 +50,12 @@ jobs:
           const fs = require('node:fs');
           const file = 'NBOSP/js/apps/settings/app.js';
           const content = fs.readFileSync(file, 'utf8');
-          const pattern = /mkRow\('Build Date',\s*'\d{4}-\d{2}-\d{2}'\)/g;
+          const pattern = /mkRow\(_t\('settings\.about\.buildDate'\),\s*'\d{4}-\d{2}-\d{2}'\)/g;
           const matches = content.match(pattern) || [];
           if (matches.length !== 1) {
             throw new Error(`Expected one Settings Build Date value, found ${matches.length}.`);
           }
-          const updated = content.replace(pattern, `mkRow('Build Date',  '${process.env.BUILD_DATE}')`);
+          const updated = content.replace(pattern, `mkRow(_t('settings.about.buildDate'),  '${process.env.BUILD_DATE}')`);
           if (updated !== content) fs.writeFileSync(file, updated);
           NODE
 
