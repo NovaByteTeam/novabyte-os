@@ -1002,4 +1002,109 @@ try {
   });
 } catch (_) { /* SessionManager loads before this service; guards cover dev/test loads */ }
 
+// ── Live re-localisation ─────────────────────────────────────────────
+// The shell can flip the OS language while a lock surface is up (OOBE
+// finishing its language step, remote policy). The static markup's
+// data-i18n labels are re-applied by the engine's own applyStaticDom pass;
+// everything this service builds dynamically is re-rendered below through
+// the same builders other interactions call, so an already-visible gate
+// follows the switch in real time.
+
+// Targeted re-label of the auth-sheet affordances renderLockScreen() never
+// rebuilds (created by selectAccountForAuth / showPassphraseField) plus the
+// biometric button that is only added once per mount. In-place .textContent
+// passes keep a partially typed passphrase and the sheet's mode intact.
+function relabelAuthSheet() {
+  const setLabel = (id, textKey, ariaKey) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (textKey) el.textContent = _t(textKey);
+    if (ariaKey) el.setAttribute('aria-label', _t(ariaKey));
+  };
+  setLabel('lock-passphrase-back', 'shell.lock.usePinInstead', 'shell.lock.usePinInsteadAria');
+  setLabel('lock-picker-back', 'shell.lock.allAccounts', 'shell.lock.allAccountsAria');
+  setLabel('lock-passphrase-toggle', 'shell.lock.usePassphrase', 'shell.lock.usePassphraseAria');
+  setLabel('lock-switch-user', 'shell.lock.switchUser', 'shell.lock.switchUserAria');
+  const passphraseEl = document.getElementById('lock-passphrase');
+  if (passphraseEl) {
+    passphraseEl.placeholder = _t('shell.lock.passphrase');
+    passphraseEl.setAttribute('aria-label', _t('shell.lock.passphraseAria'));
+  }
+  const bioBtn = document.querySelector('#lock-screen .biometric-btn');
+  if (bioBtn) bioBtn.textContent = _t('shell.lock.useBiometric');
+}
+
+// The forced-PIN sheet is relabelled in place instead of re-built so the
+// admin-reset PIN the user may already have typed survives the switch.
+function relabelForcedPinSheet() {
+  const card = document.getElementById('lock-forced-pin');
+  if (!card) return;
+  card.setAttribute('aria-label', _t('shell.lock.setNewPinAria'));
+  const title = card.querySelector('.lock-picker-title');
+  if (title) title.textContent = _t('shell.lock.chooseNewPin');
+  const sub = card.querySelector('.lock-wizard-sub');
+  if (sub) sub.textContent = _t('shell.lock.pinResetNotice');
+  for (const [id, key] of [['fp-pin', 'shell.lock.newPin'], ['fp-pin2', 'shell.lock.confirmNewPin']]) {
+    const input = document.getElementById(id);
+    if (input) {
+      input.placeholder = _t(key);
+      input.setAttribute('aria-label', _t(key));
+    }
+  }
+  const submit = card.querySelector('.fw-submit');
+  if (submit) {
+    submit.textContent = _t('shell.lock.saveNewPin');
+    submit.setAttribute('aria-label', _t('shell.lock.saveNewPinAria'));
+  }
+}
+
+function rerenderLockSurfaceForLanguage() {
+  if (!document.getElementById('lock-screen')?.classList.contains('active')) return;
+  if (surface === 'setup') return; // the Setup wizard owns its own localisation
+  if (surface === 'picker') {
+    // The picker derives wholly from account data — the normal show path
+    // removes and rebuilds it, and is safe to re-run on its own surface.
+    showLoginPicker().catch(() => { });
+    return;
+  }
+  if (surface === 'forced-pin') {
+    relabelForcedPinSheet();
+    return;
+  }
+  if (surface === 'locked' || surface === 'picker-auth') {
+    if (sheetMode === 'passphrase') {
+      // Rebuilding the numpad here would re-show the pad alongside the
+      // passphrase field; the field also keeps its typed value, so the
+      // surface stays consistent with an in-place relabel only.
+      relabelAuthSheet();
+      return;
+    }
+    // renderLockScreen() resets enteredPin and clears the transient status
+    // line — snapshot the PIN so a half-typed code survives the switch.
+    const partialPin = enteredPin;
+    renderLockScreen();
+    enteredPin = partialPin;
+    updatePinDots();
+    relabelAuthSheet();
+  }
+}
+
+function handleLockScreenLanguageChanged() {
+  try {
+    const lockScreenEl = document.getElementById('lock-screen');
+    window.NovaI18n?.applyStaticDom?.(lockScreenEl || document);
+    rerenderLockSurfaceForLanguage();
+  } catch (error) {
+    console.warn('[LockScreen] Language change re-render failed:', error);
+  }
+}
+
+// The service is a singleton loaded exactly once per host page (the system
+// service loader memoises its load promise), so this subscription lives for
+// the page lifetime — no window owns the surface, so there is no
+// state.cleanups contract to un-register through.
+try {
+  typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', handleLockScreenLanguageChanged);
+} catch (_) { /* event bus unavailable (service unit tests) */ }
+
 window.LockScreenService = Object.freeze({ lockScreen, showLoginPicker, lockForUser, state: () => surface });

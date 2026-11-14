@@ -1264,16 +1264,16 @@
   .toast.warning { border-inline-start: 3px solid var(--text-warning);  }
   .toast.error   { border-inline-start: 3px solid var(--text-danger);   }
 
-  /* Notification panel — slides in from the right edge, full height. */
+  /* Notification panel — slides in from the taskbar-tray edge (inline-end,
+     so it mirrors in RTL where the tray sits at the left edge), full height. */
   #notification-panel {
     position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
+    inset-block: 0;
+    inset-inline-end: 0;
     width: min(380px, 100vw);
     z-index: 9100;
     background: transparent;
-    border-left: none;
+    border-inline-start: none;
     box-shadow:
       -24px 0 56px rgba(0, 0, 0, 0.45),
       -8px 0 24px rgba(0, 0, 0, 0.25),
@@ -1282,6 +1282,8 @@
       transform 320ms var(--ease-macos),
       box-shadow 320ms var(--ease-macos),
       visibility 0s linear 320ms;
+    /* Hidden state slides toward the inline-end side: +x in LTR (right),
+       mirrored by the RTL override below. */
     transform: translate3d(calc(100% + 32px), 0, 0);
     visibility: hidden;
     contain: layout paint style;
@@ -1290,6 +1292,15 @@
     display: flex;
     flex-direction: column;
     pointer-events: none;
+  }
+  /* RTL mirror — pinned at the left edge, so it slides out to the LEFT
+     and its shadow casts to the right instead of the left. */
+  [dir="rtl"] #notification-panel {
+    transform: translate3d(calc(-100% - 32px), 0, 0);
+    box-shadow:
+      24px 0 56px rgba(0, 0, 0, 0.45),
+      8px 0 24px rgba(0, 0, 0, 0.25),
+      0 0 0 0.5px rgba(255, 255, 255, 0.10);
   }
   /* Layer 0 — glass backdrop, same pattern as .app-window. */
   #notification-panel::before {
@@ -1332,6 +1343,12 @@
       -8px 0 24px rgba(0, 0, 0, 0.25),
       0 0 0 0.5px rgba(255, 255, 255, 0.10);
     pointer-events: auto;
+  }
+  [dir="rtl"] #notification-panel.active {
+    box-shadow:
+      24px 0 56px rgba(0, 0, 0, 0.45),
+      8px 0 24px rgba(0, 0, 0, 0.25),
+      0 0 0 0.5px rgba(255, 255, 255, 0.10);
   }
 
   .notif-header {

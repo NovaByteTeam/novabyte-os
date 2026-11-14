@@ -23,10 +23,15 @@ function initLinuxTextEdit(content, state, options = {}) {
     const name = currentPath ? path.basename(currentPath) : _t('apps.textedit.untitled');
     status.textContent = `${name}${modified ? _t('apps.textedit.modifiedIndicator') : ''}`;
   };
-  const addButton = (label, action) => {
-    const button = createEl('button', { className: 'btn btn-sm', textContent: label });
+  // Toolbar buttons keep their i18n key so a live language switch can
+  // re-translate them in place. The editor textarea — the user's unsaved
+  // document — is never re-rendered or touched by the relabel pass.
+  const toolbarButtons = [];
+  const addButton = (key, action) => {
+    const button = createEl('button', { className: 'btn btn-sm', textContent: _t(key) });
     button.addEventListener('click', action, { signal: controller.signal });
     toolbar.appendChild(button);
+    toolbarButtons.push({ button, key });
   };
   const selectPath = async (saveAs, suggestedName = 'untitled.txt') => {
     const startPath = currentPath ? path.dirname(currentPath) : os.homedir();
@@ -66,9 +71,9 @@ function initLinuxTextEdit(content, state, options = {}) {
     }
   };
 
-  addButton(_t('apps.textedit.openButton'), open);
-  addButton(_t('common.save'), () => save(false));
-  addButton(_t('apps.textedit.saveAsButton'), () => save(true));
+  addButton('apps.textedit.openButton', open);
+  addButton('common.save', () => save(false));
+  addButton('apps.textedit.saveAsButton', () => save(true));
   editor.addEventListener('input', () => {
     modified = true;
     setStatus();
@@ -82,6 +87,26 @@ function initLinuxTextEdit(content, state, options = {}) {
   root.append(toolbar, editor, status);
   content.replaceChildren(root);
   content.style.cssText = 'padding:0;height:100%;overflow:hidden;position:relative;';
+
+  // Live re-localisation — re-translate ONLY the toolbar buttons, the status
+  // bar text and the editor's aria label. The editor's content and the
+  // modified flag are never touched.
+  const relabelUI = () => {
+    editor.setAttribute('aria-label', _t('apps.textedit.editorAria'));
+    for (const { button, key } of toolbarButtons) button.textContent = _t(key);
+    setStatus();
+  };
+  const localeHandler = () => {
+    try {
+      window.NovaI18n?.applyStaticDom?.(content);
+      relabelUI();
+    } catch (error) {
+      console.warn('[TextEdit] Language change re-render failed:', error);
+    }
+  };
+  typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+  state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+
   if (Object.prototype.hasOwnProperty.call(options, 'initialContent')) {
     editor.value = String(options.initialContent ?? '');
     setStatus();
@@ -616,6 +641,34 @@ registerApp({
         textarea.value = file.content;
       }
     }
+
+    // Live re-localisation — re-translate ONLY the toolbar buttons, the status
+    // bar text and the editor's aria label. The textarea's content (the
+    // user's unsaved document), its caret and the modified flag are never
+    // touched; only static labels are refreshed.
+    function relabelUI() {
+      saveBtn.textContent = _t('common.save');
+      saveBtn.title = _t('apps.textedit.saveButtonTitle');
+      saveAsBtn.textContent = _t('apps.textedit.saveAsButton');
+      saveAsBtn.title = _t('apps.textedit.saveAsButtonTitle');
+      openBtn.textContent = _t('apps.textedit.openButton');
+      openBtn.title = _t('apps.textedit.openButtonTitle');
+      wrapBtn.textContent = _t('apps.textedit.wordWrap');
+      wrapBtn.title = _t('apps.textedit.wordWrapTitle');
+      textarea.setAttribute('aria-label', _t('apps.textedit.editorAria'));
+      syncStatus();
+    }
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(content);
+        relabelUI();
+      } catch (error) {
+        console.warn('[TextEdit] Language change re-render failed:', error);
+      }
+    };
+    state.cleanups = Array.isArray(state.cleanups) ? state.cleanups : [];
+    typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+    state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
 
     syncGutter();
     syncStatus();

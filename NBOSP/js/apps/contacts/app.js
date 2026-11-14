@@ -449,6 +449,49 @@ registerApp({
       state.cleanups.push(() => OS.events.off('contacts:updated', onContactsUpdated));
     }
 
+    // ── Live re-localisation ────────────────────────────────────────────────
+    // renderList()/renderDetail() re-derive the whole surface from app state
+    // through event delegation on contactList, so a re-render is idempotent
+    // and leak-free. Any half-typed edit-form draft is snapshotted from the
+    // DOM first and written back after the rebuild — a language switch must
+    // never cost the user their input. The search query lives in searchInp
+    // (never re-created) and the selection in selectedId, so both survive.
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      const localeHandler = () => {
+        try {
+          window.NovaI18n?.applyStaticDom?.(content);
+          searchInp.placeholder = _t('apps.contacts.searchPlaceholder');
+          addBtn.lastChild.textContent = ' ' + _t('apps.contacts.newContact');
+
+          const editing = editMode ? getSelected() : null;
+          const draft = {};
+          if (editing) {
+            for (const key of ['name', 'email', 'phone', 'notes']) {
+              const field = content.querySelector('#nbosp-contacts-' + editing.id + '-' + key);
+              if (field) draft[key] = field.value;
+            }
+          }
+
+          renderList();
+          renderDetail();
+
+          // Put the drafts back into the freshly rendered inputs.
+          if (editing) {
+            for (const key of ['name', 'email', 'phone', 'notes']) {
+              if (draft[key] === undefined) continue;
+              const field = content.querySelector('#nbosp-contacts-' + editing.id + '-' + key);
+              if (field) field.value = draft[key];
+            }
+          }
+        } catch (error) {
+          console.warn('[Contacts] Language change re-render failed:', error);
+        }
+      };
+      typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+      state.cleanups = state.cleanups || [];
+      state.cleanups.push(() => OS.events.off?.('languageChanged', localeHandler));
+    }
+
     // ── Initial render ───────────────────────────────────────────────────────
     renderList();
     renderDetail();

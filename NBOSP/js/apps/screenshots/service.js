@@ -49,6 +49,18 @@ function _promptRegionSelect(frameCanvas) {
     overlay.appendChild(frame);
     document.body.appendChild(overlay);
 
+    // Live re-localisation — the region hint relabels in place if the OS
+    // language flips while the picker is open; finish() un-registers the
+    // listener along with the keydown one so nothing leaks per capture.
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(overlay);
+        hint.textContent = _t('apps.screenshots.regionSelectHint');
+      } catch (error) {
+        console.warn('[Screenshots] Language change re-render failed:', error);
+      }
+    };
+
     let startX = 0, startY = 0, dragging = false;
     let settled = false;
 
@@ -58,6 +70,9 @@ function _promptRegionSelect(frameCanvas) {
       if (settled) return;
       settled = true;
       document.removeEventListener('keydown', onKeyDown, true);
+      if (typeof OS !== 'undefined' && OS.events?.off) {
+        typeof OS !== 'undefined' && OS.events.off('languageChanged', localeHandler);
+      }
       overlay.remove();
       resolve(result);
     };
@@ -122,6 +137,9 @@ function _promptRegionSelect(frameCanvas) {
     overlay.addEventListener('pointerup', onPointerUp);
     overlay.addEventListener('contextmenu', onContextMenu);
     document.addEventListener('keydown', onKeyDown, true);
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+    }
   });
 }
 

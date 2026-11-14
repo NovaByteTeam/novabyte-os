@@ -76,9 +76,10 @@ registerApp({
       style: 'display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;background:var(--bg-elevated);',
     });
     // FIX #5: titleEl was created and held in a variable but never read; inlined.
-    toolbar.append(
-      createEl('span', { textContent: _t('apps.downloads.title'), style: 'font-size:13px;font-weight:600;flex:1;' }),
-    );
+    // Held again — the live re-localisation handler below relabels it without
+    // rebuilding the toolbar.
+    const titleEl = createEl('span', { textContent: _t('apps.downloads.title'), style: 'font-size:13px;font-weight:600;flex:1;' });
+    toolbar.append(titleEl);
     const clearBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('apps.downloads.clearCompleted') });
     toolbar.appendChild(clearBtn);
     root.appendChild(toolbar);
@@ -191,6 +192,27 @@ registerApp({
 
     state.cleanups = state.cleanups || [];
     state.cleanups.push(window.Downloads.subscribe(render));
+
+    // ── Live re-localisation ──────────────────────────────────────────────────
+    // Rebuild this window's UI when the OS language changes, so an
+    // already-open app follows the switch in real time. render() re-derives
+    // the list from window.Downloads.getAll() and re-attaches nothing (row
+    // deletion is delegated on `list`, registered once above), so in-flight
+    // downloads and their rows survive; the toolbar chrome is relabelled by
+    // hand because render() never rebuilds it.
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(content);
+        titleEl.textContent = _t('apps.downloads.title');
+        clearBtn.textContent = _t('apps.downloads.clearCompleted');
+        list.setAttribute('aria-label', _t('apps.downloads.title'));
+        render();
+      } catch (error) {
+        console.warn('[Downloads] Language change re-render failed:', error);
+      }
+    };
+    typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+    state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
 
     render();
   },

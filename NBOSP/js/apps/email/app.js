@@ -149,12 +149,15 @@ registerApp({
     const SEARCH_DEBOUNCE_MS = 420;
     const ROW_ANIM_MS = 200;
     const ONE_WEEK_MS = 7 * 86_400_000;
+    // Fallback folder list (used until the server returns the real tree).
+    // Keys, not baked names: buildSidebar translates at render time, so a
+    // live language switch re-labels the fallback folders too.
     const DEFAULT_FOLDERS = Object.freeze([
-      { path: 'INBOX', name: _t('apps.email.folders.inbox') },
-      { path: 'SENT', name: _t('apps.email.folders.sent') },
-      { path: 'DRAFTS', name: _t('apps.email.folders.drafts') },
-      { path: 'TRASH', name: _t('apps.email.folders.trash') },
-      { path: 'SPAM', name: _t('apps.email.folders.spam') },
+      { path: 'INBOX', key: 'apps.email.folders.inbox' },
+      { path: 'SENT', key: 'apps.email.folders.sent' },
+      { path: 'DRAFTS', key: 'apps.email.folders.drafts' },
+      { path: 'TRASH', key: 'apps.email.folders.trash' },
+      { path: 'SPAM', key: 'apps.email.folders.spam' },
     ]);
     const PROTO_DEFAULTS = Object.freeze({ imap: '993', pop3: '995', exchange: '443' });
 
@@ -271,6 +274,11 @@ registerApp({
     let page = 1;
     let pages = 1;
     let activeMsgUid = null;
+    // Reader re-render context for live re-localisation: the last render
+    // mode plus the fetched message, so a language switch re-renders the
+    // open message in place without refetching it from the server.
+    let readerMode = null;    // null | 'loading' | 'message' | 'empty' | 'error'
+    let readerMsgCtx = null;  // { full, msg, acct } while a message is shown
     let loading = false;
     let searchQ = '';
     const selectedMessages = new Map();
@@ -576,12 +584,13 @@ registerApp({
           : DEFAULT_FOLDERS;
         folders.forEach(f => {
           const icon = FICONS[(f.name || f.path).toLowerCase()] || '📁';
+          const folderLabel = f.key ? _t(f.key) : f.name;
           const active = activeAcctId === acct.id && activeFolder === f.path;
           const row = createEl('div', {
             className: 'em-sb-row' + (active ? ' active' : ''),
           });
           row.appendChild(createEl('span', {
-            textContent: icon + ' ' + f.name,
+            textContent: icon + ' ' + folderLabel,
             style: 'flex:1',
           }));
           const key = uidKey(acct.id, f.path);
@@ -1197,6 +1206,8 @@ registerApp({
 
     // MESSAGE READER
     function showEmpty() {
+      readerMode = 'empty';
+      readerMsgCtx = null;
       readerEl.replaceChildren();
       const w = createEl('div', { className: 'em-empty' });
       const icon = createEl('div');
@@ -1217,6 +1228,8 @@ registerApp({
     async function openMsg(msg) {
       activeMsgUid = msg.uid;
       selectMsg(msg);
+      readerMode = 'loading';
+      readerMsgCtx = null;
       readerEl.replaceChildren();
       const sp = createEl('div', { className: 'em-empty' });
       sp.appendChild(createEl('div', { className: 'em-spinner' }));
@@ -1236,6 +1249,8 @@ registerApp({
           ?.classList.remove('unread');
         renderReader(full, msg, acct);
       } catch (e) {
+        readerMode = 'error';
+        readerMsgCtx = null;
         readerEl.replaceChildren();
         const w = createEl('div', { className: 'em-empty', style: 'color:#e55;' });
         w.textContent = e.message;
@@ -1244,6 +1259,8 @@ registerApp({
     }
 
     async function renderReader(full, msg, acct) {
+      readerMode = 'message';
+      readerMsgCtx = { full, msg, acct };
       readerEl.replaceChildren();
 
       const hdr = createEl('div', { className: 'em-reader-hdr' });
@@ -1623,6 +1640,69 @@ registerApp({
       if (page < pages) { page++; loadMessages(); }
     }, { signal: appSignal });
     refreshBtn.addEventListener('click', () => loadMessages(), { signal: appSignal });
+
+    // LIVE RE-LOCALISATION
+    // Targeted re-label pass for the toolbar/list-column chrome that is
+    // built once, outside every render function. Pure text and attribute
+    // writes — no DOM rebuild — so the search input value and the select-all
+    // checkbox state survive untouched.
+    function relabelToolbar() {
+      menuBtn.title = _t('apps.email.toolbar.toggleSidebar');
+      refreshBtn.title = _t('common.refresh');
+      composeBtn.innerHTML = '&#9998; ' + _t('apps.email.toolbar.compose');
+      selectAllChk.title = _t('apps.email.list.selectAll');
+      searchInp.placeholder = _t('apps.email.list.searchPlaceholder');
+      prevBtn.textContent = _t('apps.email.list.prev');
+      nextBtn.textContent = _t('apps.email.list.next');
+      batchReadBtn.textContent = _t('apps.email.batch.markRead');
+      batchTrashBtn.textContent = _t('apps.email.batch.delete');
+    }
+
+    // Live language switching — rebuild this window's visible surfaces when
+    // the OS language changes, so an already-open Email window follows the
+    // switch in real time. buildSidebar()/renderMsgList() re-derive their
+    // DOM from app state (rows are recreated fresh, so their appSignal
+    // listeners never stack), relabelToolbar() covers the chrome those
+    // renders don't, and the open message re-renders from the cached reader
+    // context — no network refetch. The compose overlay and setup wizard
+    // are deliberately left untouched: rebuilding either would discard the
+    // user's in-progress draft or account fields, so they keep their
+    // current language until they are next opened.
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(content);
+        relabelToolbar();
+        buildSidebar();
+        // Keep the list's scroll position across the re-render.
+        const listScroll = msgListEl.scrollTop;
+        renderMsgList();
+        msgListEl.scrollTop = listScroll;
+        if (readerMode === 'message' && readerMsgCtx) {
+          // Keep a plain-text body's scroll position too; HTML bodies live
+          // in a sandboxed (cross-origin) iframe whose scroll cannot be
+          // preserved across the rebuild.
+          const bodyScroll = readerEl.querySelector('.em-text-body')?.scrollTop ?? 0;
+          renderReader(readerMsgCtx.full, readerMsgCtx.msg, readerMsgCtx.acct);
+          const bodyEl = readerEl.querySelector('.em-text-body');
+          if (bodyEl) bodyEl.scrollTop = bodyScroll;
+        } else if (readerMode === 'empty') {
+          showEmpty();
+        }
+        // 'loading'/'error' panes keep their verbatim text — nothing to
+        // re-localise, and the pending load overwrites the pane on settle.
+      } catch (error) {
+        console.warn('[Email] Language change re-render failed:', error);
+      }
+    };
+    typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+    // Un-register when the window closes (the WM runs state.cleanups) and
+    // when this instance's lifecycle aborts — a second Email window re-runs
+    // init(), whose __nbospEmailCleanup() aborts the previous instance, and
+    // without the abort hook that dead instance's handler would keep
+    // firing into its detached DOM.
+    if (!Array.isArray(state.cleanups)) state.cleanups = [];
+    state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+    appSignal.addEventListener('abort', () => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler), { once: true });
 
     // SYNC ENGINE + NOTIFICATIONS
     function scheduleSyncAll() {

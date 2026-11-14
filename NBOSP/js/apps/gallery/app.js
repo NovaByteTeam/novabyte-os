@@ -375,6 +375,37 @@ registerApp({
       revokeQueue.clear();
     });
 
+    // ── Live re-localisation ──────────────────────────────────────────────
+    // render() re-scans and rebuilds the grid from the media store — the
+    // same call the refresh button and the fs events make (idempotent; the
+    // per-card listeners die with the replaced nodes, nothing global is
+    // re-attached). The lightbox is untouched by render(), so its caption
+    // and ARIA labels get a targeted re-label pass and the open image +
+    // position survive the switch.
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      const localeHandler = () => {
+        try {
+          window.NovaI18n?.applyStaticDom?.(content);
+          titleEl.textContent = _t('apps.gallery.title');
+          refreshBtn.title = _t('common.refresh');
+          lb.setAttribute('aria-label', _t('apps.gallery.viewerAria'));
+          lbClose.setAttribute('aria-label', _t('common.close'));
+          lbPrev.setAttribute('aria-label', _t('apps.gallery.previousImageAria'));
+          lbNext.setAttribute('aria-label', _t('apps.gallery.nextImageAria'));
+          if (lb.style.display !== 'none' && images[lbIdx]) {
+            lbCaption.textContent = _t('apps.gallery.imagePosition', {
+              name: images[lbIdx].name, index: lbIdx + 1, count: images.length,
+            });
+          }
+          void render();
+        } catch (error) {
+          console.warn('[Gallery] Language change re-render failed:', error);
+        }
+      };
+      typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+      state.cleanups.push(() => OS.events.off?.('languageChanged', localeHandler));
+    }
+
     // ── Initial render ───────────────────────────────────────────────────────
     // Single render call regardless of whether state.fileId is set.
     void render().then(() => {

@@ -1503,6 +1503,25 @@ function initLinuxTerminal(content, state) {
     // Interactive sh ignores SIGTERM, so SIGTERM leaked a shell per window.
     signalGroup('SIGKILL');
   });
+
+  // Live re-localisation — the session output (scrollback, held by logNode)
+  // and the command input value are live user data and are never re-rendered;
+  // only the static chrome's aria labels are re-translated in place.
+  const relabelUI = () => {
+    output.setAttribute('aria-label', _t('apps.terminal.outputAria'));
+    input.setAttribute('aria-label', _t('apps.terminal.shellCommandAria'));
+  };
+  const localeHandler = () => {
+    try {
+      window.NovaI18n?.applyStaticDom?.(content);
+      relabelUI();
+    } catch (error) {
+      console.warn('[Terminal] Language change re-render failed:', error);
+    }
+  };
+  typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+  state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+
   requestAnimationFrame(() => input.focus());
 }
 
@@ -1682,6 +1701,28 @@ registerApp({
     switchTab(0);
     welcomeTab(t0);
     updatePrompt(t0);
+
+    // Live re-localisation — the per-tab session output (scrollback) and the
+    // command input values are live user data and are never re-rendered; only
+    // the static chrome's aria labels are re-translated in place. New tabs
+    // created after a switch pick up the new language via their own _t() calls.
+    function relabelUI() {
+      for (const tab of tabs) {
+        tab.output?.setAttribute('aria-label', _t('apps.terminal.outputAria'));
+        tab.input?.setAttribute('aria-label', _t('apps.terminal.commandInputAria'));
+      }
+    }
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(content);
+        relabelUI();
+      } catch (error) {
+        console.warn('[Terminal] Language change re-render failed:', error);
+      }
+    };
+    typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+    state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+
     const focusInitial = () => t0.input.focus();
     requestAnimationFrame(focusInitial);
   }

@@ -266,6 +266,7 @@
       this.wireFileArea();
       this.wireGlobalShortcuts();
       this.wireFsChangeListeners();
+      this.wireLocaleListener();
       // Default folders are best-effort: failures are logged but do not
       // block the initial paint.
       this.ensureDefaultSystemFolders()
@@ -396,6 +397,31 @@
       // Status bar — implicit aria-live polite via role="status".
       this.statusBar = createEl('div', { className: 'vault-statusbar', role: 'status' });
       root.appendChild(this.statusBar);
+    }
+
+    // Targeted re-label pass for the toolbar/list-header chrome that
+    // buildUI() bakes once in the active language. Pure text and attribute
+    // writes — no listeners, no DOM rebuild — so the pass is idempotent and
+    // never disturbs user input. renderFiles() covers every other surface.
+    relabelChrome() {
+      this.backBtn.title = _t('common.back');
+      this.backBtn.setAttribute('aria-label', _t('common.back'));
+      this.upBtn.title = _t('shell.files.up');
+      this.upBtn.setAttribute('aria-label', _t('shell.files.parentFolder'));
+      this.pathBar.setAttribute('aria-label', _t('apps.files.toolbar.pathAria'));
+      this.searchInput.placeholder = _t('apps.files.toolbar.searchPlaceholder');
+      this.searchInput.setAttribute('aria-label', _t('apps.files.toolbar.searchAria'));
+      this.emptyTrashBtn.title = _t('apps.files.toolbar.emptyTrash');
+      this.emptyTrashBtn.setAttribute('aria-label', _t('apps.files.toolbar.emptyTrash'));
+      this.filesGrid.setAttribute('aria-label', _t('shell.files.filesAria'));
+      const listHeader = this.listView.firstElementChild;
+      if (listHeader) {
+        [...listHeader.children].forEach((th, i) => {
+          th.textContent = _t(LIST_HEADER_I18N[i]);
+          th.setAttribute('aria-label', _t(LIST_HEADER_SORT_I18N[i]));
+        });
+      }
+      this.updateAccountChip();
     }
 
     wireToolbar() {
@@ -1300,6 +1326,31 @@
       }, { signal: this.signal });
     }
 
+    // Live re-localisation — rebuild this window's UI when the OS language
+    // changes, so an already-open Files window follows the switch in real
+    // time. renderFiles() re-derives the grid/list from app state without
+    // attaching listeners (delegation lives on the permanent parents), so
+    // the call is idempotent; the search filter is replayed from the input
+    // so an active search survives.
+    wireLocaleListener() {
+      const localeHandler = () => {
+        try {
+          if (this._disposed) return;
+          window.NovaI18n?.applyStaticDom?.(this.content);
+          this.relabelChrome();
+          // Same suppression the FS change listeners use: re-rendering
+          // mid-rename would destroy the inline rename input and strand
+          // this.isRenaming. The rename's own re-render picks up the new
+          // language once it commits.
+          if (!this.isRenaming) this.renderFiles(this.searchInput.value.trim());
+        } catch (error) {
+          console.warn('[Files] Language change re-render failed:', error);
+        }
+      };
+      typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+      this.state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+    }
+
     // FS change listeners — refresh the view when another app or worker
     // mutates the file system. Suppressed during inline rename so we don't
     // blow away the user's in-progress input.
@@ -1338,6 +1389,11 @@
       this.clipboard = null;
       this.renderVersion = 0;
       this.controller = new AbortController();
+      // Toolbar buttons, recorded as { el, labelKey, titleKey } when mount()
+      // builds them, so the live re-localisation pass can re-label the
+      // chrome without rebuilding the toolbar (and re-attaching its
+      // listeners).
+      this.chromeButtons = [];
       if (!Array.isArray(state.cleanups)) state.cleanups = [];
       state.cleanups.push(() => {
         this.controller.abort();
@@ -1354,22 +1410,26 @@
       const toolbar = createEl('div', {
         style: 'display:flex;gap:6px;align-items:center;padding:8px;border-bottom:1px solid var(--border-subtle);'
       });
-      const button = (label, title, action) => {
+      const button = (labelKey, titleKey, action) => {
         const el = createEl('button', {
           className: 'btn btn-sm',
-          textContent: label,
-          title,
-          'aria-label': title
+          textContent: _t(labelKey),
+          title: _t(titleKey),
+          'aria-label': _t(titleKey)
         });
         el.addEventListener('click', action, { signal: this.controller.signal });
+        // Recorded so the live re-localisation pass can re-label these
+        // buttons without rebuilding the toolbar (which would re-attach
+        // its listeners).
+        this.chromeButtons.push({ el, labelKey, titleKey });
         return el;
       };
       toolbar.append(
-        button(_t('shell.files.up'), _t('apps.files.linux.openParentFolder'), () => this.goUp()),
-        button(_t('apps.files.linux.home'), _t('apps.files.linux.openHomeFolder'), () => this.navigate(this.homePath)),
-        button(_t('apps.files.linux.newFolder'), _t('apps.files.linux.createFolder'), () => this.createEntry(true)),
-        button(_t('apps.files.linux.newFile'), _t('apps.files.linux.createFile'), () => this.createEntry(false)),
-        button(_t('common.refresh'), _t('apps.files.linux.refreshFolder'), () => this.render())
+        button('shell.files.up', 'apps.files.linux.openParentFolder', () => this.goUp()),
+        button('apps.files.linux.home', 'apps.files.linux.openHomeFolder', () => this.navigate(this.homePath)),
+        button('apps.files.linux.newFolder', 'apps.files.linux.createFolder', () => this.createEntry(true)),
+        button('apps.files.linux.newFile', 'apps.files.linux.createFile', () => this.createEntry(false)),
+        button('common.refresh', 'apps.files.linux.refreshFolder', () => this.render())
       );
       this.pathInput = createEl('input', {
         className: 'input',
@@ -1458,6 +1518,7 @@
         this.selectedPath = null;
         this.updateSelection();
       }, { signal: this.controller.signal });
+      this.wireLocaleListener();
       this.render();
     }
 
@@ -1563,6 +1624,45 @@
         }));
         this.status.textContent = this.currentPath;
       }
+    }
+
+    // Targeted re-label pass for the toolbar chrome mount() bakes once in
+    // the active language. Pure text/attribute writes — no listeners, no
+    // DOM rebuild — so the pass is idempotent and never disturbs the path
+    // bar or search input. render() covers the list and status bar.
+    relabelChrome() {
+      for (const { el, labelKey, titleKey } of this.chromeButtons) {
+        el.textContent = _t(labelKey);
+        el.title = _t(titleKey);
+        el.setAttribute('aria-label', _t(titleKey));
+      }
+      this.pathInput.setAttribute('aria-label', _t('apps.files.linux.pathAria'));
+      this.searchInput.placeholder = _t('apps.files.linux.searchThisFolder');
+      this.searchInput.setAttribute('aria-label', _t('apps.files.toolbar.searchAria'));
+      this.list.setAttribute('aria-label', _t('apps.files.linux.listAria'));
+    }
+
+    // Live re-localisation — rebuild this window's UI when the OS language
+    // changes, so an already-open Files window follows the switch in real
+    // time. render() re-reads the directory from disk (its renderVersion
+    // guard makes overlapping calls safe) and attaches no listeners — rows
+    // are rebuilt under the delegated parents — so the call is idempotent.
+    wireLocaleListener() {
+      const localeHandler = () => {
+        try {
+          window.NovaI18n?.applyStaticDom?.(this.content);
+          this.relabelChrome();
+          // render() resets the path bar to the current directory; snapshot
+          // any in-progress edit first so user input survives the switch.
+          const pathEdit = this.pathInput.value;
+          this.render();
+          this.pathInput.value = pathEdit;
+        } catch (error) {
+          console.warn('[Files] Language change re-render failed:', error);
+        }
+      };
+      typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+      this.state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
     }
 
     async openEntry(entry) {

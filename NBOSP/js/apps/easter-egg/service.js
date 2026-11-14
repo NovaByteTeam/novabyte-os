@@ -160,9 +160,38 @@
     }
 
     document.addEventListener('keydown', onKey);
+
+    // Live re-localisation — relabel the running game overlay in place when
+    // the OS language changes. The game state, score and any half-typed
+    // input are untouched; a visible game-over panel is relabelled rather
+    // than rebuilt so its restart handler stays attached.
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(overlay);
+        closeBtn.setAttribute('aria-label', _t('common.close'));
+        hintLabel.textContent = _t('apps.easterEgg.controlsHint');
+        canvas.setAttribute('aria-label', _t('apps.easterEgg.canvasAria'));
+        scoreLabel.textContent = _t('apps.easterEgg.score', { score });
+        const overTitle = overlay.querySelector('.snake-game-over-title');
+        if (overTitle) overTitle.textContent = _t('apps.easterEgg.gameOver');
+        const overScore = overlay.querySelector('.snake-game-over-score');
+        if (overScore) overScore.textContent = _t('apps.easterEgg.score', { score });
+        const restartBtn = overlay.querySelector('.snake-restart-btn');
+        if (restartBtn) restartBtn.textContent = _t('apps.easterEgg.playAgain');
+      } catch (error) {
+        console.warn('[EasterEgg] Language change re-render failed:', error);
+      }
+    };
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+    }
+
     const cleanup = () => {
       if (gameLoop) { clearInterval(gameLoop); gameLoop = null; }
       document.removeEventListener('keydown', onKey);
+      if (typeof OS !== 'undefined' && OS.events?.off) {
+        typeof OS !== 'undefined' && OS.events.off('languageChanged', localeHandler);
+      }
     };
     closeBtn.addEventListener('click', () => { cleanup(); overlay.remove(); });
     overlay.addEventListener('click', event => {

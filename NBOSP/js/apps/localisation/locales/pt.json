@@ -13,7 +13,7 @@
     "rename": "Renomear",
     "refresh": "Atualizar",
     "error": "Erro",
-    "dismiss": "Liberar"
+    "dismiss": "Dispensar"
   },
   "shell": {
     "boot": {
@@ -108,7 +108,6 @@
       "newFolder": "Nova pasta",
       "newFolderName": "Novo nome de pasta",
       "paste": "Colar",
-      "openTerminal": "Terminal aberto",
       "openSettings": "Abra Configurações",
       "refresh": "Atualizar",
       "pinned": "Fixado",
@@ -162,7 +161,8 @@
       "noCompatibleAppsBody": "Nenhum aplicativo instalado declara suporte para{{file}}.",
       "thisFile": "este arquivo",
       "openWithTitle": "Abrir com",
-      "alwaysUseApp": "Sempre use este aplicativo para este tipo de arquivo"
+      "alwaysUseApp": "Sempre use este aplicativo para este tipo de arquivo",
+      "openTerminal": "Abrir terminal"
     },
     "window": {
       "containerAria": "Janelas de aplicativos",
@@ -1660,7 +1660,7 @@
       "shellCommandAria": "Comando shell",
       "commandInputAria": "Entrada de comando",
       "errorLine": "Erro:{{message}}",
-      "terminalError": "[erro de terminal]{{message}}\n",
+      "terminalError": "[erro de terminal]{{message}}",
       "shellExited": "[Shell saiu com status{{status}}. Pressione Enter para iniciar um novo.]",
       "unknownStatus": "desconhecido"
     },

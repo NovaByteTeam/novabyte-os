@@ -446,6 +446,37 @@ registerApp({
     // a real bug worth seeing, not something to silently swallow.
     state.cleanups.push(() => ac.abort());
 
+    // ── Live re-localisation ──────────────────────────────────────────
+    // Rebuild this window's labels when the OS language changes, so an
+    // already-open console follows the switch in real time. Command history
+    // survives: entries/cmdHistory are never rebuilt — only the static
+    // chrome is relabelled, and renderOutput() re-renders from the
+    // untouched ring buffer (which also refreshes the filter's "no output
+    // matches" line in the new language).
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(content);
+        searchInput.placeholder = _t('apps.devconsole.filterPlaceholder');
+        clearBtn.textContent = _t('apps.devconsole.clear');
+        clearBtn.title = _t('apps.devconsole.clearTitle');
+        exportBtn.textContent = _t('apps.devconsole.export');
+        exportBtn.title = _t('apps.devconsole.exportTitle');
+        input.placeholder = _t('apps.devconsole.inputPlaceholder');
+        runBtn.textContent = _t('apps.devconsole.run');
+        if (hasRun || outputSearch.trim()) {
+          renderOutput();
+        } else {
+          // Pre-run surface: the ready message is not part of `entries`, so
+          // relabel it directly rather than via renderOutput().
+          output.textContent = _t('apps.devconsole.readyMessage') + '\n';
+        }
+      } catch (error) {
+        console.warn('[DevConsole] Language change re-render failed:', error);
+      }
+    };
+    typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+    state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+
     inputRow.appendChild(input);
     inputRow.appendChild(runBtn);
     content.appendChild(outputToolbar);

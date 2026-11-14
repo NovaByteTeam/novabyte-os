@@ -881,6 +881,47 @@
         });
       }
 
+      // ---- Live re-localisation ----
+      // renderList() re-derives the track rows from `tracks` + queue state
+      // through event delegation (no listener re-attachment), and the sync*
+      // helpers re-label the player controls from the live <audio> state —
+      // so playback, the loaded track and the seek/volume positions are
+      // untouched by the switch.
+      if (typeof OS !== 'undefined' && OS.events?.on) {
+        const localeHandler = () => {
+          try {
+            window.NovaI18n?.applyStaticDom?.(content);
+            const relabelCtrl = (btn, key) => {
+              btn.title = _t(key);
+              btn.setAttribute('aria-label', _t(key));
+            };
+
+            libTitle.textContent = _t('apps.music.library.title');
+            relabelCtrl(refreshBtn, 'apps.music.library.rescan');
+            trackList.setAttribute('aria-label', _t('apps.music.library.aria'));
+            const n = tracks.length;
+            libCount.textContent = n ? _t('apps.music.library.trackCount', { count: n, s: n > 1 ? 's' : '' }) : '';
+            if (!audio.src) trackTitle.textContent = _t('apps.music.player.noTrackSelected');
+
+            scrubWrap.title = _t('apps.music.player.seek');
+            scrubWrap.setAttribute('aria-label', _t('apps.music.player.seek'));
+            relabelCtrl(shuffleBtn, 'apps.music.controls.shuffle');
+            relabelCtrl(prevBtn, 'apps.music.controls.previousTrack');
+            relabelCtrl(nextBtn, 'apps.music.controls.nextTrack');
+            relabelCtrl(repeatBtn, 'apps.music.controls.repeat');
+            playPauseBtn.title = _t('apps.music.controls.playPause');
+            volSlider.setAttribute('aria-label', _t('apps.music.controls.volume'));
+            syncPlayPauseLabel();
+            syncScrubAria();
+            renderList();
+          } catch (error) {
+            console.warn('[Music] Language change re-render failed:', error);
+          }
+        };
+        typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+        state.cleanups.push(() => OS.events.off?.('languageChanged', localeHandler));
+      }
+
       // ---- Initial render ----
       scanLibrary();
     },

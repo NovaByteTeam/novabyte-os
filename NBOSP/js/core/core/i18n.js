@@ -44,6 +44,16 @@
     { code: 'hi',    nativeName: 'हिन्दी',       dir: 'ltr' },
     { code: 'ko',    nativeName: '한국어',      dir: 'ltr' },
     { code: 'it',    nativeName: 'Italiano',   dir: 'ltr' },
+    // Extended coverage set — Indonesian, Bengali, Turkish, Vietnamese,
+    // Swahili, Urdu and Persian push the shipped set to 19 languages
+    // (~90% of global speakers). Urdu and Persian join Arabic as RTL.
+    { code: 'id',    nativeName: 'Bahasa Indonesia', dir: 'ltr' },
+    { code: 'bn',    nativeName: 'বাংলা',       dir: 'ltr' },
+    { code: 'tr',    nativeName: 'Türkçe',     dir: 'ltr' },
+    { code: 'vi',    nativeName: 'Tiếng Việt', dir: 'ltr' },
+    { code: 'sw',    nativeName: 'Kiswahili',  dir: 'ltr' },
+    { code: 'ur',    nativeName: 'اردو',        dir: 'rtl' },
+    { code: 'fa',    nativeName: 'فارسی',      dir: 'rtl' },
   ]);
   const LANGUAGE_INDEX = new Map(LANGUAGES.map(language => [language.code, language]));
   const DEFAULT_LANGUAGE = 'en';

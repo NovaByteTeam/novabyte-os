@@ -351,8 +351,11 @@ registerApp({
       alarmList.appendChild(frag);
     }
 
-    // Track the open modal for teardown.
+    // Track the open modal for teardown, plus its label nodes — a live
+    // language switch re-labels the open editor through them instead of
+    // rebuilding it (which would discard the user's half-entered draft).
     let _activeModal = null;
+    let _activeModalTexts = null;
 
     function openAlarmModal(idx) {
       _activeModal?.remove();
@@ -370,6 +373,7 @@ registerApp({
       function closeModal() {
         ov.remove();
         _activeModal = null;
+        _activeModalTexts = null;
       }
 
       const box = createEl('div', {
@@ -377,7 +381,8 @@ registerApp({
       });
 
       const hdr = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;' });
-      hdr.appendChild(createEl('span', { textContent: isEdit ? _t('apps.clock.editAlarm') : _t('apps.clock.addAlarm'), style: 'font-size:15px;font-weight:700;' }));
+      const modalTitleEl = createEl('span', { textContent: isEdit ? _t('apps.clock.editAlarm') : _t('apps.clock.addAlarm'), style: 'font-size:15px;font-weight:700;' });
+      hdr.appendChild(modalTitleEl);
       const xBtn = createEl('button', { className: 'btn btn-icon btn-sm' });
       xBtn.innerHTML = svgIcon('x', 14);
       xBtn.addEventListener('click', closeModal);
@@ -405,10 +410,11 @@ registerApp({
       labelInp.value = al.label;
       box.appendChild(labelInp);
 
-      box.appendChild(createEl('div', {
+      const repeatLbl = createEl('div', {
         textContent: _t('apps.clock.repeat'),
         style: 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:8px;',
-      }));
+      });
+      box.appendChild(repeatLbl);
 
       const daysRow = createEl('div', { style: 'display:flex;gap:5px;margin-bottom:18px;' });
       const dayBtns = DOW_FULL.map((d, i) => {
@@ -434,8 +440,9 @@ registerApp({
 
       const acts = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
 
+      let delBtn = null;
       if (isEdit) {
-        const delBtn = createEl('button', { textContent: _t('apps.clock.delete'), className: 'btn btn-sm', style: 'color:#f85149;border-color:#f85149;' });
+        delBtn = createEl('button', { textContent: _t('apps.clock.delete'), className: 'btn btn-sm', style: 'color:#f85149;border-color:#f85149;' });
         delBtn.addEventListener('click', () => {
           db.alarms.splice(idx, 1);
           saveDb();
@@ -475,6 +482,10 @@ registerApp({
       ov.appendChild(box);
       content.appendChild(ov);
       _activeModal = ov;
+      _activeModalTexts = {
+        isEdit, title: modalTitleEl, repeat: repeatLbl, label: labelInp,
+        dayBtns, delete: delBtn, cancel: cancelBtn, save: saveBtn,
+      };
 
       requestAnimationFrame(() => timeInp.focus());
     }
@@ -753,6 +764,72 @@ registerApp({
     swSync();
     swDisplay.textContent = fmtSw(swCurrentMs());
     renderSwLaps();
+
+    // Live re-localisation — rebuild this window's UI when the OS language
+    // changes, so an already-open app follows the switch in real time.
+    // renderAlarms()/renderTiDisplay()/renderTiBtns()/renderSwLaps()
+    // re-derive their DOM from db + the background clock service (idempotent,
+    // no listener re-attachment); the tab bar, alarm header, stopwatch
+    // controls and the open editor modal are static scaffolding, so they get
+    // a targeted re-label pass instead. Timer inputs and the editor's
+    // time/label values + day toggles are user data and stay untouched.
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      const localeHandler = () => {
+        try {
+          window.NovaI18n?.applyStaticDom?.(content);
+
+          // Tab bar + alarm section header.
+          LABELS.alarm = _t('apps.clock.tabAlarm');
+          LABELS.clock = _t('apps.clock.tabClock');
+          LABELS.timer = _t('apps.clock.tabTimer');
+          LABELS.stopwatch = _t('apps.clock.tabStopwatch');
+          for (const t of TABS) tabEls[t].textContent = LABELS[t];
+          alarmHdr.children[0].textContent = _t('apps.clock.alarms');
+          addAlarmBtn.innerHTML = svgIcon('plus', 13) + ' ' + _t('apps.clock.add');
+
+          // Day-name tables are baked at init; refresh them in place so the
+          // alarm list, lap rows and the open editor follow the switch.
+          const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          DAYS.forEach((d, i) => {
+            DOW[i] = _t('apps.clock.dayInitial' + d);
+            DOW_FULL[i] = _t('apps.clock.day' + d);
+          });
+
+          // Timer + stopwatch surfaces (sync state first, as elsewhere).
+          renderTiDisplay();
+          renderTiBtns();
+          swSync();
+          renderSwLaps();
+          swStartBtn.textContent = swRun ? _t('apps.clock.stop') : _t('apps.clock.start');
+          swLapBtn.textContent = swRun ? _t('apps.clock.lap') : (swElapsed > 0 ? _t('apps.clock.reset') : _t('apps.clock.lap'));
+          const lapHdrs = [_t('apps.clock.lap'), _t('apps.clock.split'), _t('apps.clock.overall')];
+          Array.from(swLapHdr.children).forEach((cell, i) => {
+            if (lapHdrs[i] !== undefined) cell.textContent = lapHdrs[i];
+          });
+
+          // Open editor modal — labels only; inputs + day toggles survive.
+          if (_activeModal && _activeModalTexts) {
+            const m = _activeModalTexts;
+            m.title.textContent = m.isEdit ? _t('apps.clock.editAlarm') : _t('apps.clock.addAlarm');
+            m.label.placeholder = _t('apps.clock.labelPlaceholder');
+            m.repeat.textContent = _t('apps.clock.repeat');
+            m.dayBtns.forEach((btn, i) => {
+              btn.title = DOW_FULL[i];
+              btn.textContent = DOW_FULL[i].charAt(0);
+            });
+            if (m.delete) m.delete.textContent = _t('apps.clock.delete');
+            m.cancel.textContent = _t('common.cancel');
+            m.save.textContent = _t('common.save');
+          }
+
+          renderAlarms();
+        } catch (error) {
+          console.warn('[Clock] Language change re-render failed:', error);
+        }
+      };
+      typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+      state.cleanups?.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+    }
     switchTab('clock');
   },
 });

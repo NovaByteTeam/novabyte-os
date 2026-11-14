@@ -9,5 +9,6 @@ source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-sans/Config.in"
 source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-cjk/Config.in"
 source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-arabic/Config.in"
 source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-devanagari/Config.in"
+source "$BR2_EXTERNAL_NBOSP_PATH/package/noto-bengali/Config.in"
 
 endmenu

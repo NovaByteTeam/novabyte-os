@@ -5,11 +5,11 @@
     "back": "Retour",
     "next": "Suivant",
     "skip": "Passer",
-    "close": "Séquence de clôture",
-    "open": "Open",
-    "save": "Sauvegarder",
+    "close": "Fermer",
+    "open": "Ouvrir",
+    "save": "Enregistrer",
     "select": "Choisir",
-    "remove": "Retirer",
+    "remove": "Supprimer",
     "rename": "Renommer",
     "refresh": "Actualisez",
     "error": "Errore",
@@ -21,7 +21,7 @@
       "loadingAria": "NovaByte est en cours de chargement"
     },
     "power": {
-      "logoff": "Déconnexion",
+      "logoff": "Se déconnecter de",
       "restart": "Recommencer",
       "powerOff": "Mise hors tension"
     },
@@ -73,7 +73,7 @@
       "justNow": "Maintenant seulement",
       "minutesAgo": "{{minutes}}il y a m",
       "hoursAgo": "{{hours}}Il y a h",
-      "backgroundTitle": "{{app}}En cours d'exécution en arrière-plan.",
+      "backgroundTitle": "{{app}}En cours d'exécution en arrière-plan",
       "terminate": "Les licencier",
       "actionFailed": "L’action a échoué",
       "unknownError": "Une erreur inconnue s’est produite.",
@@ -108,7 +108,7 @@
       "newFolder": "Nouveau dossier",
       "newFolderName": "Nouveau nom de dossier",
       "paste": "Vložiť",
-      "openTerminal": "Ouvrir un terminal@action: inmenu",
+      "openTerminal": "Ouvrir un terminal",
       "openSettings": "Ouvrir les Paramètres",
       "refresh": "Actualisez",
       "pinned": "Épinglé",
@@ -138,7 +138,7 @@
       "failedCreateShortcut": "Echec de création du raccourci dans",
       "managerUnavailable": "Le Gestionnaire d’applications n’est pas disponible.",
       "managerTimeout": "Le Gestionnaire d'applications a mis trop de temps à s'ouvrir.",
-      "cannotUninstall": "Impossible de désinstaller l'application.",
+      "cannotUninstall": "Impossible de désinstaller l'application",
       "desktopFolderMissing": "Dossier Bureau introuvable",
       "fileScanFailed": "Échec du balayage",
       "couldNotScan": "Impossible d'effectuer une analyse en toute sécurité{{file}}",
@@ -161,7 +161,7 @@
       "noCompatibleApps": "Aucune application compatible",
       "noCompatibleAppsBody": "Aucune application installée ne déclare prendre en charge{{file}}ments",
       "thisFile": "ce fichier",
-      "openWithTitle": "Ouvrir avec ",
+      "openWithTitle": "Ouvrir avec",
       "alwaysUseApp": "Toujours utiliser cette application pour ce type de fichier"
     },
     "window": {
@@ -333,7 +333,7 @@
       "passphraseLabel": "Phrase secrète (facultative, pour la connexion avec possibilité de récupération)",
       "createAccount": "Créer un compte",
       "sessionUnavailable": "Le service de session n'est pas disponible : redémarrez la machine.",
-      "creating": "Création de votre compte...",
+      "creating": "Création de votre compte",
       "setupFailed": "Échec de la configuration : veuillez réessayer."
     },
     "appearance": {
@@ -344,7 +344,7 @@
       "accentAria": "Couleur d'accentuation"
     },
     "done": {
-      "title": "Le tour est joué !",
+      "title": "Le tour est joué",
       "sub": "Bienvenue dans NovaByte OS,{{name}}. Les fichiers de votre compte se trouvent dans users/{{username}}/home — Ajoutez d'autres comptes à tout moment depuis l'application Utilisateurs.",
       "finish": "Terminer"
     },
@@ -1121,7 +1121,7 @@
         "textZoom": "Zoom du texte",
         "minFontSize": "Taille de police minimale",
         "quickControls": "Contrôles rapides",
-        "quickControlsDesc": "Faites glisser vers l'intérieur à partir du bord d'une page ou faites glisser horizontalement sur votre pavé tactile pour revenir en arrière ou en avant.",
+        "quickControlsDesc": "Faites glisser vers l'intérieur à partir du bord d'une page ou faites glisser horizontalement sur votre pavé tactile pour revenir en arrière ou en avant",
         "fullscreenMode": "Mode plein écran",
         "fullscreenModeDesc": "Masquer les contrôles sur les sites Web ; révélez-les en faisant défiler vers le haut ou en vous déplaçant vers le bord supérieur, puis éloignez-vous pour les masquer à nouveau",
         "resetAllBtn": "Réinitialiser tous les paramètres aux valeurs par défaut",
@@ -1660,7 +1660,7 @@
       "shellCommandAria": "Commande Shell",
       "commandInputAria": "Entrée de commande",
       "errorLine": "Erreur:{{message}}",
-      "terminalError": "[erreur de terminal]{{message}}\n",
+      "terminalError": "[erreur de terminal]{{message}}",
       "shellExited": "[Shell est sorti avec le statut{{status}}. Appuyez sur Entrée pour en démarrer un nouveau.]",
       "unknownStatus": "inconnu"
     },

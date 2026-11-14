@@ -791,7 +791,7 @@
     defaultSize: [1020, 680],
     minSize: [720, 480],
 
-    async init(content) {
+    async init(content, state) {
       content.replaceChildren();
       content.className = 'store-root';
       content.setAttribute('data-store-app', STORE_ID);
@@ -800,6 +800,7 @@
       let query = '';
       let selectedAppId = null;
       let settingsOpen = false;
+      let loadError = null;
 
       const header = document.createElement('header');
       header.className = 'store-header';
@@ -1221,6 +1222,66 @@
         }
       }
 
+      // Catalog-fetch failure screen — kept as a function of loadError so a
+      // live language switch can re-render it in the new language without
+      // losing the retry button or the error detail.
+      function renderLoadError() {
+        page.replaceChildren();
+        const failure = document.createElement('div');
+        failure.className = 'store-empty store-error';
+        const title = document.createElement('h2');
+        title.textContent = _t('apps.store.couldNotLoadCatalog');
+        const message = document.createElement('p');
+        message.textContent = loadError?.message || '';
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'app-btn btn-install';
+        retry.textContent = _t('apps.store.tryAgain');
+        retry.addEventListener('click', async () => {
+          retry.disabled = true;
+          retry.textContent = _t('apps.store.loading');
+          try {
+            allApps = await fetchAppList();
+            loadError = null;
+            renderView();
+          } catch (retryError) {
+            loadError = retryError;
+            message.textContent = retryError.message;
+            retry.disabled = false;
+            retry.textContent = _t('apps.store.tryAgain');
+          }
+        });
+        failure.append(title, message, retry);
+        page.appendChild(failure);
+      }
+
+      // Live re-localisation — rebuild this window's UI when the OS language
+      // changes, so an already-open store follows the switch in real time.
+      // renderView() re-derives everything from allApps/query/category/
+      // selectedAppId, so it is idempotent and never re-attaches the
+      // window-level listeners registered above.
+      state.cleanups = Array.isArray(state.cleanups) ? state.cleanups : [];
+      const localeHandler = () => {
+        try {
+          window.NovaI18n?.applyStaticDom?.(content);
+          // The header is built once outside renderView, so re-translate its
+          // chrome by hand; the search input itself keeps its current value.
+          settingsButton.textContent = _t('apps.store.settings');
+          settingsButton.setAttribute('aria-label', _t('apps.store.settingsAria'));
+          searchWrap.setAttribute('aria-label', _t('apps.store.searchAppsAria'));
+          search.placeholder = _t('apps.store.searchPlaceholder');
+          if (loading.isConnected) {
+            loading.innerHTML = '<span class="store-spinner" aria-hidden="true"></span><span>' + _t('apps.store.loadingCatalog') + '</span>';
+          }
+          if (loadError) renderLoadError();
+          else renderView();
+        } catch (error) {
+          console.warn('[AppStore] Language change re-render failed:', error);
+        }
+      };
+      typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+      state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+
       rerenderCurrentView = renderView;
       search.addEventListener('input', () => {
         query = search.value;
@@ -1249,33 +1310,11 @@
 
       try {
         allApps = await fetchAppList();
+        loadError = null;
         renderView();
       } catch (error) {
-        page.replaceChildren();
-        const failure = document.createElement('div');
-        failure.className = 'store-empty store-error';
-        const title = document.createElement('h2');
-        title.textContent = _t('apps.store.couldNotLoadCatalog');
-        const message = document.createElement('p');
-        message.textContent = error.message;
-        const retry = document.createElement('button');
-        retry.type = 'button';
-        retry.className = 'app-btn btn-install';
-        retry.textContent = _t('apps.store.tryAgain');
-        retry.addEventListener('click', async () => {
-          retry.disabled = true;
-          retry.textContent = _t('apps.store.loading');
-          try {
-            allApps = await fetchAppList();
-            renderView();
-          } catch (retryError) {
-            message.textContent = retryError.message;
-            retry.disabled = false;
-            retry.textContent = _t('apps.store.tryAgain');
-          }
-        });
-        failure.append(title, message, retry);
-        page.appendChild(failure);
+        loadError = error;
+        renderLoadError();
       }
     },
   });

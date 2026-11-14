@@ -1111,10 +1111,11 @@ const WM = window.WM = (() => {
   return wm;
 })();
 
-// Live re-localisation — patch every open window's titlebar aria labels
-// when the OS language changes (title text itself is the app's name, which
-// does not change with the OS language). Wired once per host page; the
-// launcher (not the WM) owns the taskbar/launchpad re-render.
+// Live re-localisation — patch every open window when the OS language changes.
+// Wired once per host page; the launcher (not the WM) owns the
+// taskbar/launchpad re-render, and apps own their window bodies via their
+// own languageChanged hooks — this covers the window chrome (aria labels)
+// plus any data-i18n-marked static text inside open app windows.
 if (typeof OS !== 'undefined' && OS.events?.on && !window.__wmLocaleWired) {
   window.__wmLocaleWired = true;
   OS.events.on('languageChanged', () => {
@@ -1129,6 +1130,9 @@ if (typeof OS !== 'undefined' && OS.events?.on && !window.__wmLocaleWired) {
           ?.setAttribute('aria-label', _t('shell.window.minimizeAria'));
         state.element?.querySelector('.window-control-btn.maximize')
           ?.setAttribute('aria-label', _t('shell.window.maximizeAria'));
+        // Relabel any data-i18n-marked static text inside the window body
+        // (apps that render text imperatively handle themselves).
+        try { window.NovaI18n?.applyStaticDom?.(state.element); } catch (_) { /* per-window fail-soft */ }
       }
     } catch (_) { /* best-effort chrome patch */ }
   });

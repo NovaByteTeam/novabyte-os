@@ -434,6 +434,13 @@
     return scanBytes(name, bytes);
   }
 
+  // Live re-localisation: deliberately NOT wired to OS.events 'languageChanged'.
+  // This service renders no UI and caches no strings — every _t() call above
+  // runs at scan time, while a verdict is being built, and window._t reads
+  // the currently active language on each call. A verdict produced after a
+  // language switch is therefore already in the new language; there is no
+  // open surface to re-render and nothing a listener could refresh.
+
   const Scanner = { scan, scanText, scanBase64 };
   window.Scanner = Scanner;
   // Back-compat alias for existing call sites / anything already wired to

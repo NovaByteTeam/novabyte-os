@@ -1,0 +1,6 @@
+config BR2_PACKAGE_NOTO_BENGALI
+	bool "Noto Sans Bengali font (Regular + Bold)"
+	depends on BR2_PACKAGE_FONTCONFIG
+	help
+	  Install Google's Noto Sans Bengali Regular and Bold for Bengali
+	  (bn) in NW.js and other Fontconfig-aware applications.

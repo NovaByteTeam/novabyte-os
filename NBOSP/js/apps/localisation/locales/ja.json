@@ -1660,7 +1660,7 @@
       "shellCommandAria": "シェルコマンド",
       "commandInputAria": "コマンド入力",
       "errorLine": "エラー：{{message}}",
-      "terminalError": "[端末エラー]{{message}}\n",
+      "terminalError": "[端末エラー]{{message}}",
       "shellExited": "[シェルはステータスとともに終了しました{{status}}。新しいものを開始するには Enter を押してください。]",
       "unknownStatus": "未知"
     },

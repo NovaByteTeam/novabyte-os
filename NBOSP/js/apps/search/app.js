@@ -506,6 +506,29 @@ registerApp({
       inp.focus();
     });
 
+    // ════════════════════════════════════════════════════════════════════════
+    // LIVE RE-LOCALISATION
+    // doSearch(inp.value) re-derives the whole results surface (sections,
+    // empty state, web fallback) from the current query; row interactions go
+    // through delegation on `results`, so no listeners are re-attached. The
+    // query text lives in inp.value and is passed straight back in, so
+    // nothing the user typed is lost — only the labels change language.
+    // ════════════════════════════════════════════════════════════════════════
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(content);
+        inp.placeholder = _t('apps.search.placeholder');
+        inp.setAttribute('aria-label', _t('apps.search.searchLabel'));
+        clearX.setAttribute('aria-label', _t('apps.search.clearSearchAria'));
+        results.setAttribute('aria-label', _t('apps.search.resultsAria'));
+        doSearch(inp.value);
+      } catch (error) {
+        console.warn('[Search] Language change re-render failed:', error);
+      }
+    };
+    typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+    state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+
     doSearch('');
     inp.focus();
   },
