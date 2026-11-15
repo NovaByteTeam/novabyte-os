@@ -963,22 +963,16 @@ registerApp({
         location.reload();
       }, { signal: lifecycle.signal });
       recoveryRow.appendChild(recoveryBtn);
+
+      // Developer Mode
+      // Both Recovery and Developer Mode are administrator-only controls.
+      // Show them together when the user is an admin, or show a single
+      // unified lock panel when they're not — avoids the duplicate panel bug
+      // that appeared when each section independently appended its own lock.
       if (isAdminUser()) {
         recoveryGroup.appendChild(recoveryRow);
         mainContent.appendChild(recoveryGroup);
-      } else {
-        // 2026-11-15: Recovery boot is an administrator-only control;
-        // standard accounts see the lock panel instead.
-        mainContent.appendChild(adminLockPanel());
-      }
 
-      // Developer Mode
-      // 2026-11-16: Developer Mode is an administrator-only surface — it
-      // unlocks devOnly system apps (devconsole, packages, sysaccess, perf,
-      // novareg, permissions), the Modules app and the root-access gate, so
-      // leaving it ungated handed every standard account the keys to the
-      // debugging tier. Standard accounts get the admin lock panel instead.
-      if (isAdminUser()) {
         const devGroup = createEl('div', { className: 'nook-group' });
         devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.developer') }));
         const devRow = createEl('div', { className: 'nook-toggle-row' });
@@ -1011,6 +1005,8 @@ registerApp({
         devGroup.appendChild(devRow);
         mainContent.appendChild(devGroup);
       } else {
+        // Standard accounts see one unified lock panel covering both
+        // Recovery and Developer Mode — not one panel per section.
         mainContent.appendChild(adminLockPanel());
       }
     }
