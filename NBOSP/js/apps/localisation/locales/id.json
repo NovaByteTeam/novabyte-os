@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} dibatalkan",
         "failed": ", {{count}} gagal",
         "total": "({{count}} total)"
+      },
+      "editor": {
+        "open": "Edit",
+        "openTitle": "Edit kode modul ini secara langsung dan muat ulang seketika",
+        "title": "Mengedit {{id}}",
+        "save": "Simpan & muat ulang",
+        "back": "← Kembali ke modul",
+        "fetchFailed": "Tidak dapat memuat {{path}}: HTTP {{status}}",
+        "saved": "Tersimpan ke disk dan dimuat ulang ke OS yang berjalan",
+        "saveFailed": "Gagal menyimpan: {{message}}",
+        "lines": "{{count}} baris",
+        "unsaved": "Diedit — belum disimpan"
       }
     },
     "install": {

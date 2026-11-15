@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} annullato",
         "failed": ", {{count}} fallito",
         "total": "({{count}} totale)"
+      },
+      "editor": {
+        "open": "Modifica",
+        "openTitle": "Modifica il codice di questo modulo in tempo reale e ricaricalo a caldo",
+        "title": "Modifica di {{id}}",
+        "save": "Salva e ricarica",
+        "back": "← Torna ai moduli",
+        "fetchFailed": "Impossibile caricare {{path}}: HTTP {{status}}",
+        "saved": "Salvato su disco e ricaricato nell'OS in esecuzione",
+        "saveFailed": "Salvataggio non riuscito: {{message}}",
+        "lines": "{{count}} righe",
+        "unsaved": "Modificato — non ancora salvato"
       }
     },
     "install": {

@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} annulé",
         "failed": ", {{count}} échoué",
         "total": "({{count}} total)"
+      },
+      "editor": {
+        "open": "Modifier",
+        "openTitle": "Modifier le code de ce module en direct et le recharger à chaud",
+        "title": "Modification de {{id}}",
+        "save": "Enregistrer et recharger",
+        "back": "← Retour aux modules",
+        "fetchFailed": "Impossible de charger {{path}} : HTTP {{status}}",
+        "saved": "Enregistré sur le disque et rechargé dans l'OS en cours d'exécution",
+        "saveFailed": "Échec de l'enregistrement : {{message}}",
+        "lines": "{{count}} lignes",
+        "unsaved": "Modifié — non encore enregistré"
       }
     },
     "install": {

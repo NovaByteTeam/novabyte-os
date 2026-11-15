@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} cancelado",
         "failed": ", {{count}} fallido",
         "total": "({{count}} total)"
+      },
+      "editor": {
+        "open": "Editar",
+        "openTitle": "Edita el código de este módulo en vivo y recárgalo al instante",
+        "title": "Editando {{id}}",
+        "save": "Guardar y recargar",
+        "back": "← Volver a los módulos",
+        "fetchFailed": "No se pudo cargar {{path}}: HTTP {{status}}",
+        "saved": "Guardado en disco y recargado en el OS en ejecución",
+        "saveFailed": "Error al guardar: {{message}}",
+        "lines": "{{count}} líneas",
+        "unsaved": "Editado — aún sin guardar"
       }
     },
     "install": {

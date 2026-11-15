@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} imeghairiwa",
         "failed": ", {{count}} imeshindwa",
         "total": "({{count}} jumla)"
+      },
+      "editor": {
+        "open": "Hariri",
+        "openTitle": "Hariri msimbo wa moduli hii moja kwa moja na ui Pakia upya mara moja",
+        "title": "Inahariri {{id}}",
+        "save": "Hifadhi na Pakia upya",
+        "back": "← Rudi kwa moduli",
+        "fetchFailed": "Imeshindwa kupakia {{path}}: HTTP {{status}}",
+        "saved": "Imehifadhiwa kwenye diski na imepakiwa upya kwenye OS inayoendelea",
+        "saveFailed": "Imeshindwa kuhifadhi: {{message}}",
+        "lines": "mistari {{count}}",
+        "unsaved": "Imehaririwa — bado haijahifadhiwa"
       }
     },
     "install": {

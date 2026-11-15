@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} iptal edildi",
         "failed": ", {{count}} arızalı",
         "total": "({{count}} toplam)"
+      },
+      "editor": {
+        "open": "Düzenle",
+        "openTitle": "Bu modülün kodunu canlı düzenleyin ve anında yeniden yükleyin",
+        "title": "{{id}} düzenleniyor",
+        "save": "Kaydet ve yeniden yükle",
+        "back": "← Modüllere dön",
+        "fetchFailed": "{{path}} yüklenemedi: HTTP {{status}}",
+        "saved": "Diske kaydedildi ve çalışan işletim sistemine yeniden yüklendi",
+        "saveFailed": "Kaydedilemedi: {{message}}",
+        "lines": "{{count}} satır",
+        "unsaved": "Düzenlendi — henüz kaydedilmedi"
       }
     },
     "install": {

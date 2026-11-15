@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} cancelled",
         "failed": ", {{count}} failed",
         "total": " ({{count}} total)"
+      },
+      "editor": {
+        "open": "Edit",
+        "openTitle": "Edit this module's code live and hot-reload it",
+        "title": "Editing {{id}}",
+        "save": "Save & reload",
+        "back": "← Back to modules",
+        "fetchFailed": "Could not load {{path}}: HTTP {{status}}",
+        "saved": "Saved to disk and reloaded into the running OS",
+        "saveFailed": "Save failed: {{message}}",
+        "lines": "{{count}} lines",
+        "unsaved": "Edited — not saved yet"
       }
     },
     "install": {

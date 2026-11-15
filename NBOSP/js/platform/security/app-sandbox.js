@@ -4472,8 +4472,31 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:clock:alarms:set', requestId, { success: true, alarms: svc.loadAlarms?.() || [] });
   }
 
+  // The alarm dialog is host-built (it must stay reachable even while the
+  // clock app itself is sandboxed in a webview), so its stylesheet ships
+  // inside the clock package and is installed here into the host document
+  // once — the same package-local stylesheet mechanism
+  // launchUnrestrictedHostApp uses. Since 2026-11-16 these rules moved out
+  // of the global style.css into the clock app's own sheet.
+  function ensureClockAlarmStylesheet() {
+    try {
+      const marker = 'style[data-novaapp-style="com.nbosp.clock"]';
+      if (document.querySelector(marker)) return;
+      const app = typeof AppRegistry !== 'undefined' && AppRegistry.getApp
+        ? AppRegistry.getApp('com.nbosp.clock')
+        : (typeof OS !== 'undefined' ? OS.apps['com.nbosp.clock'] : null);
+      const styleEncoded = app?.files?.['style.css'];
+      if (typeof styleEncoded !== 'string' || !styleEncoded) return;
+      const styleNode = document.createElement('style');
+      styleNode.dataset.novaappStyle = 'com.nbosp.clock';
+      styleNode.textContent = decodeBase64Utf8(styleEncoded);
+      document.head.appendChild(styleNode);
+    } catch (_) { /* the dialog falls back to the shared modal styles */ }
+  }
+
   async function handleClockAlarmDialog({ payload, requestId, webview }) {
     try {
+      ensureClockAlarmStylesheet();
       const src = payload?.alarm && typeof payload.alarm === 'object' ? payload.alarm : {};
       const body = document.createElement('div');
       body.className = 'clock-native-alarm-body';

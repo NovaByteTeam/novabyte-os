@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} 取消",
         "failed": ", {{count}} 失败的",
         "total": "（{{count}} 全部的）"
+      },
+      "editor": {
+        "open": "编辑",
+        "openTitle": "实时编辑此模块的代码并立即热重载",
+        "title": "正在编辑 {{id}}",
+        "save": "保存并重载",
+        "back": "← 返回模块列表",
+        "fetchFailed": "无法加载 {{path}}：HTTP {{status}}",
+        "saved": "已保存到磁盘并重载进正在运行的系统",
+        "saveFailed": "保存失败：{{message}}",
+        "lines": "{{count}} 行",
+        "unsaved": "已修改——尚未保存"
       }
     },
     "install": {

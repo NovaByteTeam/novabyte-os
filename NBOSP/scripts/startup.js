@@ -112,14 +112,21 @@ async function bootstrap(appDir) {
       win = createdWindow;
 
       win.on('close', function () {
-        // In the kiosk image, Alt+F4 / any WM close request aimed at the
-        // NovaByte app itself is ignored: the OS exposes its own close and
-        // shutdown flows. Only auxiliary windows (DevTools and other X11
-        // clients) are closable by the window manager. A programmatic exit
-        // can still force this by setting win.__nbospForceClose = true
-        // before calling win.close().
-        if (process.env.NBOSP_KIOSK === '1' && !this.__nbospForceClose) {
-          console.warn('[NovaByte] Kiosk close request ignored (Alt+F4 is disabled for the NovaByte app).');
+        // 2026-11-16: Alt+F4 / any WM close request aimed at the NovaByte
+        // app itself is ignored in EVERY mode (previously kiosk-only): the
+        // OS owns its lifecycle through the tray power menu
+        // (/usr/bin/nbosp-power), and closing the host window tears down
+        // the whole desktop session under the user's feet. Only auxiliary
+        // windows (DevTools, other X11 clients) remain closable by the
+        // window manager — they never route through this handler.
+        // Escape hatches:
+        //   - programmatic: set win.__nbospForceClose = true before close()
+        //     (the OS's own shutdown flow)
+        //   - development: NBOSP_ALLOW_WINDOW_CLOSE=1 disables the guard,
+        //     for dev hosts without the nbosp-power helper where the tray
+        //     could not otherwise quit the app.
+        if (closeRequestIgnored(this)) {
+          console.warn('[NovaByte] Close request ignored (Alt+F4 is disabled for the NovaByte app).');
           return; // not calling close(true) cancels the close
         }
         if (server && !server.killed) {
@@ -189,4 +196,14 @@ async function bootstrap(appDir) {
   // nothing fires when the NovaByte window is unfocused.
 }
 
-module.exports = { bootstrap, createServerEnv, getMainWindowOptions };
+/**
+ * Alt+F4 guard decision for the main NovaByte window. Exported for tests.
+ * A close request is IGNORED unless the OS's own shutdown flow forced it
+ * (win.__nbospForceClose) or the developer explicitly opted out
+ * (NBOSP_ALLOW_WINDOW_CLOSE=1).
+ */
+function closeRequestIgnored(win, env = process.env) {
+  return !win?.__nbospForceClose && env?.NBOSP_ALLOW_WINDOW_CLOSE !== '1';
+}
+
+module.exports = { bootstrap, createServerEnv, getMainWindowOptions, closeRequestIgnored };

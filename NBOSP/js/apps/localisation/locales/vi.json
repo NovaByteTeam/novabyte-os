@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} đã hủy bỏ",
         "failed": ", {{count}} thất bại",
         "total": "({{count}} tổng cộng)"
+      },
+      "editor": {
+        "open": "Sửa",
+        "openTitle": "Sửa code của mô-đun này trực tiếp và nạp lại ngay",
+        "title": "Đang sửa {{id}}",
+        "save": "Lưu và nạp lại",
+        "back": "← Quay lại mô-đun",
+        "fetchFailed": "Không thể tải {{path}}: HTTP {{status}}",
+        "saved": "Đã lưu vào đĩa và nạp lại vào OS đang chạy",
+        "saveFailed": "Lưu thất bại: {{message}}",
+        "lines": "{{count}} dòng",
+        "unsaved": "Đã sửa — chưa lưu"
       }
     },
     "install": {

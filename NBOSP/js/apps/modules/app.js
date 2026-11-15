@@ -255,6 +255,149 @@ registerApp({
       }
     }, { signal: ac.signal });
 
+    // ── Live code editor (2026-11-16) ────────────────────────────────
+    // The module list was reload-only: you could re-import whatever the dev
+    // server currently served, but editing meant leaving the OS for an
+    // external editor and coming back. The editor makes the loop entirely
+    // in-app: load the current source into a textarea, write it back to the
+    // physical file (trusted host + dev-mode gated), then hot-reload it with
+    // the same reloadOne() pipeline the Reload button uses — the new code is
+    // running AND persisted before the editor even closes.
+    function hostCanEditModuleFiles() {
+      try {
+        return typeof require === 'function' && typeof process !== 'undefined' && typeof process.cwd === 'function';
+      } catch (_) { return false; }
+    }
+
+    function resolveModuleFile(modulePath) {
+      const pathMod = require('path');
+      const root = pathMod.resolve(process.cwd());
+      // Module paths are served-rooted ("js/core/..."): strip the leading
+      // slash, resolve against the NBOSP root, and refuse anything that
+      // escapes it — the editor writes exactly the file the URL space serves.
+      const target = pathMod.resolve(root, String(modulePath).replace(/^\/+/, ''));
+      if (target !== root && !target.startsWith(root + pathMod.sep)) {
+        throw new Error('Module path escapes the NovaByte root');
+      }
+      return target;
+    }
+
+    function writeModuleFile(mod, code) {
+      const fs = require('fs');
+      fs.writeFileSync(resolveModuleFile(mod.path), code, 'utf8');
+    }
+
+    let editorEl = null;
+    let editorState = null; // { mod, textarea, status, loadedCode }
+
+    function closeEditor() {
+      editorEl?.remove();
+      editorEl = null;
+      editorState = null;
+      list.style.display = '';
+      addRow.style.display = '';
+      ioRow.style.display = '';
+      render();
+    }
+
+    async function openEditor(mod) {
+      editorEl?.remove();
+      let code;
+      try {
+        const res = await fetch('/' + mod.path + '?t=' + Date.now());
+        if (!res.ok) throw new Error(_t('apps.modules.editor.fetchFailed', { path: mod.path, status: res.status }));
+        code = await res.text();
+      } catch (e) {
+        reloadSummaryEl.textContent = e.message;
+        reloadSummaryEl.style.color = '#f85149';
+        return;
+      }
+
+      list.style.display = 'none';
+      addRow.style.display = 'none';
+      ioRow.style.display = 'none';
+
+      editorEl = createEl('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0;gap:8px;' });
+      editorEl.dataset.moduleEditor = mod.path;
+
+      const head = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;' });
+      const titleWrap = createEl('div', { style: 'min-width:0;' });
+      titleWrap.appendChild(createEl('div', { textContent: _t('apps.modules.editor.title', { id: mod.id }), style: 'font-weight:600;font-size:13px;' }));
+      titleWrap.appendChild(createEl('div', { textContent: mod.path, style: 'font-size:11px;color:var(--text-muted);font-family:monospace;' }));
+      const metaEl = createEl('span', { style: 'font-size:11px;color:var(--text-muted);' });
+      const backBtn = createEl('button', { textContent: _t('apps.modules.editor.back'), style: 'padding:4px 10px;background:transparent;color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+      backBtn.addEventListener('click', closeEditor, { signal: ac.signal });
+      head.append(titleWrap, metaEl, backBtn);
+      editorEl.appendChild(head);
+
+      const textarea = createEl('textarea', {
+        spellcheck: 'false',
+        'aria-label': _t('apps.modules.editor.title', { id: mod.id }),
+      });
+      textarea.value = code;
+      textarea.style.cssText = 'flex:1;min-height:0;resize:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;padding:10px;background:var(--bg-default,#0d1117);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:6px;tab-size:2;white-space:pre;overflow:auto;';
+      // Tab inserts two spaces instead of leaving the editor — editing with
+      // a keyboard shouldn't cost you focus.
+      textarea.addEventListener('keydown', (event) => {
+        if (event.key !== 'Tab') return;
+        event.preventDefault();
+        const { selectionStart: s, selectionEnd: e } = textarea;
+        textarea.setRangeText('  ', s, e, 'end');
+      }, { signal: ac.signal });
+      editorEl.appendChild(textarea);
+
+      const statusEl = createEl('div', { role: 'status', style: 'font-size:11px;color:var(--text-muted);min-height:14px;' });
+      const refreshMeta = () => {
+        const lines = textarea.value.split('\n').length;
+        const dirty = textarea.value !== editorState.loadedCode;
+        metaEl.textContent = dirty ? _t('apps.modules.editor.unsaved') : '';
+        statusEl.textContent = _t('apps.modules.editor.lines', { count: lines });
+        statusEl.style.color = 'var(--text-muted)';
+      };
+      textarea.addEventListener('input', refreshMeta, { signal: ac.signal });
+
+      const btnRow = createEl('div', { style: 'display:flex;gap:8px;flex-shrink:0;' });
+      const saveBtn = createEl('button', {
+        textContent: _t('apps.modules.editor.save'),
+        'aria-label': _t('apps.modules.editor.save'),
+        style: 'padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;',
+      });
+      saveBtn.dataset.role = 'save';
+      saveBtn.addEventListener('click', async () => {
+        const editedCode = textarea.value;
+        try {
+          writeModuleFile(mod, editedCode);
+        } catch (e) {
+          statusEl.textContent = _t('apps.modules.editor.saveFailed', { message: e.message });
+          statusEl.style.color = '#f85149';
+          return;
+        }
+        // Re-fetch + re-import through the standard reload pipeline: the
+        // file on disk now holds the edit, so reloadOne() reads exactly what
+        // was saved, the danger check still applies, and the diff/undo row
+        // gets honest prev/new codes.
+        const result = await reloadOne(mod, saveBtn);
+        if (result.ok) {
+          editorState.loadedCode = editedCode;
+          refreshMeta();
+          statusEl.textContent = _t('apps.modules.editor.saved');
+          statusEl.style.color = '#3fb950';
+        } else if (!result.cancelled) {
+          statusEl.textContent = _t('apps.modules.editor.saveFailed', { message: result.error || '' });
+          statusEl.style.color = '#f85149';
+        }
+      }, { signal: ac.signal });
+      btnRow.appendChild(saveBtn);
+      editorEl.appendChild(btnRow);
+      editorEl.appendChild(statusEl);
+
+      // Insert where the list sat so the editor owns the main column.
+      content.insertBefore(editorEl, addRow);
+      editorState = { mod, textarea, status: statusEl, loadedCode: code };
+      refreshMeta();
+      textarea.focus();
+    }
+
     // confirmDanger: small inline confirm, not a blocking window.confirm()
     // (which the rest of this app avoids — modals.js exists for real
     // dialogs, but a lightweight inline yes/no keeps this consistent with
@@ -330,8 +473,15 @@ registerApp({
         // now that the policy actually permits it.
         const blob = new Blob([code], { type: 'application/javascript' });
         const blobUrl = URL.createObjectURL(blob);
+        // __novaModulesImport is a documented test/host seam: environments
+        // without a native dynamic import (JSDOM test realms) can observe
+        // the re-import without a module loader. Everything else uses the
+        // real import().
+        const dynamicImport = typeof window.__novaModulesImport === 'function'
+          ? window.__novaModulesImport
+          : (url) => import(url);
         try {
-          await import(blobUrl);
+          await dynamicImport(blobUrl);
         } finally {
           // Safe to revoke right after import() resolves/rejects — by then
           // the module's been fetched and its top-level code has already
@@ -454,6 +604,19 @@ registerApp({
         btn.dataset.role = 'reload';
         btn.addEventListener('click', () => reloadOne(mod, btn), { signal: ac.signal });
         btns.appendChild(btn);
+
+        // Live editing — only offered on hosts that can write the source
+        // tree (NW.js trusted host); the web build keeps the reload-only UI.
+        if (hostCanEditModuleFiles()) {
+          const editBtn = createEl('button', {
+            textContent: _t('apps.modules.editor.open'),
+            title: _t('apps.modules.editor.openTitle'),
+            style: 'padding:4px 12px;background:transparent;color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;',
+          });
+          editBtn.dataset.role = 'edit';
+          editBtn.addEventListener('click', () => openEditor(mod), { signal: ac.signal });
+          btns.appendChild(editBtn);
+        }
 
         const removeBtn = createEl('button', { textContent: '✕', title: _t('apps.modules.row.removeTitle'), style: 'padding:4px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
         removeBtn.addEventListener('click', () => {

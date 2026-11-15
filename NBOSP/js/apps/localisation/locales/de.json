@@ -1708,6 +1708,18 @@
         "cancelled": ", {{count}} abgesagt",
         "failed": ", {{count}} fehlgeschlagen",
         "total": "({{count}} gesamt)"
+      },
+      "editor": {
+        "open": "Bearbeiten",
+        "openTitle": "Den Code dieses Moduls live bearbeiten und neu laden",
+        "title": "{{id}} wird bearbeitet",
+        "save": "Speichern & neu laden",
+        "back": "← Zurück zu den Modulen",
+        "fetchFailed": "{{path}} konnte nicht geladen werden: HTTP {{status}}",
+        "saved": "Auf Festplatte gespeichert und ins laufende OS neu geladen",
+        "saveFailed": "Speichern fehlgeschlagen: {{message}}",
+        "lines": "{{count}} Zeilen",
+        "unsaved": "Bearbeitet — noch nicht gespeichert"
       }
     },
     "install": {

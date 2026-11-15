@@ -1708,6 +1708,18 @@
         "cancelled": "、 {{count}} キャンセル",
         "failed": "、 {{count}} 失敗した",
         "total": "({{count}} 合計）"
+      },
+      "editor": {
+        "open": "編集",
+        "openTitle": "このモジュールのコードをライブ編集してホットリロードする",
+        "title": "{{id}} を編集中",
+        "save": "保存してリロード",
+        "back": "← モジュールに戻る",
+        "fetchFailed": "{{path}} を読み込めませんでした: HTTP {{status}}",
+        "saved": "ディスクに保存され、実行中のOSに再読み込みされました",
+        "saveFailed": "保存に失敗しました: {{message}}",
+        "lines": "{{count}} 行",
+        "unsaved": "編集済み — まだ未保存"
       }
     },
     "install": {
