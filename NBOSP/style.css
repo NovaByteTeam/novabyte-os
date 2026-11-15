@@ -152,7 +152,6 @@
     font-family: var(--font-ui);
     font-size: var(--font-size);
     color: var(--text-primary);
-    text-shadow: var(--text-shadow, none);
     background: var(--bg-base);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

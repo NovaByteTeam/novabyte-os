@@ -97,7 +97,6 @@ const THEMES = {
     '--border-subtle': 'rgba(27, 31, 35, 0.06)',
     '--border-default': 'rgba(27, 31, 35, 0.12)',
     '--border-strong': 'rgba(27, 31, 35, 0.25)',
-    '--text-shadow': '0 1px 2px rgba(255, 255, 255, 0.85), 0 0 4px rgba(255, 255, 255, 0.45)',
     '--r-window': '14px',
     '--font-size': '14px',
     '--window-blur': 'blur(28px) saturate(160%)'
@@ -332,8 +331,6 @@ function applyTheme(theme) {
   for (const [k, v] of Object.entries(t)) {
     root.style.setProperty(k, v);
   }
-  // Only the light theme defines a shadow; clear it so it can't outlive a switch to a dark theme.
-  if (!('--text-shadow' in t)) root.style.setProperty('--text-shadow', 'none');
   window.dispatchEvent(new CustomEvent('theme:changed', { detail: { theme } }));
 }
 
