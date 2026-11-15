@@ -708,7 +708,10 @@
       "wipeEverything": "مسح كل شيء",
       "wiping": "جارٍ مسح البيانات",
       "wipingBody": "يرجى الانتظار…",
-      "resetFailed": "فشلت إعادة التعيين"
+      "resetFailed": "فشلت إعادة التعيين",
+      "accountUsage": "مساحة تخزين الحساب",
+      "yourUsage": "مساحة التخزين الخاصة بك",
+      "totalUsed": "إجمالي مساحة التخزين المستخدمة"
     },
     "desktop": {
       "wallpaper": "الخلفية",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "يمكن للتطبيقات الممنوحة أذونات مسؤول استخدامها الآن.",
       "adminModeDisabledBody": "عادت منح أذونات المسؤول إلى حالة خمول.",
       "adminModeUpdateFailed": "تعذر تحديث وضع المسؤول",
-      "tryAgain": "حاول مجددًا"
+      "tryAgain": "حاول مجددًا",
+      "exportTo": "اختر مكان حفظ التصدير"
     },
     "root": {
       "intro": "تعمل تطبيقات الجذر مباشرةً في صفحة نظام التشغيل بوصول غير مقيّد، ويمكنها تنفيذ عمليات مسؤول (جذر) حقيقية. يطلب كل تطبيق جذر تأكيدك أولًا داخل موجه NovaByte — لا داخل التطبيق أبدًا — وتمر كل عملية مميّزة عبر sudo خاضع للتدقيق دون كلمة مرور (NOPASSWD) وتُكتب في سجل الأمان. هذا ليس بيئة عزل ولا إذن تطبيق عادي.",
@@ -957,6 +961,11 @@
       "pushRegistered": "مسجّل للدفع",
       "queuedPushOne": "إشعار دفع واحد في قائمة الانتظار",
       "queuedPushesMany": "{{count}} إشعار دفع في قائمة الانتظار"
+    },
+    "adminLock": {
+      "title": "مطلوب مسؤول",
+      "body": "هذا الإعداد متاح لحسابات المسؤولين فقط. سجل الدخول بحساب مسؤول لتغييره.",
+      "switchUser": "تبديل المستخدم"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "لم تُعد الإعدادات إلى الافتراضية",
         "settingsResetTitle": "أُعيدت الإعدادات إلى الافتراضية",
         "settingsResetBody": "استُعيدت جميع إعدادات المتصفح إلى الافتراضية."
+      },
+      "omnibox": {
+        "searchWith": "ابحث في {{engine}} عن \"{{query}}\""
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "خطأ: {{message}}",
       "terminalError": "\n[خطأ في الطرفية] {{message}}\n",
       "shellExited": "\n[انتهى الغلاف بالحالة {{status}}. اضغط Enter لبدء غلاف جديد.]\n",
-      "unknownStatus": "غير معروف"
+      "unknownStatus": "غير معروف",
+      "shortcutsClearLine": "=مسح السطر  ",
+      "shortcutsLineStart": "=بداية السطر  ",
+      "shortcutsLineEnd": "=نهاية السطر  ",
+      "shortcutsPaste": "=لصق"
     },
     "myApps": {
       "appInstalledTitle": "تم تثبيت التطبيق",
@@ -2130,7 +2146,9 @@
       "alarm": "منبّه",
       "alarmFor": "منبّه لـ {{time}}",
       "email": "البريد الإلكتروني",
-      "emailNewMail": "{{count}} جديدة في {{account}}"
+      "emailNewMail": "{{count}} جديدة في {{account}}",
+      "timerDone": "انتهى المؤقت",
+      "timerDoneBody": "انتهى المؤقت الخاص بك."
     },
     "search": {
       "appDataMissing": "دليل بيانات التطبيق مفقود.",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "كتابة الملفات غير متاحة في بيئة التشغيل هذه.",
         "csvExported": "صُدّر ملف CSV إلى {{path}}",
         "csvExportFailed": "فشل تصدير CSV: {{message}}"
-      }
+      },
+      "degradedRefresh": "تعذر تحديث الحسابات — يتم عرض آخر قائمة معروفة.",
+      "sessionExpired": "انتهت صلاحية جلستك — سج‌ل الدخول مرة أخرى.",
+      "retry": "إعادة المحاولة",
+      "confirmPin": "تأكيد رمز PIN",
+      "pinMismatch": "رمزتا PIN غير متطابقتين.",
+      "resetPinSelfWarning": "إعادة تعيين رمز PIN الخاص بـ {{name}}؟",
+      "resetPinSelfWarningBody": "إعادة تعيين رمز PIN الخاص بك تُخرجك من هذا الحساب في كل مكان — يتم إبطال كل الجلسات. ستسجل الدخول مرة أخرى برمز PIN المؤقت الذي سيظهر بعد ذلك، ثم تختار رمزًا جديدًا.",
+      "resetPinSelfWarningConfirm": "إعادة التعيين وتسجيل الخروج",
+      "resetPinSelfWarningDone": "تمت إعادة تعيين رمز PIN الخاص بك. سجل الدخول مجددًا برمز PIN المؤقت هذا — سيُطلب منك اختيار رمز جديد."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} جديدة في {{account}}",
         "newMailTitle": "{{email}} — {{count}} جديدة"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "الوصول السريع",
+      "home": "الرئيسية",
+      "breadcrumbsAria": "الموقع",
+      "editPath": "تحرير المسار",
+      "newFolder": "مجلد جديد",
+      "newFile": "ملف جديد",
+      "createFailed": "فشل الإنشاء",
+      "createFolderFailed": "تعذر إنشاء المجلد: {{message}}",
+      "createFileFailed": "تعذر إنشاء الملف: {{message}}"
     }
   }
 }

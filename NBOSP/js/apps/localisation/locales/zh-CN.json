@@ -708,7 +708,10 @@
       "wipeEverything": "擦拭一切",
       "wiping": "擦除数据",
       "wipingBody": "请稍等...",
-      "resetFailed": "重置失败"
+      "resetFailed": "重置失败",
+      "accountUsage": "账户存储",
+      "yourUsage": "你的存储",
+      "totalUsed": "已用总存储"
     },
     "desktop": {
       "wallpaper": "墙纸",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "授予管理员权限的应用程序现在可以使用它们。",
       "adminModeDisabledBody": "管理员权限授予现在再次失效。",
       "adminModeUpdateFailed": "无法更新管理模式",
-      "tryAgain": "再试一次"
+      "tryAgain": "再试一次",
+      "exportTo": "选择导出内容的保存位置"
     },
     "root": {
       "intro": "Root应用程序直接在操作系统页面中运行，访问不受限制，可以执行真正的管理员（root）操作。每个根应用程序首先会在 NovaByte 提示符内要求您确认（而不是在应用程序内），并且每个特权操作都通过经过审核的无密码 sudo (NOPASSWD) 运行，并写入安全日志。这不是沙箱或普通的应用程序权限。",
@@ -957,6 +961,11 @@
       "pushRegistered": "推送已注册",
       "queuedPushOne": "1 排队推送",
       "queuedPushesMany": "{{count}} 排队推送"
+    },
+    "adminLock": {
+      "title": "需要管理员",
+      "body": "此设置仅对管理员账户可用。请使用管理员账户登录后进行更改。",
+      "switchUser": "切换用户"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "设置未重置",
         "settingsResetTitle": "设置重置",
         "settingsResetBody": "所有浏览器设置均恢复为默认值。"
+      },
+      "omnibox": {
+        "searchWith": "在 {{engine}} 中搜索 \"{{query}}\""
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "错误： {{message}}",
       "terminalError": "[终端错误] {{message}}",
       "shellExited": "[Shell 退出，状态为 {{status}}。按 Enter 键开始新的一个。]",
-      "unknownStatus": "未知"
+      "unknownStatus": "未知",
+      "shortcutsClearLine": "=清除当前行  ",
+      "shortcutsLineStart": "=行首  ",
+      "shortcutsLineEnd": "=行尾  ",
+      "shortcutsPaste": "=粘贴"
     },
     "myApps": {
       "appInstalledTitle": "应用程序已安装",
@@ -2130,7 +2146,9 @@
       "alarm": "警报",
       "alarmFor": "警报用于 {{time}}",
       "email": "电子邮件",
-      "emailNewMail": "{{count}} 新来的 {{account}}"
+      "emailNewMail": "{{count}} 新来的 {{account}}",
+      "timerDone": "计时结束",
+      "timerDoneBody": "您的计时器已结束。"
     },
     "store": {
       "releaseTrack": "发布曲目",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "在此运行时无法写入文件。",
         "csvExported": "CSV 导出到 {{path}}",
         "csvExportFailed": "CSV 导出失败： {{message}}"
-      }
+      },
+      "degradedRefresh": "无法刷新账户列表——当前显示的是上次已知的列表。",
+      "sessionExpired": "会话已过期——请重新登录。",
+      "retry": "重试",
+      "confirmPin": "确认 PIN 码",
+      "pinMismatch": "两次输入的 PIN 码不一致。",
+      "resetPinSelfWarning": "重置 {{name}} 的 PIN 码？",
+      "resetPinSelfWarningBody": "重置自己的 PIN 码会使此账户在所有设备上退出登录——所有会话都将被吊销。你需要使用随后显示的临时 PIN 码重新登录，然后再选择新的 PIN 码。",
+      "resetPinSelfWarningConfirm": "重置并退出登录",
+      "resetPinSelfWarningDone": "你的 PIN 码已重置。请使用此临时 PIN 码重新登录——系统会要求你选择新的 PIN 码。"
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} 新来的 {{account}}",
         "newMailTitle": "{{email}} — {{count}} 新的"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "快速访问",
+      "home": "主页",
+      "breadcrumbsAria": "位置",
+      "editPath": "编辑路径",
+      "newFolder": "新建文件夹",
+      "newFile": "新建文件",
+      "createFailed": "创建失败",
+      "createFolderFailed": "无法创建文件夹：{{message}}",
+      "createFileFailed": "无法创建文件：{{message}}"
     }
   }
 }

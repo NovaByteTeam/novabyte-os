@@ -708,7 +708,10 @@
       "wipeEverything": "Xóa mọi thứ",
       "wiping": "Xóa dữ liệu",
       "wipingBody": "Vui lòng chờ...",
-      "resetFailed": "Đặt lại không thành công"
+      "resetFailed": "Đặt lại không thành công",
+      "accountUsage": "Bộ nhớ tài khoản",
+      "yourUsage": "Bộ nhớ của bạn",
+      "totalUsed": "Tổng bộ nhớ đã dùng"
     },
     "desktop": {
       "wallpaper": "Hình nền",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Các ứng dụng được cấp quyền quản trị hiện có thể sử dụng chúng.",
       "adminModeDisabledBody": "Việc cấp quyền của quản trị viên hiện đã bị trì hoãn trở lại.",
       "adminModeUpdateFailed": "Không thể cập nhật chế độ quản trị viên",
-      "tryAgain": "Thử lại"
+      "tryAgain": "Thử lại",
+      "exportTo": "Chọn nơi lưu bản xuất"
     },
     "root": {
       "intro": "Các ứng dụng gốc chạy trực tiếp trên trang hệ điều hành với quyền truy cập không hạn chế và có thể thực hiện các thao tác của quản trị viên (root) thực sự. Trước tiên, mọi ứng dụng gốc đều yêu cầu bạn xác nhận bên trong lời nhắc NovaByte — không bao giờ bên trong ứng dụng — và mọi hoạt động đặc quyền đều chạy qua sudo (NOPASSWD) đã được kiểm tra, không cần mật khẩu và được ghi vào nhật ký bảo mật. Đây không phải là hộp cát hoặc quyền ứng dụng thông thường.",
@@ -957,6 +961,11 @@
       "pushRegistered": "đẩy đã đăng ký",
       "queuedPushOne": "1 lần đẩy hàng đợi",
       "queuedPushesMany": "{{count}} đẩy hàng đợi"
+    },
+    "adminLock": {
+      "title": "Cần quản trị viên",
+      "body": "Cài đặt này chỉ khả dụng cho tài khoản quản trị viên. Đăng nhập bằng tài khoản quản trị viên để thay đổi.",
+      "switchUser": "Chuyển đổi người dùng"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "Cài đặt không được đặt lại",
         "settingsResetTitle": "Đặt lại cài đặt",
         "settingsResetBody": "Tất cả cài đặt trình duyệt được khôi phục về mặc định."
+      },
+      "omnibox": {
+        "searchWith": "Tìm \"{{query}}\" trên {{engine}}"
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "Lỗi: {{message}}",
       "terminalError": "[lỗi thiết bị đầu cuối] {{message}}",
       "shellExited": "[Shell đã thoát với trạng thái {{status}}. Nhấn Enter để bắt đầu một cái mới.]",
-      "unknownStatus": "không rõ"
+      "unknownStatus": "không rõ",
+      "shortcutsClearLine": "=xóa dòng  ",
+      "shortcutsLineStart": "=đầu dòng  ",
+      "shortcutsLineEnd": "=cuối dòng  ",
+      "shortcutsPaste": "=dán"
     },
     "myApps": {
       "appInstalledTitle": "Đã cài đặt ứng dụng",
@@ -2130,7 +2146,9 @@
       "alarm": "Báo thức",
       "alarmFor": "Báo động cho {{time}}",
       "email": "E-mail",
-      "emailNewMail": "{{count}} mới vào {{account}}"
+      "emailNewMail": "{{count}} mới vào {{account}}",
+      "timerDone": "Hẹn giờ kết thúc",
+      "timerDoneBody": "Bộ hẹn giờ của bạn đã kết thúc."
     },
     "store": {
       "releaseTrack": "Bản nhạc phát hành",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "Việc ghi tệp không khả dụng trong thời gian chạy này.",
         "csvExported": "Đã xuất CSV sang {{path}}",
         "csvExportFailed": "Xuất CSV không thành công: {{message}}"
-      }
+      },
+      "degradedRefresh": "Không thể làm mới danh sách tài khoản — hiển thị danh sách đã biết gần nhất.",
+      "sessionExpired": "Phiên của bạn đã hết hạn — đăng nhập lại.",
+      "retry": "Thử lại",
+      "confirmPin": "Xác nhận mã PIN",
+      "pinMismatch": "Mã PIN không khớp.",
+      "resetPinSelfWarning": "Đặt lại mã PIN của {{name}}?",
+      "resetPinSelfWarningBody": "Đặt lại mã PIN của chính bạn sẽ đăng xuất bạn khỏi tài khoản này ở mọi nơi — mọi phiên đều bị thu hồi. Bạn sẽ đăng nhập lại bằng mã PIN tạm thời được hiển thị tiếp theo và sau đó chọn mã mới.",
+      "resetPinSelfWarningConfirm": "Đặt lại và đăng xuất",
+      "resetPinSelfWarningDone": "Mã PIN của bạn đã được đặt lại. Đăng nhập lại bằng mã PIN tạm thời này — bạn sẽ được yêu cầu chọn mã mới."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} mới vào {{account}}",
         "newMailTitle": "{{email}} — {{count}} mới"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Truy cập nhanh",
+      "home": "Trang chủ",
+      "breadcrumbsAria": "Vị trí",
+      "editPath": "Sửa đường dẫn",
+      "newFolder": "Thư mục mới",
+      "newFile": "Tệp mới",
+      "createFailed": "Tạo thất bại",
+      "createFolderFailed": "Không thể tạo thư mục: {{message}}",
+      "createFileFailed": "Không thể tạo tệp: {{message}}"
     }
   }
 }

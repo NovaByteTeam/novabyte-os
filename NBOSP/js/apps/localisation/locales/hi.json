@@ -708,7 +708,10 @@
       "wipeEverything": "सब कुछ पोंछो",
       "wiping": "डेटा मिटाना",
       "wipingBody": "कृपया प्रतीक्षा करें...",
-      "resetFailed": "रीसेट विफल"
+      "resetFailed": "रीसेट विफल",
+      "accountUsage": "खाता स्टोरेज",
+      "yourUsage": "आपका स्टोरेज",
+      "totalUsed": "कुल उपयोग किया गया स्टोरेज"
     },
     "desktop": {
       "wallpaper": "वॉलपेपर",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "जिन ऐप्स को व्यवस्थापकीय अनुमतियाँ दी गई हैं वे अब उनका उपयोग कर सकते हैं।",
       "adminModeDisabledBody": "व्यवस्थापक अनुमति अनुदान अब फिर से निष्क्रिय हैं।",
       "adminModeUpdateFailed": "एडमिन मोड अपडेट नहीं किया जा सका",
-      "tryAgain": "पुनः प्रयास करें"
+      "tryAgain": "पुनः प्रयास करें",
+      "exportTo": "चुनें कि निर्यात कहाँ सहेजना है"
     },
     "root": {
       "intro": "रूट ऐप्स अप्रतिबंधित पहुंच के साथ सीधे ओएस पेज में चलते हैं और वास्तविक व्यवस्थापक (रूट) संचालन कर सकते हैं। प्रत्येक रूट ऐप सबसे पहले नोवाबाइट प्रॉम्प्ट के अंदर आपकी पुष्टि मांगता है - ऐप के अंदर कभी नहीं - और प्रत्येक विशेषाधिकार प्राप्त ऑपरेशन ऑडिटेड, पासवर्ड रहित सुडो (NOPASSWD) के माध्यम से चलता है और सुरक्षा लॉग में लिखा जाता है। यह सैंडबॉक्स या सामान्य ऐप अनुमति नहीं है।",
@@ -957,6 +961,11 @@
       "pushRegistered": "पुश पंजीकृत",
       "queuedPushOne": "1 कतारबद्ध धक्का",
       "queuedPushesMany": "{{count}} पंक्तिबद्ध धक्का"
+    },
+    "adminLock": {
+      "title": "व्यवस्थापक आवश्यक",
+      "body": "यह सेटिंग केवल व्यवस्थापक खातों के लिए उपलब्ध है। इसे बदलने के लिए किसी व्यवस्थापक खाते से साइन इन करें।",
+      "switchUser": "उपयोगकर्ता बदलें"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "सेटिंग्स रीसेट नहीं हुईं",
         "settingsResetTitle": "सेटिंग्स रीसेट हो गईं",
         "settingsResetBody": "सभी ब्राउज़र सेटिंग्स डिफ़ॉल्ट पर पुनर्स्थापित हो गईं।"
+      },
+      "omnibox": {
+        "searchWith": "{{engine}} पर \"{{query}}\" खोजें"
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "गलती: {{message}}",
       "terminalError": "[टर्मिनल त्रुटि] {{message}}",
       "shellExited": "[शैल स्थिति के साथ बाहर निकल गया {{status}}. नई शुरुआत करने के लिए Enter दबाएँ।]",
-      "unknownStatus": "अज्ञात"
+      "unknownStatus": "अज्ञात",
+      "shortcutsClearLine": "=पंक्ति साफ़ करें  ",
+      "shortcutsLineStart": "=पंक्ति की शुरुआत  ",
+      "shortcutsLineEnd": "=पंक्ति का अंत  ",
+      "shortcutsPaste": "=पेस्ट करें"
     },
     "myApps": {
       "appInstalledTitle": "ऐप इंस्टॉल किया गया",
@@ -2130,7 +2146,9 @@
       "alarm": "खतरे की घंटी",
       "alarmFor": "के लिए अलार्म {{time}}",
       "email": "ईमेल",
-      "emailNewMail": "{{count}} में नई {{account}}"
+      "emailNewMail": "{{count}} में नई {{account}}",
+      "timerDone": "टाइमर पूर्ण हुआ",
+      "timerDoneBody": "आपका टाइमर समाप्त हो गया है।"
     },
     "store": {
       "releaseTrack": "ट्रैक जारी करें",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "इस रनटाइम में फ़ाइल लेखन अनुपलब्ध है.",
         "csvExported": "सीएसवी को निर्यात किया गया {{path}}",
         "csvExportFailed": "सीएसवी निर्यात विफल: {{message}}"
-      }
+      },
+      "degradedRefresh": "खातों को रिफ्रेश नहीं किया जा सका — अंतिम ज्ञात सूची दिखाई जा रही है।",
+      "sessionExpired": "आपका सेशन समाप्त हो गया — दोबारा साइन इन करें।",
+      "retry": "पुनः प्रयास करें",
+      "confirmPin": "पिन की पुष्टि करें",
+      "pinMismatch": "पिन मेल नहीं खाते।",
+      "resetPinSelfWarning": "{{name}} का पिन रीसेट करें?",
+      "resetPinSelfWarningBody": "अपना पिन रीसेट करने से यह खाता हर जगह से साइन आउट हो जाएगा — हर सेशन रद्द हो जाएगा। आप इसके बाद दिखाए गए अस्थायी पिन से दोबारा साइन इन करेंगे और फिर नया पिन चुनेंगे।",
+      "resetPinSelfWarningConfirm": "रीसेट करें और साइन आउट करें",
+      "resetPinSelfWarningDone": "आपका पिन रीसेट कर दिया गया है। इस अस्थायी पिन से दोबारा साइन इन करें — आपसे नया पिन चुनने के लिए कहा जाएगा।"
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} में नई {{account}}",
         "newMailTitle": "{{email}} — {{count}} नया"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "त्वरित पहुँच",
+      "home": "होम",
+      "breadcrumbsAria": "स्थान",
+      "editPath": "पथ संपादित करें",
+      "newFolder": "नया फ़ोल्डर",
+      "newFile": "नई फ़ाइल",
+      "createFailed": "बनाने में विफल",
+      "createFolderFailed": "फ़ोल्डर नहीं बनाया जा सका: {{message}}",
+      "createFileFailed": "फ़ाइल नहीं बनाई जा सकी: {{message}}"
     }
   }
 }

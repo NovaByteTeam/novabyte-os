@@ -708,7 +708,10 @@
       "wipeEverything": "모든 것을 닦아라",
       "wiping": "데이터 삭제",
       "wipingBody": "기다리세요...",
-      "resetFailed": "재설정 실패"
+      "resetFailed": "재설정 실패",
+      "accountUsage": "계정 저장소",
+      "yourUsage": "내 저장소",
+      "totalUsed": "사용된 총 저장소"
     },
     "desktop": {
       "wallpaper": "벽지",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "이제 관리자 권한이 부여된 앱에서 이를 사용할 수 있습니다.",
       "adminModeDisabledBody": "이제 관리자 권한 부여가 다시 비활성화됩니다.",
       "adminModeUpdateFailed": "관리 모드를 업데이트할 수 없습니다",
-      "tryAgain": "다시 시도하세요"
+      "tryAgain": "다시 시도하세요",
+      "exportTo": "내보낼 파일을 저장할 위치를 선택하세요"
     },
     "root": {
       "intro": "루트 앱은 무제한 액세스로 OS 페이지에서 직접 실행되며 실제 관리자(루트) 작업을 수행할 수 있습니다. 모든 루트 앱은 먼저 앱 내부가 아닌 NovaByte 프롬프트 내에서 확인을 요청하며 모든 권한 있는 작업은 감사된 비밀번호 없는 sudo(NOPASSWD)를 통해 실행되며 보안 로그에 기록됩니다. 이는 샌드박스나 일반 앱 권한이 아닙니다.",
@@ -957,6 +961,11 @@
       "pushRegistered": "푸시 등록됨",
       "queuedPushOne": "대기 중인 푸시 1개",
       "queuedPushesMany": "{{count}} 대기 중인 푸시"
+    },
+    "adminLock": {
+      "title": "관리자 필요",
+      "body": "이 설정은 관리자 계정에서만 사용할 수 있습니다. 변경하려면 관리자 계정으로 로그인하세요.",
+      "switchUser": "사용자 전환"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "설정이 재설정되지 않음",
         "settingsResetTitle": "설정 재설정",
         "settingsResetBody": "모든 브라우저 설정이 기본값으로 복원되었습니다."
+      },
+      "omnibox": {
+        "searchWith": "{{engine}}에서 \"{{query}}\" 검색"
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "오류: {{message}}",
       "terminalError": "[터미널 오류] {{message}}",
       "shellExited": "[쉘이 상태로 종료되었습니다. {{status}}. 새로운 것을 시작하려면 Enter를 누르세요.]",
-      "unknownStatus": "알려지지 않은"
+      "unknownStatus": "알려지지 않은",
+      "shortcutsClearLine": "=행 지우기  ",
+      "shortcutsLineStart": "=행 시작  ",
+      "shortcutsLineEnd": "=행 끝  ",
+      "shortcutsPaste": "=붙여넣기"
     },
     "myApps": {
       "appInstalledTitle": "앱이 설치됨",
@@ -2130,7 +2146,9 @@
       "alarm": "경보",
       "alarmFor": "알람 {{time}}",
       "email": "이메일",
-      "emailNewMail": "{{count}} 새로운 {{account}}"
+      "emailNewMail": "{{count}} 새로운 {{account}}",
+      "timerDone": "타이머 완료",
+      "timerDoneBody": "타이머가 끝났습니다."
     },
     "store": {
       "releaseTrack": "릴리스 트랙",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "이 런타임에서는 파일 쓰기를 사용할 수 없습니다.",
         "csvExported": "CSV를 다음으로 내보냈습니다. {{path}}",
         "csvExportFailed": "CSV 내보내기 실패: {{message}}"
-      }
+      },
+      "degradedRefresh": "계정을 새로 고침하지 못했습니다 — 마지막으로 알려진 목록을 표시합니다.",
+      "sessionExpired": "세션이 만료되었습니다 — 다시 로그인하세요.",
+      "retry": "다시 시도",
+      "confirmPin": "PIN 확인",
+      "pinMismatch": "PIN이 일치하지 않습니다.",
+      "resetPinSelfWarning": "{{name}}의 PIN을 재설정하시겠습니까?",
+      "resetPinSelfWarningBody": "자신의 PIN을 재설정하면 이 계정의 모든 세션이 해지되어 어디서나 로그아웃됩니다. 다음에 표시되는 임시 PIN으로 다시 로그인한 후 새 PIN을 선택하게 됩니다.",
+      "resetPinSelfWarningConfirm": "재설정하고 로그아웃",
+      "resetPinSelfWarningDone": "PIN이 재설정되었습니다. 이 임시 PIN으로 다시 로그인하세요 — 새 PIN을 선택하라는 요청을 받게 됩니다."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} 새로운 {{account}}",
         "newMailTitle": "{{email}} — {{count}} 새로운"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "빠른 액세스",
+      "home": "홈",
+      "breadcrumbsAria": "위치",
+      "editPath": "경로 편집",
+      "newFolder": "새 폴더",
+      "newFile": "새 파일",
+      "createFailed": "만들기 실패",
+      "createFolderFailed": "폴더를 만들 수 없습니다: {{message}}",
+      "createFileFailed": "파일을 만들 수 없습니다: {{message}}"
     }
   }
 }

@@ -708,7 +708,10 @@
       "wipeEverything": "Pulisci tutto",
       "wiping": "Cancellazione dei dati",
       "wipingBody": "Attendere prego...",
-      "resetFailed": "Reimpostazione non riuscita"
+      "resetFailed": "Reimpostazione non riuscita",
+      "accountUsage": "Spazio di archiviazione dell'account",
+      "yourUsage": "Il tuo spazio di archiviazione",
+      "totalUsed": "Spazio di archiviazione totale utilizzato"
     },
     "desktop": {
       "wallpaper": "Carta da parati",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Le app a cui sono state concesse autorizzazioni di amministratore ora possono utilizzarle.",
       "adminModeDisabledBody": "Le concessioni delle autorizzazioni di amministratore ora sono di nuovo inerti.",
       "adminModeUpdateFailed": "Impossibile aggiornare la modalità amministratore",
-      "tryAgain": "Riprova"
+      "tryAgain": "Riprova",
+      "exportTo": "Scegli dove salvare l'esportazione"
     },
     "root": {
       "intro": "Le app root vengono eseguite direttamente nella pagina del sistema operativo con accesso illimitato e possono eseguire operazioni di amministratore reale (root). Ogni app root richiede prima la tua conferma all'interno di un prompt NovaByte - mai all'interno dell'app - e ogni operazione privilegiata viene eseguita tramite sudo controllato e senza password (NOPASSWD) e viene scritta nel registro di sicurezza. Questa non è una sandbox o una normale autorizzazione per l'app.",
@@ -957,6 +961,11 @@
       "pushRegistered": "spingere registrato",
       "queuedPushOne": "1 push in coda",
       "queuedPushesMany": "{{count}} push in coda"
+    },
+    "adminLock": {
+      "title": "È richiesto un amministratore",
+      "body": "Questa impostazione è disponibile solo per gli account amministratore. Accedi con un account amministratore per modificarla.",
+      "switchUser": "Cambia utente"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "Impostazioni non ripristinate",
         "settingsResetTitle": "Ripristino delle impostazioni",
         "settingsResetBody": "Tutte le impostazioni del browser sono state ripristinate ai valori predefiniti."
+      },
+      "omnibox": {
+        "searchWith": "Cerca su {{engine}} \"{{query}}\""
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "Errore: {{message}}",
       "terminalError": "[errore terminale] {{message}}",
       "shellExited": "[La shell è uscita con lo stato {{status}}. Premi Invio per iniziarne uno nuovo.]",
-      "unknownStatus": "sconosciuto"
+      "unknownStatus": "sconosciuto",
+      "shortcutsClearLine": "=cancella la riga  ",
+      "shortcutsLineStart": "=inizio riga  ",
+      "shortcutsLineEnd": "=fine riga  ",
+      "shortcutsPaste": "=incolla"
     },
     "myApps": {
       "appInstalledTitle": "Applicazione installata",
@@ -2130,7 +2146,9 @@
       "alarm": "Allarme",
       "alarmFor": "Allarme per {{time}}",
       "email": "E-mail",
-      "emailNewMail": "{{count}} nuovo arrivato {{account}}"
+      "emailNewMail": "{{count}} nuovo arrivato {{account}}",
+      "timerDone": "Timer completato",
+      "timerDoneBody": "Il tuo timer è terminato."
     },
     "store": {
       "releaseTrack": "Traccia di rilascio",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "La scrittura dei file non è disponibile in questo runtime.",
         "csvExported": "CSV esportato in {{path}}",
         "csvExportFailed": "Esportazione CSV non riuscita: {{message}}"
-      }
+      },
+      "degradedRefresh": "Impossibile aggiornare gli account — viene mostrato l'ultimo elenco noto.",
+      "sessionExpired": "La tua sessione è scaduta — accedi di nuovo.",
+      "retry": "Riprova",
+      "confirmPin": "Conferma PIN",
+      "pinMismatch": "I PIN non corrispondono.",
+      "resetPinSelfWarning": "Reimpostare il PIN di {{name}}?",
+      "resetPinSelfWarningBody": "Reimpostare il proprio PIN disconnette questo account ovunque — ogni sessione viene revocata. Effettuerai di nuovo l'accesso con il PIN temporaneo mostrato in seguito e poi ne sceglierai uno nuovo.",
+      "resetPinSelfWarningConfirm": "Reimposta e disconnetti",
+      "resetPinSelfWarningDone": "Il tuo PIN è stato reimpostato. Accedi di nuovo con questo PIN temporaneo — ti verrà chiesto di sceglierne uno nuovo."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} nuovo arrivato {{account}}",
         "newMailTitle": "{{email}} — {{count}} nuovo"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Accesso rapido",
+      "home": "Home",
+      "breadcrumbsAria": "Posizione",
+      "editPath": "Modifica percorso",
+      "newFolder": "Nuova cartella",
+      "newFile": "Nuovo file",
+      "createFailed": "Creazione non riuscita",
+      "createFolderFailed": "Impossibile creare la cartella: {{message}}",
+      "createFileFailed": "Impossibile creare il file: {{message}}"
     }
   }
 }

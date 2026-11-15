@@ -708,7 +708,10 @@
       "wipeEverything": "Limpe tudo",
       "wiping": "Limpando dados",
       "wipingBody": "Por favor, aguarde...",
-      "resetFailed": "Falha na redefinição"
+      "resetFailed": "Falha na redefinição",
+      "accountUsage": "Armazenamento da conta",
+      "yourUsage": "Seu armazenamento",
+      "totalUsed": "Armazenamento total utilizado"
     },
     "desktop": {
       "wallpaper": "Papel de parede",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Os aplicativos com permissões de administrador agora podem usá-los.",
       "adminModeDisabledBody": "As concessões de permissão de administrador agora estão inertes novamente.",
       "adminModeUpdateFailed": "Não foi possível atualizar o modo de administrador",
-      "tryAgain": "Tente novamente"
+      "tryAgain": "Tente novamente",
+      "exportTo": "Escolha onde salvar a exportação"
     },
     "root": {
       "intro": "Os aplicativos raiz são executados diretamente na página do sistema operacional com acesso irrestrito e podem realizar operações reais de administrador (raiz). Cada aplicativo raiz primeiro pede sua confirmação em um prompt do NovaByte – nunca dentro do aplicativo – e cada operação privilegiada é executada por meio de sudo auditado e sem senha (NOPASSWD) e é gravada no log de segurança. Esta não é uma sandbox ou uma permissão normal de aplicativo.",
@@ -957,6 +961,11 @@
       "pushRegistered": "push registrado",
       "queuedPushOne": "1 push na fila",
       "queuedPushesMany": "{{count}} pushes na fila"
+    },
+    "adminLock": {
+      "title": "Administrador necessário",
+      "body": "Esta configuração está disponível apenas para contas de administrador. Entre com uma conta de administrador para alterá-la.",
+      "switchUser": "Trocar de usuário"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "Configurações não redefinidas",
         "settingsResetTitle": "Configurações redefinidas",
         "settingsResetBody": "Todas as configurações do navegador foram restauradas aos padrões."
+      },
+      "omnibox": {
+        "searchWith": "Pesquisar no {{engine}} por \"{{query}}\""
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "Erro: {{message}}",
       "terminalError": "[erro de terminal] {{message}}",
       "shellExited": "[Shell saiu com status {{status}}. Pressione Enter para iniciar um novo.]",
-      "unknownStatus": "desconhecido"
+      "unknownStatus": "desconhecido",
+      "shortcutsClearLine": "=limpar linha  ",
+      "shortcutsLineStart": "=início da linha  ",
+      "shortcutsLineEnd": "=fim da linha  ",
+      "shortcutsPaste": "=colar"
     },
     "myApps": {
       "appInstalledTitle": "Aplicativo instalado",
@@ -2130,7 +2146,9 @@
       "alarm": "Alarme",
       "alarmFor": "Alarme para {{time}}",
       "email": "E-mail",
-      "emailNewMail": "{{count}} novo em {{account}}"
+      "emailNewMail": "{{count}} novo em {{account}}",
+      "timerDone": "Temporizador concluído",
+      "timerDoneBody": "Seu temporizador terminou."
     },
     "store": {
       "releaseTrack": "Faixa de lançamento",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "A gravação de arquivos não está disponível neste tempo de execução.",
         "csvExported": "CSV exportado para {{path}}",
         "csvExportFailed": "Falha na exportação de CSV: {{message}}"
-      }
+      },
+      "degradedRefresh": "Não foi possível atualizar as contas — exibindo a última lista conhecida.",
+      "sessionExpired": "Sua sessão expirou — entre novamente.",
+      "retry": "Tentar novamente",
+      "confirmPin": "Confirmar PIN",
+      "pinMismatch": "Os PINs não coincidem.",
+      "resetPinSelfWarning": "Redefinir o PIN de {{name}}?",
+      "resetPinSelfWarningBody": "Redefinir seu próprio PIN encerra a sessão desta conta em todos os lugares — todas as sessões são revogadas. Você entrará novamente com o PIN temporário exibido a seguir e depois escolherá um novo.",
+      "resetPinSelfWarningConfirm": "Redefinir e sair",
+      "resetPinSelfWarningDone": "Seu PIN foi redefinido. Entre novamente com este PIN temporário — você será solicitado a escolher um novo."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} novo em {{account}}",
         "newMailTitle": "{{email}} - {{count}} novo"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Acesso rápido",
+      "home": "Início",
+      "breadcrumbsAria": "Local",
+      "editPath": "Editar caminho",
+      "newFolder": "Nova pasta",
+      "newFile": "Novo arquivo",
+      "createFailed": "Falha ao criar",
+      "createFolderFailed": "Não foi possível criar a pasta: {{message}}",
+      "createFileFailed": "Não foi possível criar o arquivo: {{message}}"
     }
   }
 }

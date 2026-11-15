@@ -708,7 +708,10 @@
       "wipeEverything": "Limpiar todo",
       "wiping": "Borrar datos",
       "wipingBody": "Espere por favor...",
-      "resetFailed": "Reinicio fallido"
+      "resetFailed": "Reinicio fallido",
+      "accountUsage": "Almacenamiento de la cuenta",
+      "yourUsage": "Tu almacenamiento",
+      "totalUsed": "Almacenamiento total utilizado"
     },
     "desktop": {
       "wallpaper": "Papel pintado",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Las aplicaciones a las que se les otorgan permisos de administrador ahora pueden usarlos.",
       "adminModeDisabledBody": "Las concesiones de permisos de administrador ahora vuelven a ser inertes.",
       "adminModeUpdateFailed": "No se pudo actualizar el modo de administrador",
-      "tryAgain": "Intentar otra vez"
+      "tryAgain": "Intentar otra vez",
+      "exportTo": "Elige dónde guardar la exportación"
     },
     "root": {
       "intro": "Las aplicaciones raíz se ejecutan directamente en la página del sistema operativo con acceso sin restricciones y pueden realizar operaciones reales de administrador (raíz). Cada aplicación raíz primero solicita su confirmación dentro de un mensaje de NovaByte (nunca dentro de la aplicación) y cada operación privilegiada se ejecuta a través de sudo auditado y sin contraseña (NOPASSWD) y se escribe en el registro de seguridad. Este no es un entorno de pruebas ni un permiso de aplicación normal.",
@@ -957,6 +961,11 @@
       "pushRegistered": "empujar registrado",
       "queuedPushOne": "1 empujón en cola",
       "queuedPushesMany": "{{count}} empujones en cola"
+    },
+    "adminLock": {
+      "title": "Se requiere administrador",
+      "body": "Este ajuste solo está disponible para cuentas de administrador. Inicia sesión con una cuenta de administrador para cambiarlo.",
+      "switchUser": "Cambiar de usuario"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "Configuración no restablecida",
         "settingsResetTitle": "Restablecer configuración",
         "settingsResetBody": "Todas las configuraciones del navegador restauradas a sus valores predeterminados."
+      },
+      "omnibox": {
+        "searchWith": "Buscar en {{engine}} \"{{query}}\""
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "Error: {{message}}",
       "terminalError": "[error terminal] {{message}}",
       "shellExited": "[Shell salió con estado {{status}}. Presione Enter para comenzar uno nuevo.]",
-      "unknownStatus": "desconocido"
+      "unknownStatus": "desconocido",
+      "shortcutsClearLine": "=limpiar línea  ",
+      "shortcutsLineStart": "=inicio de línea  ",
+      "shortcutsLineEnd": "=final de línea  ",
+      "shortcutsPaste": "=pegar"
     },
     "myApps": {
       "appInstalledTitle": "Aplicación instalada",
@@ -2130,7 +2146,9 @@
       "alarm": "Alarma",
       "alarmFor": "alarma para {{time}}",
       "email": "Correo electrónico",
-      "emailNewMail": "{{count}} nuevo en {{account}}"
+      "emailNewMail": "{{count}} nuevo en {{account}}",
+      "timerDone": "Temporizador terminado",
+      "timerDoneBody": "Tu temporizador ha terminado."
     },
     "store": {
       "releaseTrack": "Pista de lanzamiento",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "La escritura de archivos no está disponible en este tiempo de ejecución.",
         "csvExported": "CSV exportado a {{path}}",
         "csvExportFailed": "La exportación CSV falló: {{message}}"
-      }
+      },
+      "degradedRefresh": "No se han podido actualizar las cuentas — se muestra la última lista conocida.",
+      "sessionExpired": "Tu sesión ha caducado — vuelve a iniciar sesión.",
+      "retry": "Reintentar",
+      "confirmPin": "Confirmar PIN",
+      "pinMismatch": "Los PIN no coinciden.",
+      "resetPinSelfWarning": "¿Restablecer el PIN de {{name}}?",
+      "resetPinSelfWarningBody": "Restablecer tu propio PIN cierra la sesión de esta cuenta en todas partes — se revocan todas las sesiones. Volverás a iniciar sesión con el PIN temporal que se mostrará a continuación y luego elegirás uno nuevo.",
+      "resetPinSelfWarningConfirm": "Restablecer y cerrar sesión",
+      "resetPinSelfWarningDone": "Tu PIN se ha restablecido. Vuelve a iniciar sesión con este PIN temporal — se te pedirá elegir uno nuevo."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} nuevo en {{account}}",
         "newMailTitle": "{{email}} — {{count}} nuevo"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Acceso rápido",
+      "home": "Inicio",
+      "breadcrumbsAria": "Ubicación",
+      "editPath": "Editar ruta",
+      "newFolder": "Nueva carpeta",
+      "newFile": "Nuevo archivo",
+      "createFailed": "Error al crear",
+      "createFolderFailed": "No se ha podido crear la carpeta: {{message}}",
+      "createFileFailed": "No se ha podido crear el archivo: {{message}}"
     }
   }
 }

@@ -708,7 +708,10 @@
       "wipeEverything": "سب کچھ صاف کریں",
       "wiping": "ڈیٹا کا صفایا کرنا",
       "wipingBody": "برائے مہربانی انتظار کریں...",
-      "resetFailed": "دوبارہ ترتیب دینے میں ناکام"
+      "resetFailed": "دوبارہ ترتیب دینے میں ناکام",
+      "accountUsage": "اکاؤنٹ اسٹوریج",
+      "yourUsage": "آپ کا اسٹوریج",
+      "totalUsed": "کل استعمال شدہ اسٹوریج"
     },
     "desktop": {
       "wallpaper": "وال پیپر",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "ایڈمن کی اجازت دی گئی ایپس اب انہیں استعمال کر سکتی ہیں۔",
       "adminModeDisabledBody": "ایڈمن پرمیشن گرانٹس اب دوبارہ غیر فعال ہیں۔",
       "adminModeUpdateFailed": "ایڈمن موڈ کو اپ ڈیٹ نہیں کیا جا سکا",
-      "tryAgain": "دوبارہ کوشش کریں"
+      "tryAgain": "دوبارہ کوشش کریں",
+      "exportTo": "منتخب کریں کہ ایکسپورٹ کہاں محفوظ کرنا ہے"
     },
     "root": {
       "intro": "روٹ ایپس براہ راست OS صفحہ میں غیر محدود رسائی کے ساتھ چلتی ہیں اور حقیقی منتظم (روٹ) کے کام انجام دے سکتی ہیں۔ ہر روٹ ایپ سب سے پہلے نووا بائٹ پرامپٹ کے اندر آپ کی تصدیق مانگتی ہے — کبھی بھی ایپ کے اندر نہیں — اور ہر مراعات یافتہ آپریشن آڈٹ شدہ، پاس ورڈ کے بغیر سوڈو (NOPASSWD) کے ذریعے چلتا ہے اور اسے سیکیورٹی لاگ میں لکھا جاتا ہے۔ یہ سینڈ باکس یا عام ایپ کی اجازت نہیں ہے۔",
@@ -957,6 +961,11 @@
       "pushRegistered": "رجسٹرڈ دھکا",
       "queuedPushOne": "1 قطار والا دھکا",
       "queuedPushesMany": "{{count}} قطار دھکا"
+    },
+    "adminLock": {
+      "title": "ایڈمن کی ضرورت ہے",
+      "body": "یہ ترتیب صرف ایڈمن اکاؤنٹس کے لیے دستیاب ہے۔ اسے تبدیل کرنے کے لیے کسی ایڈمن اکاؤنٹ سے سائن ان کریں۔",
+      "switchUser": "صارف تبدیل کریں"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "ترتیبات دوبارہ ترتیب نہیں دی گئیں",
         "settingsResetTitle": "ترتیبات دوبارہ ترتیب دیں",
         "settingsResetBody": "براؤزر کی تمام ترتیبات ڈیفالٹس پر بحال ہو گئیں۔"
+      },
+      "omnibox": {
+        "searchWith": "{{engine}} پر \"{{query}}\" تلاش کریں"
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "خرابی: {{message}}",
       "terminalError": "[ٹرمینل غلطی] {{message}}",
       "shellExited": "[شیل اسٹیٹس کے ساتھ باہر نکل گیا۔ {{status}}. ایک نیا شروع کرنے کے لیے Enter دبائیں۔]",
-      "unknownStatus": "نامعلوم"
+      "unknownStatus": "نامعلوم",
+      "shortcutsClearLine": "=سطر صاف کریں  ",
+      "shortcutsLineStart": "=سطر کا آغاز  ",
+      "shortcutsLineEnd": "=سطر کا اختتام  ",
+      "shortcutsPaste": "=چسپاں کریں"
     },
     "myApps": {
       "appInstalledTitle": "ایپ انسٹال ہو گئی",
@@ -2130,7 +2146,9 @@
       "alarm": "الارم",
       "alarmFor": "کے لیے الارم {{time}}",
       "email": "ای میل",
-      "emailNewMail": "{{count}} میں نیا {{account}}"
+      "emailNewMail": "{{count}} میں نیا {{account}}",
+      "timerDone": "ٹائمر مکمل ہوا",
+      "timerDoneBody": "آپ کا ٹائمر ختم ہو گیا ہے۔"
     },
     "store": {
       "releaseTrack": "ریلیز ٹریک",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "اس رن ٹائم میں فائل رائٹنگ دستیاب نہیں ہے۔",
         "csvExported": "CSV کو برآمد کیا گیا۔ {{path}}",
         "csvExportFailed": "CSV برآمد ناکام: {{message}}"
-      }
+      },
+      "degradedRefresh": "اکاؤنٹس ریفریش نہیں ہو سکے — آخری معروف فہرست دکھائی جا رہی ہے۔",
+      "sessionExpired": "آپ کا سیشن ختم ہو گیا ہے — دوبارہ سائن ان کریں۔",
+      "retry": "دوبارہ کوشش کریں",
+      "confirmPin": "PIN کی تصدیق کریں",
+      "pinMismatch": "PIN ایک دوسرے سے مطابقت نہیں رکھتے۔",
+      "resetPinSelfWarning": "{{name}} کا PIN ری سیٹ کریں؟",
+      "resetPinSelfWarningBody": "اپنا PIN ری سیٹ کرنے سے آپ اس اکاؤنٹ سے ہر جگہ سائن آؤٹ ہو جائیں گے — ہر سیشن منسوخ ہو جائے گا۔ آپ اگلے مرحلے پر دکھائے گئے عارضی PIN سے دوبارہ سائن ان کریں گے اور پھر نیا PIN منتخب کریں گے۔",
+      "resetPinSelfWarningConfirm": "ری سیٹ کریں اور سائن آؤٹ ہوں",
+      "resetPinSelfWarningDone": "آپ کا PIN ری سیٹ ہو گیا ہے۔ اس عارضی PIN سے دوبارہ سائن ان کریں — آپ سے نیا PIN منتخب کرنے کے لیے کہا جائے گا۔"
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} میں نیا {{account}}",
         "newMailTitle": "{{email}} - {{count}} نیا"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "فوری رسائی",
+      "home": "ہوم",
+      "breadcrumbsAria": "مقام",
+      "editPath": "پاتھ ترمیم کریں",
+      "newFolder": "نیا فولڈر",
+      "newFile": "نئی فائل",
+      "createFailed": "بنانے میں ناکام",
+      "createFolderFailed": "فولڈر نہیں بن سکا: {{message}}",
+      "createFileFailed": "فائل نہیں بن سکی: {{message}}"
     }
   }
 }

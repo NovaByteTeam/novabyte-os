@@ -708,7 +708,10 @@
       "wipeEverything": "সবকিছু মুছে ফেলুন",
       "wiping": "ডেটা মুছে ফেলা হচ্ছে",
       "wipingBody": "অনুগ্রহ করে অপেক্ষা করুন...",
-      "resetFailed": "রিসেট ব্যর্থ হয়েছে"
+      "resetFailed": "রিসেট ব্যর্থ হয়েছে",
+      "accountUsage": "অ্যাকাউন্ট স্টোরেজ",
+      "yourUsage": "আপনার স্টোরেজ",
+      "totalUsed": "ব্যবহৃত মোট স্টোরেজ"
     },
     "desktop": {
       "wallpaper": "ওয়ালপেপার",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "অ্যাডমিন অনুমতি পাওয়া অ্যাপগুলো এখন সেগুলো ব্যবহার করতে পারবে।",
       "adminModeDisabledBody": "অ্যাডমিন অনুমতির অনুদান এখন আবার নিষ্ক্রিয়।",
       "adminModeUpdateFailed": "অ্যাডমিন মোড আপডেট করা যায়নি",
-      "tryAgain": "আবার চেষ্টা করুন"
+      "tryAgain": "আবার চেষ্টা করুন",
+      "exportTo": "এক্সপোর্ট কোথায় সেভ করবেন বাছুন"
     },
     "root": {
       "intro": "রুট অ্যাপগুলো সরাসরি OS পেজে সীমাহীন অ্যাক্সেস নিয়ে চলে এবং প্রকৃত অ্যাডমিনিস্ট্রেটর (রুট) কাজ করতে পারে। প্রতিটি রুট অ্যাপ প্রথমে একটি NovaByte প্রম্পটে আপনার নিশ্চিতকরণ চায় — কখনও অ্যাপের ভিতরে নয় — এবং প্রতিটি বিশেষাধিকারপ্রাপ্ত কাজ অডিটেড, পাসওয়ার্ডহীন sudo (NOPASSWD)-এর মাধ্যমে চলে এবং নিরাপত্তা লগে লেখা হয়। এটি কোনো স্যান্ডবক্স বা সাধারণ অ্যাপ পারমিশন নয়।",
@@ -957,6 +961,11 @@
       "pushRegistered": "পুশ নিবন্ধিত",
       "queuedPushOne": "1টি সারিবদ্ধ পুশ",
       "queuedPushesMany": "{{count}}টি সারিবদ্ধ পুশ"
+    },
+    "adminLock": {
+      "title": "প্রশাসক প্রয়োজন",
+      "body": "এই সেটিং শুধুমাত্র প্রশাসক অ্যাকাউন্টের জন্য উপলব্ধ। এটি পরিবর্তন করতে একটি প্রশাসক অ্যাকাউন্ট দিয়ে সাইন ইন করুন।",
+      "switchUser": "ব্যবহারকারী পরিবর্তন করুন"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "সেটিংস রিসেট হয়নি",
         "settingsResetTitle": "সেটিংস রিসেট হয়েছে",
         "settingsResetBody": "সব ব্রাউজার সেটিং ডিফল্টে ফিরিয়ে আনা হয়েছে।"
+      },
+      "omnibox": {
+        "searchWith": "{{engine}}-এ \"{{query}}\" অনুসন্ধান করুন"
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "ত্রুটি: {{message}}",
       "terminalError": "\n[টার্মিনাল ত্রুটি] {{message}}\n",
       "shellExited": "\n[{{status}} স্ট্যাটাসে শেলটি বন্ধ হয়েছে। নতুন একটি শুরু করতে Enter চাপুন।]\n",
-      "unknownStatus": "অজানা"
+      "unknownStatus": "অজানা",
+      "shortcutsClearLine": "=লাইন মুছুন  ",
+      "shortcutsLineStart": "=লাইনের শুরু  ",
+      "shortcutsLineEnd": "=লাইনের শেষ  ",
+      "shortcutsPaste": "=পেস্ট করুন"
     },
     "myApps": {
       "appInstalledTitle": "অ্যাপ ইনস্টল করা হয়েছে",
@@ -2130,7 +2146,9 @@
       "alarm": "অ্যালার্ম",
       "alarmFor": "{{time}}-এর অ্যালার্ম",
       "email": "ইমেইল",
-      "emailNewMail": "{{account}}-এ {{count}}টি নতুন"
+      "emailNewMail": "{{account}}-এ {{count}}টি নতুন",
+      "timerDone": "টাইমার শেষ",
+      "timerDoneBody": "আপনার টাইমার শেষ হয়েছে।"
     },
     "store": {
       "releaseTrack": "রিলিজ ট্র্যাক",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "এই রানটাইমে ফাইলে লেখা অনুপলব্ধ।",
         "csvExported": "CSV {{path}}-এ এক্সপোর্ট হয়েছে",
         "csvExportFailed": "CSV এক্সপোর্ট ব্যর্থ হয়েছে: {{message}}"
-      }
+      },
+      "degradedRefresh": "অ্যাকাউন্টগুলো রিফ্রেশ করা যায়নি — সর্বশেষ জানা তালিকা দেখানো হচ্ছে।",
+      "sessionExpired": "আপনার সেশনের মেয়াদ শেষ — আবার সাইন ইন করুন।",
+      "retry": "পুনরায় চেষ্টা করুন",
+      "confirmPin": "পিন নিশ্চিত করুন",
+      "pinMismatch": "পিন দুটি মিলছে না।",
+      "resetPinSelfWarning": "{{name}}-এর পিন রিসেট করবেন?",
+      "resetPinSelfWarningBody": "নিজের পিন রিসেট করলে এই অ্যাকাউন্টটি সর্বত্র থেকে সাইন আউট হয়ে যাবে — প্রতিটি সেশন বাতিল হয়ে যাবে। এরপর দেখানো সাময়িক পিন দিয়ে আবার সাইন ইন করবেন এবং তারপর নতুন একটি পিন বাছবেন।",
+      "resetPinSelfWarningConfirm": "রিসেট করে সাইন আউট করুন",
+      "resetPinSelfWarningDone": "আপনার পিন রিসেট হয়ে গেছে। এই সাময়িক পিন দিয়ে আবার সাইন ইন করুন — আপনাকে নতুন একটি পিন বাছতে বলা হবে।"
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{account}}-এ {{count}}টি নতুন",
         "newMailTitle": "{{email}} — {{count}}টি নতুন"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "দ্রুত অ্যাক্সেস",
+      "home": "হোম",
+      "breadcrumbsAria": "অবস্থান",
+      "editPath": "পথ সম্পাদনা করুন",
+      "newFolder": "নতুন ফোল্ডার",
+      "newFile": "নতুন ফাইল",
+      "createFailed": "তৈরি করতে ব্যর্থ",
+      "createFolderFailed": "ফোল্ডার তৈরি করা যায়নি: {{message}}",
+      "createFileFailed": "ফাইল তৈরি করা যায়নি: {{message}}"
     }
   }
 }

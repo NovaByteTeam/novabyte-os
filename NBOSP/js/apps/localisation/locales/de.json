@@ -708,7 +708,10 @@
       "wipeEverything": "Wischen Sie alles ab",
       "wiping": "Daten löschen",
       "wipingBody": "Bitte warten...",
-      "resetFailed": "Zurücksetzen fehlgeschlagen"
+      "resetFailed": "Zurücksetzen fehlgeschlagen",
+      "accountUsage": "Kontenspeicher",
+      "yourUsage": "Dein Speicher",
+      "totalUsed": "Belegter Gesamtspeicher"
     },
     "desktop": {
       "wallpaper": "Tapete",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Apps, denen Administratorrechte erteilt wurden, können sie jetzt verwenden.",
       "adminModeDisabledBody": "Die Erteilung von Administratorrechten ist jetzt wieder inaktiv.",
       "adminModeUpdateFailed": "Der Admin-Modus konnte nicht aktualisiert werden",
-      "tryAgain": "Versuchen Sie es erneut"
+      "tryAgain": "Versuchen Sie es erneut",
+      "exportTo": "Wähle, wo der Export gespeichert werden soll"
     },
     "root": {
       "intro": "Root-Apps werden direkt auf der Betriebssystemseite mit uneingeschränktem Zugriff ausgeführt und können echte Administrator-(Root-)Vorgänge ausführen. Jede Root-App fragt zunächst in einer NovaByte-Eingabeaufforderung nach Ihrer Bestätigung – niemals innerhalb der App – und jeder privilegierte Vorgang läuft über das überwachte, passwortlose Sudo (NOPASSWD) und wird in das Sicherheitsprotokoll geschrieben. Dies ist keine Sandbox oder normale App-Berechtigung.",
@@ -957,6 +961,11 @@
       "pushRegistered": "Push registriert",
       "queuedPushOne": "1 Push in der Warteschlange",
       "queuedPushesMany": "{{count}} in der Warteschlange befindliche Pushs"
+    },
+    "adminLock": {
+      "title": "Administrator erforderlich",
+      "body": "Diese Einstellung ist nur für Administratorkonten verfügbar. Melde dich mit einem Administratorkonto an, um sie zu ändern.",
+      "switchUser": "Benutzer wechseln"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "Einstellungen wurden nicht zurückgesetzt",
         "settingsResetTitle": "Einstellungen zurückgesetzt",
         "settingsResetBody": "Alle Browsereinstellungen wurden auf die Standardeinstellungen zurückgesetzt."
+      },
+      "omnibox": {
+        "searchWith": "Bei {{engine}} nach \"{{query}}\" suchen"
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "Fehler: {{message}}",
       "terminalError": "[Terminalfehler] {{message}}",
       "shellExited": "[Shell wurde mit Status beendet {{status}}. Drücken Sie die Eingabetaste, um einen neuen zu starten.]",
-      "unknownStatus": "unbekannt"
+      "unknownStatus": "unbekannt",
+      "shortcutsClearLine": "=Zeile löschen  ",
+      "shortcutsLineStart": "=Zeilenanfang  ",
+      "shortcutsLineEnd": "=Zeilenende  ",
+      "shortcutsPaste": "=einfügen"
     },
     "myApps": {
       "appInstalledTitle": "App installiert",
@@ -2130,7 +2146,9 @@
       "alarm": "Alarm",
       "alarmFor": "Alarm für {{time}}",
       "email": "E-Mail",
-      "emailNewMail": "{{count}} Neu in {{account}}"
+      "emailNewMail": "{{count}} Neu in {{account}}",
+      "timerDone": "Timer abgeschlossen",
+      "timerDoneBody": "Dein Timer ist abgelaufen."
     },
     "store": {
       "releaseTrack": "Release-Track",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "Das Schreiben von Dateien ist in dieser Laufzeit nicht verfügbar.",
         "csvExported": "CSV exportiert nach {{path}}",
         "csvExportFailed": "CSV-Export fehlgeschlagen: {{message}}"
-      }
+      },
+      "degradedRefresh": "Konten konnten nicht aktualisiert werden — die zuletzt bekannte Liste wird angezeigt.",
+      "sessionExpired": "Deine Sitzung ist abgelaufen — melde dich erneut an.",
+      "retry": "Erneut versuchen",
+      "confirmPin": "PIN bestätigen",
+      "pinMismatch": "Die PINs stimmen nicht überein.",
+      "resetPinSelfWarning": "PIN für {{name}} zurücksetzen?",
+      "resetPinSelfWarningBody": "Das Zurücksetzen deiner eigenen PIN meldet dieses Konto überall ab — jede Sitzung wird widerrufen. Du meldest dich anschließend mit der temporär angezeigten PIN wieder an und wählst dann eine neue.",
+      "resetPinSelfWarningConfirm": "Zurücksetzen und abmelden",
+      "resetPinSelfWarningDone": "Deine PIN wurde zurückgesetzt. Melde dich mit dieser temporären PIN wieder an — du wirst aufgefordert, eine neue zu wählen."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} Neu in {{account}}",
         "newMailTitle": "{{email}} — {{count}} neu"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Schnellzugriff",
+      "home": "Start",
+      "breadcrumbsAria": "Speicherort",
+      "editPath": "Pfad bearbeiten",
+      "newFolder": "Neuer Ordner",
+      "newFile": "Neue Datei",
+      "createFailed": "Erstellen fehlgeschlagen",
+      "createFolderFailed": "Der Ordner konnte nicht erstellt werden: {{message}}",
+      "createFileFailed": "Die Datei konnte nicht erstellt werden: {{message}}"
     }
   }
 }

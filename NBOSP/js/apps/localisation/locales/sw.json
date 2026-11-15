@@ -708,7 +708,10 @@
       "wipeEverything": "Futa Kila Kitu",
       "wiping": "Kufuta Data",
       "wipingBody": "Tafadhali subiri...",
-      "resetFailed": "Imeshindwa Kuweka Upya"
+      "resetFailed": "Imeshindwa Kuweka Upya",
+      "accountUsage": "Hifadhi ya akaunti",
+      "yourUsage": "Hifadhi yako",
+      "totalUsed": "Hifadhi jumla iliyotumika"
     },
     "desktop": {
       "wallpaper": "Ukuta",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Programu zilizopewa ruhusa za msimamizi sasa zinaweza kuzitumia.",
       "adminModeDisabledBody": "Ruzuku za ruhusa za msimamizi sasa hazitumiki tena.",
       "adminModeUpdateFailed": "Haikuweza Kusasisha Hali ya Msimamizi",
-      "tryAgain": "Jaribu tena"
+      "tryAgain": "Jaribu tena",
+      "exportTo": "Chagua pa kuhifadhi faili ya kuhamisha"
     },
     "root": {
       "intro": "Programu za mizizi zinaendesha moja kwa moja kwenye ukurasa wa OS na ufikiaji usio na kikomo na zinaweza kufanya shughuli za msimamizi (mzizi). Kila mzizi programu inakuuliza kwanza uthibitisho wako ndani ya kidokezo cha NovaByte - kamwe ndani ya programu - na kila operesheni iliyobahatika hupitia sudo iliyokaguliwa, isiyo na nenosiri (NOPASSWD) na imeandikwa kwenye kumbukumbu ya usalama. Hii si sanduku la mchanga au ruhusa ya kawaida ya programu.",
@@ -957,6 +961,11 @@
       "pushRegistered": "kushinikiza kusajiliwa",
       "queuedPushOne": "1 kusukuma foleni",
       "queuedPushesMany": "{{count}} misukumo ya foleni"
+    },
+    "adminLock": {
+      "title": "Msimamizi anahitajika",
+      "body": "Mipangilio hii inapatikana kwa akaunti za msimamizi tu. Ingia kwa akaunti ya msimamizi kubadilisha.",
+      "switchUser": "Badilisha mtumiaji"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "Mipangilio haijawekwa upya",
         "settingsResetTitle": "Mipangilio imewekwa upya",
         "settingsResetBody": "Mipangilio yote ya kivinjari imerejeshwa kwa chaguomsingi."
+      },
+      "omnibox": {
+        "searchWith": "Tafuta \"{{query}}\" kwenye {{engine}}"
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "Hitilafu: {{message}}",
       "terminalError": "[hitilafu ya mwisho] {{message}}",
       "shellExited": "[Shell imetoka kwa hali {{status}}. Bonyeza Enter ili kuanza mpya.]",
-      "unknownStatus": "haijulikani"
+      "unknownStatus": "haijulikani",
+      "shortcutsClearLine": "=futa mstari  ",
+      "shortcutsLineStart": "=mwanzo wa mstari  ",
+      "shortcutsLineEnd": "=mwisho wa mstari  ",
+      "shortcutsPaste": "=bandika"
     },
     "myApps": {
       "appInstalledTitle": "Programu Imesakinishwa",
@@ -2130,7 +2146,9 @@
       "alarm": "Kengele",
       "alarmFor": "Kengele kwa {{time}}",
       "email": "Barua pepe",
-      "emailNewMail": "{{count}} mpya katika {{account}}"
+      "emailNewMail": "{{count}} mpya katika {{account}}",
+      "timerDone": "Kipima muda kimeisha",
+      "timerDoneBody": "Kipima muda chako kimeisha."
     },
     "store": {
       "releaseTrack": "Toa wimbo",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "Uandishi wa faili haupatikani wakati huu wa utekelezaji.",
         "csvExported": "CSV imehamishwa hadi {{path}}",
         "csvExportFailed": "Uhamishaji wa CSV umeshindwa: {{message}}"
-      }
+      },
+      "degradedRefresh": "Imeshindwa kuonyesha upya akaunti — inaonyesha orodha ya mwisho iliyojulikana.",
+      "sessionExpired": "Kipindi chako kimeisha — ingia tena.",
+      "retry": "Jaribu tena",
+      "confirmPin": "Thibitisha PIN",
+      "pinMismatch": "PIN hazilingani.",
+      "resetPinSelfWarning": "Weka upya PIN ya {{name}}?",
+      "resetPinSelfWarningBody": "Kuweka upya PIN yako mwenyewe kutakuondoa kwenye akaunti hii kote — kila kipindi kinafutwa. Utaringia tena kwa PIN ya muda itakayoonyeshwa, kisha kuchagua mpya.",
+      "resetPinSelfWarningConfirm": "Weka upya na toka",
+      "resetPinSelfWarningDone": "PIN yako imewekwa upya. Ingia tena kwa PIN hii ya muda — utaombwa kuchagua mpya."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} mpya katika {{account}}",
         "newMailTitle": "{{email}} - {{count}} mpya"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Ufikiaji wa Haraka",
+      "home": "Nyumbani",
+      "breadcrumbsAria": "Mahali",
+      "editPath": "Hariri njia",
+      "newFolder": "Folda Mpya",
+      "newFile": "Faili Mpya",
+      "createFailed": "Imeshindwa kuunda",
+      "createFolderFailed": "Imeshindwa kuunda folda: {{message}}",
+      "createFileFailed": "Imeshindwa kuunda faili: {{message}}"
     }
   }
 }

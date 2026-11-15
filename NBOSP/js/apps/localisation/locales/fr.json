@@ -708,7 +708,10 @@
       "wipeEverything": "Essuyez tout",
       "wiping": "Effacement des données",
       "wipingBody": "S'il vous plaît, attendez...",
-      "resetFailed": "Échec de la réinitialisation"
+      "resetFailed": "Échec de la réinitialisation",
+      "accountUsage": "Stockage du compte",
+      "yourUsage": "Votre stockage",
+      "totalUsed": "Stockage total utilisé"
     },
     "desktop": {
       "wallpaper": "Papier peint",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Les applications bénéficiant d'autorisations d'administrateur peuvent désormais les utiliser.",
       "adminModeDisabledBody": "Les autorisations d’administrateur sont désormais à nouveau inertes.",
       "adminModeUpdateFailed": "Impossible de mettre à jour le mode administrateur",
-      "tryAgain": "Essayer à nouveau"
+      "tryAgain": "Essayer à nouveau",
+      "exportTo": "Choisissez où enregistrer l'exportation"
     },
     "root": {
       "intro": "Les applications racine s'exécutent directement dans la page du système d'exploitation avec un accès illimité et peuvent effectuer de véritables opérations d'administrateur (root). Chaque application racine demande d'abord votre confirmation dans une invite NovaByte - jamais dans l'application - et chaque opération privilégiée s'exécute via sudo audité et sans mot de passe (NOPASSWD) et est écrite dans le journal de sécurité. Il ne s'agit pas d'un bac à sable ni d'une autorisation d'application normale.",
@@ -957,6 +961,11 @@
       "pushRegistered": "pousser enregistré",
       "queuedPushOne": "1 push en file d'attente",
       "queuedPushesMany": "{{count}} poussées en file d'attente"
+    },
+    "adminLock": {
+      "title": "Administrateur requis",
+      "body": "Ce paramètre n'est disponible que pour les comptes administrateur. Connectez-vous avec un compte administrateur pour le modifier.",
+      "switchUser": "Changer d'utilisateur"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "Paramètres non réinitialisés",
         "settingsResetTitle": "Réinitialisation des paramètres",
         "settingsResetBody": "Tous les paramètres du navigateur restaurés aux valeurs par défaut."
+      },
+      "omnibox": {
+        "searchWith": "Rechercher sur {{engine}} \"{{query}}\""
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "Erreur: {{message}}",
       "terminalError": "[erreur de terminal] {{message}}",
       "shellExited": "[Shell est sorti avec le statut {{status}}. Appuyez sur Entrée pour en démarrer un nouveau.]",
-      "unknownStatus": "inconnu"
+      "unknownStatus": "inconnu",
+      "shortcutsClearLine": "=effacer la ligne  ",
+      "shortcutsLineStart": "=début de ligne  ",
+      "shortcutsLineEnd": "=fin de ligne  ",
+      "shortcutsPaste": "=coller"
     },
     "myApps": {
       "appInstalledTitle": "Application installée",
@@ -2130,7 +2146,9 @@
       "alarm": "Alarme",
       "alarmFor": "Alarme pour {{time}}",
       "email": "E-mail",
-      "emailNewMail": "{{count}} nouveau dans {{account}}"
+      "emailNewMail": "{{count}} nouveau dans {{account}}",
+      "timerDone": "Minuteur terminé",
+      "timerDoneBody": "Votre minuteur est terminé."
     },
     "store": {
       "releaseTrack": "Piste de sortie",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "L'écriture de fichiers n'est pas disponible dans ce runtime.",
         "csvExported": "CSV exporté vers {{path}}",
         "csvExportFailed": "Échec de l'exportation CSV : {{message}}"
-      }
+      },
+      "degradedRefresh": "Impossible d'actualiser les comptes — affichage de la dernière liste connue.",
+      "sessionExpired": "Votre session a expiré — connectez-vous à nouveau.",
+      "retry": "Réessayer",
+      "confirmPin": "Confirmer le code PIN",
+      "pinMismatch": "Les codes PIN ne correspondent pas.",
+      "resetPinSelfWarning": "Réinitialiser le code PIN de {{name}} ?",
+      "resetPinSelfWarningBody": "Réinitialiser votre propre code PIN vous déconnecte de ce compte partout — toutes les sessions sont révoquées. Vous vous reconnecterez avec le code PIN temporaire affiché ensuite, puis vous en choisirez un nouveau.",
+      "resetPinSelfWarningConfirm": "Réinitialiser et se déconnecter",
+      "resetPinSelfWarningDone": "Votre code PIN a été réinitialisé. Reconnectez-vous avec ce code PIN temporaire — un nouveau vous sera demandé."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} nouveau dans {{account}}",
         "newMailTitle": "{{email}} — {{count}} nouveau"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Accès rapide",
+      "home": "Accueil",
+      "breadcrumbsAria": "Emplacement",
+      "editPath": "Modifier le chemin",
+      "newFolder": "Nouveau dossier",
+      "newFile": "Nouveau fichier",
+      "createFailed": "Échec de la création",
+      "createFolderFailed": "Impossible de créer le dossier : {{message}}",
+      "createFileFailed": "Impossible de créer le fichier : {{message}}"
     }
   }
 }

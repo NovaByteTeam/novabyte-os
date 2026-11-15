@@ -708,7 +708,10 @@
       "wipeEverything": "همه چیز را پاک کن",
       "wiping": "پاک کردن داده ها",
       "wipingBody": "لطفا صبر کنید...",
-      "resetFailed": "بازنشانی انجام نشد"
+      "resetFailed": "بازنشانی انجام نشد",
+      "accountUsage": "ذخیره‌سازی حساب",
+      "yourUsage": "ذخیره‌سازی شما",
+      "totalUsed": "کل فضای ذخیره‌سازی استفاده‌شده"
     },
     "desktop": {
       "wallpaper": "کاغذ دیواری",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "برنامه‌هایی که مجوزهای سرپرست دارند اکنون می‌توانند از آنها استفاده کنند.",
       "adminModeDisabledBody": "اعطای مجوز سرپرست اکنون دوباره بی اثر است.",
       "adminModeUpdateFailed": "نمی‌توان حالت مدیریت را به‌روزرسانی کرد",
-      "tryAgain": "دوباره امتحان کنید"
+      "tryAgain": "دوباره امتحان کنید",
+      "exportTo": "محل ذخیره خروجی را انتخاب کنید"
     },
     "root": {
       "intro": "برنامه های روت مستقیماً در صفحه سیستم عامل با دسترسی نامحدود اجرا می شوند و می توانند عملیات مدیر واقعی (روت) را انجام دهند. هر برنامه روت ابتدا در یک نوا بایت درخواست تأیید می کند - هرگز در داخل برنامه - و هر عملیات ممتاز از طریق sudo ممیزی شده و بدون رمز عبور (NOPASSWD) اجرا می شود و در گزارش امنیتی نوشته می شود. این یک سندباکس یا یک مجوز برنامه معمولی نیست.",
@@ -957,6 +961,11 @@
       "pushRegistered": "فشار ثبت شده است",
       "queuedPushOne": "1 فشار در صف",
       "queuedPushesMany": "{{count}} فشارهای صف"
+    },
+    "adminLock": {
+      "title": "به مدیر نیاز است",
+      "body": "این تنظیم فقط برای حساب‌های مدیر در دسترس است. برای تغییر آن با یک حساب مدیر وارد شوید.",
+      "switchUser": "تغییر کاربر"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "تنظیمات بازنشانی نشد",
         "settingsResetTitle": "تنظیمات بازنشانی شد",
         "settingsResetBody": "تمام تنظیمات مرورگر به حالت پیش فرض بازیابی شد."
+      },
+      "omnibox": {
+        "searchWith": "جستجوی \"{{query}}\" در {{engine}}"
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "خطا: {{message}}",
       "terminalError": "[خطای ترمینال] {{message}}",
       "shellExited": "[شل با وضعیت خارج شد {{status}}. برای شروع یک مورد جدید، Enter را فشار دهید.]",
-      "unknownStatus": "ناشناخته"
+      "unknownStatus": "ناشناخته",
+      "shortcutsClearLine": "=پاک کردن خط  ",
+      "shortcutsLineStart": "=ابتدای خط  ",
+      "shortcutsLineEnd": "=پایان خط  ",
+      "shortcutsPaste": "=چسباندن"
     },
     "myApps": {
       "appInstalledTitle": "برنامه نصب شد",
@@ -2130,7 +2146,9 @@
       "alarm": "زنگ هشدار",
       "alarmFor": "زنگ هشدار برای {{time}}",
       "email": "ایمیل",
-      "emailNewMail": "{{count}} جدید در {{account}}"
+      "emailNewMail": "{{count}} جدید در {{account}}",
+      "timerDone": "تایمر تمام شد",
+      "timerDoneBody": "تایمر شما به پایان رسید."
     },
     "store": {
       "releaseTrack": "آهنگ انتشار",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "نوشتن فایل در این زمان اجرا در دسترس نیست.",
         "csvExported": "CSV صادر شد به {{path}}",
         "csvExportFailed": "صادرات CSV انجام نشد: {{message}}"
-      }
+      },
+      "degradedRefresh": "به‌روزرسانی حساب‌ها انجام نشد — آخرین فهرست شناخته‌شده نمایش داده می‌شود.",
+      "sessionExpired": "نشست شما منقضی شد — دوباره وارد شوید.",
+      "retry": "تلاش مجدد",
+      "confirmPin": "تأیید پین",
+      "pinMismatch": "پین‌ها مطابقت ندارند.",
+      "resetPinSelfWarning": "بازنشانی پین {{name}}؟",
+      "resetPinSelfWarningBody": "بازنشانی پین خودتان شما را از این حساب در همه‌جا خارج می‌کند — همه نشست‌ها باطل می‌شوند. سپس با پین موقت که نمایش داده می‌شود دوباره وارد شوید و پس از آن پین جدیدی انتخاب کنید.",
+      "resetPinSelfWarningConfirm": "بازنشانی و خروج",
+      "resetPinSelfWarningDone": "پین شما بازنشانی شد. با این پین موقت دوباره وارد شوید — از شما خواسته می‌شود پین جدیدی انتخاب کنید."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} جدید در {{account}}",
         "newMailTitle": "{{email}} - {{count}} جدید"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "دسترسی سریع",
+      "home": "خانه",
+      "breadcrumbsAria": "مکان",
+      "editPath": "ویرایش مسیر",
+      "newFolder": "پوشه جدید",
+      "newFile": "فایل جدید",
+      "createFailed": "ایجاد ناموفق بود",
+      "createFolderFailed": "ایجاد پوشه ناموفق بود: {{message}}",
+      "createFileFailed": "ایجاد فایل ناموفق بود: {{message}}"
     }
   }
 }

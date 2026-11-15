@@ -708,7 +708,10 @@
       "wipeEverything": "Hapus Semuanya",
       "wiping": "Menghapus Data",
       "wipingBody": "Harap tunggu...",
-      "resetFailed": "Setel Ulang Gagal"
+      "resetFailed": "Setel Ulang Gagal",
+      "accountUsage": "Penyimpanan akun",
+      "yourUsage": "Penyimpanan Anda",
+      "totalUsed": "Total penyimpanan terpakai"
     },
     "desktop": {
       "wallpaper": "kertas dinding",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Aplikasi yang diberi izin admin sekarang dapat menggunakannya.",
       "adminModeDisabledBody": "Pemberian izin admin sekarang tidak aktif lagi.",
       "adminModeUpdateFailed": "Tidak Dapat Memperbarui Mode Admin",
-      "tryAgain": "Coba lagi"
+      "tryAgain": "Coba lagi",
+      "exportTo": "Pilih lokasi penyimpanan ekspor"
     },
     "root": {
       "intro": "Aplikasi root berjalan langsung di halaman OS dengan akses tidak terbatas dan dapat melakukan operasi administrator (root) yang sebenarnya. Setiap aplikasi root terlebih dahulu meminta konfirmasi Anda di dalam prompt NovaByte — tidak pernah di dalam aplikasi — dan setiap operasi istimewa dijalankan melalui sudo tanpa kata sandi (NOPASSWD) yang telah diaudit dan ditulis ke log keamanan. Ini bukan kotak pasir atau izin aplikasi biasa.",
@@ -957,6 +961,11 @@
       "pushRegistered": "dorong terdaftar",
       "queuedPushOne": "1 dorongan antrian",
       "queuedPushesMany": "{{count}} antrian mendorong"
+    },
+    "adminLock": {
+      "title": "Admin diperlukan",
+      "body": "Pengaturan ini hanya tersedia untuk akun administrator. Masuk dengan akun administrator untuk mengubahnya.",
+      "switchUser": "Ganti pengguna"
     }
   },
   "apps": {
@@ -1321,6 +1330,9 @@
         "settingsNotResetTitle": "Pengaturan tidak diatur ulang",
         "settingsResetTitle": "Pengaturan diatur ulang",
         "settingsResetBody": "Semua pengaturan browser dikembalikan ke default."
+      },
+      "omnibox": {
+        "searchWith": "Cari \"{{query}}\" di {{engine}}"
       }
     },
     "files": {
@@ -1859,7 +1871,11 @@
       "errorLine": "Kesalahan: {{message}}",
       "terminalError": "[kesalahan terminal] {{message}}",
       "shellExited": "[Shell keluar dengan status {{status}}. Tekan Enter untuk memulai yang baru.]",
-      "unknownStatus": "tidak dikenal"
+      "unknownStatus": "tidak dikenal",
+      "shortcutsClearLine": "=hapus baris  ",
+      "shortcutsLineStart": "=awal baris  ",
+      "shortcutsLineEnd": "=akhir baris  ",
+      "shortcutsPaste": "=tempel"
     },
     "myApps": {
       "appInstalledTitle": "Aplikasi Terpasang",
@@ -2130,7 +2146,9 @@
       "alarm": "Alarm",
       "alarmFor": "Alarm untuk {{time}}",
       "email": "E-mail",
-      "emailNewMail": "{{count}} baru masuk {{account}}"
+      "emailNewMail": "{{count}} baru masuk {{account}}",
+      "timerDone": "Timer selesai",
+      "timerDoneBody": "Timer Anda telah selesai."
     },
     "store": {
       "releaseTrack": "Jalur rilis",
@@ -2976,7 +2994,16 @@
         "fileWriteUnavailable": "Penulisan file tidak tersedia dalam runtime ini.",
         "csvExported": "CSV diekspor ke {{path}}",
         "csvExportFailed": "Ekspor CSV gagal: {{message}}"
-      }
+      },
+      "degradedRefresh": "Tidak dapat memuat ulang akun — menampilkan daftar terakhir yang diketahui.",
+      "sessionExpired": "Sesi Anda telah berakhir — masuk kembali.",
+      "retry": "Coba lagi",
+      "confirmPin": "Konfirmasi PIN",
+      "pinMismatch": "PIN tidak cocok.",
+      "resetPinSelfWarning": "Atur ulang PIN untuk {{name}}?",
+      "resetPinSelfWarningBody": "Mengatur ulang PIN Anda sendiri akan mengeluarkan Anda dari akun ini di mana saja — setiap sesi dicabut. Anda akan masuk kembali dengan PIN sementara yang ditampilkan berikutnya, lalu memilih yang baru.",
+      "resetPinSelfWarningConfirm": "Atur ulang dan keluar",
+      "resetPinSelfWarningDone": "PIN Anda telah diatur ulang. Masuk kembali dengan PIN sementara ini — Anda akan diminta memilih yang baru."
     },
     "events": {
       "gate": {
@@ -3233,6 +3260,17 @@
         "newIn": "{{count}} baru masuk {{account}}",
         "newMailTitle": "{{email}} — {{count}} baru"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Akses cepat",
+      "home": "Beranda",
+      "breadcrumbsAria": "Lokasi",
+      "editPath": "Edit jalur",
+      "newFolder": "Folder Baru",
+      "newFile": "Berkas Baru",
+      "createFailed": "Gagal membuat",
+      "createFolderFailed": "Tidak dapat membuat folder: {{message}}",
+      "createFileFailed": "Tidak dapat membuat berkas: {{message}}"
     }
   }
 }
