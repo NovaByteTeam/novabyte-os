@@ -125,7 +125,8 @@ const STOCK_WALLPAPER_ID = 'stock-blue';
  */
 function wallpaperFor(account) {
   if (!account) return { id: STOCK_WALLPAPER_ID, custom: null };
-  const segment = account.username || account.uname || account.uid;
+  // Hive documents are keyed by uid (user:<uid>:HKNU), not by the username.
+  const segment = account.uid;
   const peek = (path) => {
     try { return NovaRegistry?.peekUserValue?.(segment, path); } catch (_) { return undefined; }
   };
@@ -665,7 +666,7 @@ async function showLoginPicker() {
   }
 
   // Hide the sheet chrome while the picker is up.
-  for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad', 'lock-passphrase', 'lock-passphrase-back', 'lock-switch-user', 'lock-passphrase-toggle']) {
+  for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad', 'lock-passphrase', 'lock-passphrase-back', 'lock-switch-user', 'lock-passphrase-toggle', 'lock-picker-back']) {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   }

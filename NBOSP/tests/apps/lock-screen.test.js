@@ -323,7 +323,8 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
   });
 
   it('shows stock blue on the picker and only switches to an account\'s wallpaper on its PIN screen', async () => {
-    const stored = { ada: { id: 'stock-red' }, sam: { id: 'stock-green' } };
+    // keyed by uid, like the registry's user:<uid>:HKNU documents (the usernames differ)
+    const stored = { 'u-ada-001': { id: 'stock-red' }, 'u-sam-002': { id: 'stock-green' } };
     const { window, document } = await loadMultiUser({
       extraStubs: {
         // the machine's desktop is still wearing whoever logged off last
@@ -344,6 +345,8 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     document.getElementById('lock-picker-back').click();
     await settle();
     expect(layerImage()).toBe('url("stock-blue.png")');
+    // the PIN screen's back button must not linger above the picker
+    expect(document.getElementById('lock-picker-back').style.display).toBe('none');
 
     [...document.querySelectorAll('.lp-tile')][1].click(); // Sam
     await settle();
