@@ -27,7 +27,7 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
 
     const ac = new AbortController();
     state.cleanups.push(() => ac.abort());
@@ -165,7 +165,7 @@ registerApp({
       style: 'display:none;flex-shrink:0;background:var(--bg-sunken,#0a0c10);border:1px solid var(--border-subtle);border-radius:6px;padding:10px 12px;margin-bottom:8px;max-height:180px;overflow:auto;font-family:monospace;font-size:11px;'
     });
     const detailHeader = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;' });
-    const detailTitle = createEl('span', { style: 'color:var(--accent, #67e8f9);font-weight:600;font-size:12px;' });
+    const detailTitle = createEl('span', { style: 'color:var(--accent);font-weight:600;font-size:12px;' });
     const detailClose = createEl('button', { textContent: '✕', title: _t('apps.events.detail.closeTitle'), style: 'background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;padding:0 2px;' });
     detailClose.addEventListener('click', () => { selectedEventId = null; detailPanel.style.display = 'none'; render(); });
     detailHeader.appendChild(detailTitle);
@@ -266,7 +266,7 @@ registerApp({
     }
     let lastSeenCount = 0;
 
-    const SEVERITY_COLOR = { info: 'var(--text-muted, #9ca3af)', warn: '#fbbf24', error: '#f87171' };
+    const SEVERITY_COLOR = { info: 'var(--text-muted)', warn: 'var(--text-warning)', error: 'var(--text-danger)' };
     const SEVERITY_LABEL = { info: 'INFO', warn: 'WARN', error: 'ERROR' };
 
     function evaluateAlerts(entries) {
@@ -406,7 +406,7 @@ registerApp({
         style: `color:${SEVERITY_COLOR[e.severity] || SEVERITY_COLOR.info};flex-shrink:0;width:42px;font-weight:600;`,
         textContent: SEVERITY_LABEL[e.severity] || 'INFO'
       }));
-      row.appendChild(createEl('span', { style: 'color:var(--accent, #67e8f9);flex-shrink:0;white-space:nowrap;', textContent: `[${e.app}]` }));
+      row.appendChild(createEl('span', { style: 'color:var(--accent);flex-shrink:0;white-space:nowrap;', textContent: `[${e.app}]` }));
       if (e.category) {
         row.appendChild(createEl('span', { style: 'color:var(--text-muted);flex-shrink:0;white-space:nowrap;font-size:10px;border:1px solid var(--border-subtle);border-radius:3px;padding:0 4px;', textContent: e.category }));
       }
@@ -536,7 +536,7 @@ registerApp({
     pauseBtn.addEventListener('click', () => {
       paused = !paused;
       pauseBtn.textContent = paused ? _t('apps.events.toolbar.resume') : _t('apps.events.toolbar.pause');
-      pauseBtn.style.color = paused ? 'var(--accent, #67e8f9)' : 'var(--text-muted)';
+      pauseBtn.style.color = paused ? 'var(--accent)' : 'var(--text-muted)';
       if (!paused) render();
     }, { signal: ac.signal });
 

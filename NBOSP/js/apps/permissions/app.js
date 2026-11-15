@@ -29,9 +29,9 @@ registerApp({
     // file too but never exported, so this app keeps its own copy rather
     // than reaching into the module's closure.
     const managerAvailable = typeof AppPermissionManager !== 'undefined';
-    const RISK_COLORS = { low: '#3fb950', medium: '#d29922', high: '#f0883e', critical: '#f85149' };
+    const RISK_COLORS = { low: 'var(--text-success)', medium: 'var(--text-warning)', high: 'var(--text-warning)', critical: 'var(--text-danger)' };
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;font-size:13px;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:hidden;font-size:13px;';
 
     const ac = new AbortController();
     state.cleanups.push(() => ac.abort());
@@ -163,7 +163,7 @@ registerApp({
       const apps = q ? allApps.filter(a => (a.name || '').toLowerCase().includes(q) || a.id.toLowerCase().includes(q)) : allApps;
 
       if (!managerAvailable) {
-        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.list.managerUnavailableListOnly'), style: 'color:#d29922;margin-bottom:12px;font-size:12px;' }));
+        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.list.managerUnavailableListOnly'), style: 'color:var(--text-warning);margin-bottom:12px;font-size:12px;' }));
       }
 
       if (q && !apps.length) {
@@ -197,16 +197,16 @@ registerApp({
           render();
         }, { signal: ac.signal });
         row.appendChild(createEl('td', { textContent: app.name || app.id, style: 'padding:6px;' }));
-        row.appendChild(createEl('td', { textContent: String(granted), style: 'padding:6px;color:#3fb950;' }));
-        row.appendChild(createEl('td', { textContent: String(denied), style: 'padding:6px;color:#f85149;' }));
-        row.appendChild(createEl('td', { textContent: unknown ? '—' : String(pending), style: 'padding:6px;color:#d29922;', title: unknown ? _t('apps.permissions.list.managerUnavailableTitle') : '' }));
+        row.appendChild(createEl('td', { textContent: String(granted), style: 'padding:6px;color:var(--text-success);' }));
+        row.appendChild(createEl('td', { textContent: String(denied), style: 'padding:6px;color:var(--text-danger);' }));
+        row.appendChild(createEl('td', { textContent: unknown ? '—' : String(pending), style: 'padding:6px;color:var(--text-warning);', title: unknown ? _t('apps.permissions.list.managerUnavailableTitle') : '' }));
 
         const actionsCell = createEl('td', { style: 'padding:6px;text-align:end;white-space:nowrap;' });
         if (managerAvailable && granted > 0) {
           const revokeAllBtn = createEl('button', {
             textContent: _t('apps.permissions.list.revokeAll'),
             title: _t('apps.permissions.list.revokeAllTitle', { app: app.name || app.id }),
-            style: 'padding:2px 8px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:10px;margin-right:6px;'
+            style: 'padding:2px 8px;background:transparent;color:var(--text-danger);border:1px solid var(--text-danger);border-radius:4px;cursor:pointer;font-size:10px;margin-right:6px;'
           });
           revokeAllBtn.addEventListener('click', (e) => {
             e.stopPropagation(); // don't also trigger the row's drill-into-detail click
@@ -277,7 +277,7 @@ registerApp({
       }
 
       if (!managerAvailable) {
-        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.detail.managerUnavailable'), style: 'color:#d29922;font-size:12px;' }));
+        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.detail.managerUnavailable'), style: 'color:var(--text-warning);font-size:12px;' }));
       } else {
         // Bulk actions scoped to this one app, backed by real manager
         // calls — grantPermission looped per-pending permission (no bulk
@@ -298,7 +298,7 @@ registerApp({
           if (pendingPerms.length) {
             const grantAllBtn = createEl('button', {
               textContent: _t('apps.permissions.detail.grantAllPending', { count: pendingPerms.length }),
-              style: 'padding:4px 12px;background:#3fb950;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;'
+              style: 'padding:4px 12px;background:var(--text-success);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;'
             });
             grantAllBtn.addEventListener('click', async () => {
               grantAllBtn.disabled = true;
@@ -312,7 +312,7 @@ registerApp({
           if (grantedCount) {
             const revokeAllBtn = createEl('button', {
               textContent: _t('apps.permissions.detail.revokeAllGranted', { count: grantedCount }),
-              style: 'padding:4px 12px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;'
+              style: 'padding:4px 12px;background:transparent;color:var(--text-danger);border:1px solid var(--text-danger);border-radius:4px;cursor:pointer;font-size:11px;'
             });
             revokeAllBtn.addEventListener('click', () => {
               AppPermissionManager.revokeAllPermissions(app.id);
@@ -327,7 +327,7 @@ registerApp({
       effectivePerms.forEach(({ permission, tier }) => {
         const grant = grantMap.get(permission);
         const status = grant ? (grant.granted ? 'granted' : 'denied') : 'pending';
-        const statusColor = status === 'granted' ? '#3fb950' : status === 'denied' ? '#f85149' : '#d29922';
+        const statusColor = status === 'granted' ? 'var(--text-success)' : status === 'denied' ? 'var(--text-danger)' : 'var(--text-warning)';
         const statusText = _t(status === 'granted' ? 'apps.permissions.detail.statusGranted'
           : status === 'denied' ? 'apps.permissions.detail.statusDenied'
           : 'apps.permissions.detail.statusPending');
@@ -358,7 +358,7 @@ registerApp({
           // normal consent flow, so the button says so rather than reading
           // like an ordinary toggle.
           if (status !== 'granted') {
-            const grantBtn = createEl('button', { textContent: _t('apps.permissions.detail.grantNoPrompt'), style: 'padding:3px 10px;background:#3fb950;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
+            const grantBtn = createEl('button', { textContent: _t('apps.permissions.detail.grantNoPrompt'), style: 'padding:3px 10px;background:var(--text-success);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
             grantBtn.addEventListener('click', async () => {
               grantBtn.disabled = true;
               await AppPermissionManager.grantPermission(permission, app.id, { reason: 'Granted via Permissions dev tool' });
@@ -377,7 +377,7 @@ registerApp({
           }
 
           if (status === 'granted') {
-            const revokeBtn = createEl('button', { textContent: _t('apps.permissions.detail.revoke'), style: 'padding:3px 10px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;' });
+            const revokeBtn = createEl('button', { textContent: _t('apps.permissions.detail.revoke'), style: 'padding:3px 10px;background:transparent;color:var(--text-danger);border:1px solid var(--text-danger);border-radius:4px;cursor:pointer;font-size:11px;' });
             revokeBtn.addEventListener('click', () => {
               AppPermissionManager.revokePermission(permission, app.id);
               renderDetail();
@@ -449,7 +449,7 @@ registerApp({
         return;
       }
       entries.forEach(e => {
-        const color = e.granted ? '#3fb950' : '#f85149';
+        const color = e.granted ? 'var(--text-success)' : 'var(--text-danger)';
         const row = createEl('div', { style: `padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);border-left:3px solid ${color};margin-bottom:6px;font-size:11px;` });
         row.appendChild(createEl('div', { textContent: `${e.granted ? 'GRANT' : 'DENY'} · ${e.permission} → ${e.appId}`, style: `font-family:monospace;color:${color};font-weight:600;` }));
         row.appendChild(createEl('div', { textContent: e.timestamp ? new Date(e.timestamp).toLocaleString() : '', style: 'color:var(--text-muted);margin-top:2px;' }));

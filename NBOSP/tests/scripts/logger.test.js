@@ -61,7 +61,7 @@ describe('scripts/logger.js — createLogStream', () => {
 });
 
 describe('scripts/logger.js — createConout', () => {
-  it('returns null on non-Windows platforms', () => {
+  it.runIf(process.platform !== 'win32')('returns null on non-Windows platforms', () => {
     expect(process.platform).not.toBe('win32');
     expect(createConout()).toBeNull();
   });

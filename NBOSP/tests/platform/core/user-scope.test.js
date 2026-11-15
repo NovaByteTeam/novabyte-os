@@ -70,7 +70,7 @@ describe('NovaUserScope — the mounted account (uid + username)', () => {
   });
 });
 
-describe('MultiUserMigration.upgradeUserLayout — onto the ~/users/<username> layout', () => {
+describe.runIf(process.platform === 'linux')('MultiUserMigration.upgradeUserLayout — onto the ~/users/<username> layout', () => {
   // The production NBOSP runtime IS a linux native runtime, so this is the
   // real path: an account's visible filesystem must BE <machine home>/users/
   // <username>/ — a real, separated tree — with the standard folders directly

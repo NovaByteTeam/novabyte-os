@@ -44,6 +44,10 @@ const router = express.Router();
             for (const sid of sids) {
                 try { del.run(String(sid)); } catch (_) { }
             }
+        }, () => {
+            if (!handle) return;
+            try { handle.close(); } catch (_) { /* already closed */ }
+            handle = null;
         });
     } catch (_) { /* revocation degrades to map-only when sqlite is unavailable */ }
 })();

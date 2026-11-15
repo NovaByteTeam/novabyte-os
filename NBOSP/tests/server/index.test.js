@@ -28,12 +28,19 @@ afterAll(async () => {
   for (const server of importedServers) {
     try { await new Promise((r) => server.close(r)); } catch { /* already closed */ }
   }
+  for (const closeResources of new Set(importedResourceClosers)) closeResources();
   if (seededDataDir) {
     await fs.rm(seededDataDir, { recursive: true, force: true });
     delete process.env.NBOSP_DATA_DIR;
   }
 });
 const importedServers = [];
+const importedResourceClosers = [];
+
+function trackServerModule(mod) {
+  importedServers.push(mod.server);
+  importedResourceClosers.push(mod.closeResources);
+}
 
 const mockServer = {
   listen: vi.fn((port, host, cb) => {
@@ -97,7 +104,7 @@ describe('server/core/index.js — server bootstrap', () => {
 
   it('imports and exports app, server, and listen without throwing', async () => {
     const mod = await import('../../server/core/index.js');
-    importedServers.push(mod.server);
+    trackServerModule(mod);
     expect(mod).toBeDefined();
     expect(typeof mod.app).toBe('function');
     expect(mod.server).toBeDefined();
@@ -106,7 +113,7 @@ describe('server/core/index.js — server bootstrap', () => {
   it('serves third-party package files whose stored paths use relative or Windows separators', async () => {
     const mod = await import('../../server/core/index.js');
     const { app } = mod;
-    importedServers.push(mod.server);
+    trackServerModule(mod);
     const request = (await import('supertest')).default;
     const sandboxId = 'sandbox_local.vaultcraft.app_1440c7ca-a2fd-44f8-8b0c-eaa319937f03';
     const script = 'window.passwordStrength = true;';
@@ -138,7 +145,7 @@ describe('server/core/index.js — server bootstrap', () => {
   it('serves the same files at the stable sandbox_<appId> alias and reports both base URLs', async () => {
     const mod = await import('../../server/core/index.js');
     const { app } = mod;
-    importedServers.push(mod.server);
+    trackServerModule(mod);
     const request = (await import('supertest')).default;
     const appId = 'com.test.popuptest';
     const sandboxId = `sandbox_${appId}_e5be8755-c430-4f3f-802b-56b23abc3999`;
@@ -179,7 +186,7 @@ describe('server/core/index.js — server bootstrap', () => {
   it('rejects stable alias requests with malformed app ids or unbound sandbox ids', async () => {
     const mod = await import('../../server/core/index.js');
     const { app } = mod;
-    importedServers.push(mod.server);
+    trackServerModule(mod);
     const request = (await import('supertest')).default;
 
     // Not one of the platform's app-id shapes (uppercase, no dot).
@@ -206,7 +213,7 @@ describe('server/core/index.js — server bootstrap', () => {
   it('keeps the alias owned by the most recent launch: older-session unregister preserves it, owner unregister drops it', async () => {
     const mod = await import('../../server/core/index.js');
     const { app } = mod;
-    importedServers.push(mod.server);
+    trackServerModule(mod);
     const request = (await import('supertest')).default;
     const appId = 'com.test.multilaunch';
     const stableUrl = `/api/apps/serve/sandbox_${appId}`;
@@ -249,8 +256,8 @@ describe('server/core/index.js — server bootstrap', () => {
       const BASE = new Date('2026-01-01T00:00:00Z').getTime();
       vi.setSystemTime(BASE);
       const mod = await import('../../server/core/index.js');
-    const { app } = mod;
-    importedServers.push(mod.server);
+      const { app } = mod;
+      trackServerModule(mod);
       const request = (await import('supertest')).default;
 
       const quiet = 'sandbox_com.test.quiet_33333333-3333-4333-8333-333333333333';
@@ -294,7 +301,7 @@ describe('server/core/index.js — server bootstrap', () => {
   it('rejects cross-origin app-serve mutations (2026-11-12 audit, finding M2)', async () => {
     const mod = await import('../../server/core/index.js');
     const { app } = mod;
-    importedServers.push(mod.server);
+    trackServerModule(mod);
     const request = (await import('supertest')).default;
 
     // A foreign Origin (an attacker page in the victim's browser) must not
@@ -351,7 +358,7 @@ describe('server/core/index.js — server bootstrap', () => {
     it('injects the CSRF meta and no signing-key meta by default (test-keys)', async () => {
       delete process.env.NBOSP_SYSTEM_SIGNING_PUBLIC_JWK;
       const mod = await import('../../server/core/index.js');
-      importedServers.push(mod.server);
+      trackServerModule(mod);
       const request = (await import('supertest')).default;
       const res = await request(mod.app).get('/').expect(200);
       expect(res.text).toContain('<meta name="csrf-token"');
@@ -362,7 +369,7 @@ describe('server/core/index.js — server bootstrap', () => {
       process.env.NBOSP_SYSTEM_SIGNING_PUBLIC_JWK = JSON.stringify({ kty: 'OKP', crv: 'Ed25519', x: 'release-anchor-x' });
       try {
         const mod = await import('../../server/core/index.js');
-        importedServers.push(mod.server);
+        trackServerModule(mod);
         const request = (await import('supertest')).default;
         const res = await request(mod.app).get('/').expect(200);
         expect(res.text).toContain('<meta name="nova-system-signing-jwk"');
@@ -381,7 +388,7 @@ describe('server/core/index.js — server bootstrap', () => {
         process.env.NBOSP_SYSTEM_SIGNING_PUBLIC_JWK = bad;
         try {
           const mod = await import('../../server/core/index.js');
-          importedServers.push(mod.server);
+          trackServerModule(mod);
           const request = (await import('supertest')).default;
           const res = await request(mod.app).get('/').expect(200);
           expect(res.text).not.toContain('nova-system-signing-jwk');

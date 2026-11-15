@@ -171,7 +171,7 @@ describe("'Perf Monitor' app (js/apps/perf)", () => {
     // Long tasks unsupported → N/A.
     expect(longEl.textContent).toBe('N/A');
     // Healthy sample → no sustained-low alert colour.
-    expect(fpsEl.style.color).toBe('rgb(63, 185, 80)');
+    expect(fpsEl.style.color).toBe('var(--text-success)');
 
     // The FPS chart actually drew a polyline in its signature green.
     const fpsCtx = content.querySelector('#perf-chart-fps')._recordingCtx;
@@ -179,7 +179,7 @@ describe("'Perf Monitor' app (js/apps/perf)", () => {
     expect(fpsCtx._ops.some(([op]) => op === 'lineTo')).toBe(true);
 
     findBtn(content, 'Reset').click();
-    expect(fpsEl.style.color).toBe('rgb(63, 185, 80)'); // alert state reset
+    expect(fpsEl.style.color).toBe('var(--text-success)'); // alert state reset
     const memCtx = content.querySelector('#perf-chart-mem')._recordingCtx;
     expect(memCtx._ops.some(([op, v]) => op === 'set:strokeStyle' && v === '#67e8f9')).toBe(true);
   });

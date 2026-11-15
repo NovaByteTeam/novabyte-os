@@ -67,7 +67,7 @@ vi.mock('../../../js/platform/core/opfs.js', () => ({
   default: opfsMock,
 }));
 
-const mockWorker = { call: vi.fn() };
+const mockWorker = { call: vi.fn(() => Promise.resolve()) };
 vi.mock('../../../js/core/services/workers.js', () => ({
   createWorker: vi.fn(() => mockWorker),
   get OS() { return { workers: { fs: mockWorker, crypto: mockWorker, search: mockWorker } }; },
@@ -102,7 +102,11 @@ function stubOsGlobals() {
   globalThis.generateId = () => 'id-' + Math.random().toString(36).slice(2);
   globalThis.OS = {
     events: { emit: vi.fn() },
-    workers: { fs: { call: vi.fn() }, crypto: { call: vi.fn() }, search: { call: vi.fn() } },
+    workers: {
+      fs: { call: vi.fn(() => Promise.resolve()) },
+      crypto: { call: vi.fn(() => Promise.resolve()) },
+      search: { call: vi.fn(() => Promise.resolve()) },
+    },
   };
 }
 
@@ -520,7 +524,7 @@ describe('FS linux-native backend (real disk contract)', () => {
     // OS must exist before init() — migrateLegacyVfs talks to the fs worker.
     globalThis.OS = {
       events: { emit: vi.fn() },
-      workers: { fs: { call: vi.fn().mockResolvedValue([]) }, crypto: { call: vi.fn() }, search: { call: vi.fn() } },
+      workers: { fs: { call: vi.fn().mockResolvedValue([]) }, crypto: { call: vi.fn() }, search: { call: vi.fn().mockResolvedValue([]) } },
     };
     mockWorker.call.mockResolvedValue([]);
     await FS.init();
@@ -531,7 +535,7 @@ describe('FS linux-native backend (real disk contract)', () => {
     events = vi.fn();
     globalThis.OS = {
       events: { emit: events },
-      workers: { fs: { call: vi.fn().mockResolvedValue([]) }, crypto: { call: vi.fn() }, search: { call: vi.fn() } },
+      workers: { fs: { call: vi.fn().mockResolvedValue([]) }, crypto: { call: vi.fn() }, search: { call: vi.fn().mockResolvedValue([]) } },
     };
   });
 
@@ -678,7 +682,7 @@ describe('FS linux-native backend (real disk contract)', () => {
     }
   });
 
-  it('createFile writes a real 0600 file and returns a node carrying its content', async () => {
+  it.runIf(process.platform === 'linux')('createFile writes a real 0600 file and returns a node carrying its content', async () => {
     const node = await FS.createFile(nodePath.join(fakeHome, 'Documents'), 'hello.txt', 'hello', 'text/plain');
     try {
       expect(node.name).toBe('hello.txt');

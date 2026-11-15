@@ -81,6 +81,7 @@
 
     font-size: 44px;
     font-weight: 200;
+    color: var(--text-primary);
     letter-spacing: -1px;
     font-variant-numeric: tabular-nums;
     margin-top: 10px;

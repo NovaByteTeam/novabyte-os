@@ -25,7 +25,7 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
 
     const desc = createEl('div', { style: 'margin-bottom:12px;color:var(--text-muted);font-size:12px;flex-shrink:0;' });
     desc.textContent = _t('apps.modules.desc');
@@ -190,7 +190,7 @@ registerApp({
     const addRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:12px;flex-shrink:0;' });
     const idInput = createEl('input', { placeholder: _t('apps.modules.form.idPlaceholder'), style: 'width:140px;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
     const pathInput = createEl('input', { placeholder: _t('apps.modules.form.pathPlaceholder'), style: 'flex:1;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
-    const addBtn = createEl('button', { textContent: _t('apps.modules.form.add'), style: 'padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+    const addBtn = createEl('button', { textContent: _t('apps.modules.form.add'), style: 'padding:6px 14px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
     addRow.appendChild(idInput);
     addRow.appendChild(pathInput);
     addRow.appendChild(addBtn);
@@ -251,7 +251,7 @@ registerApp({
         // Inline error next to the buttons rather than a blocking alert —
         // consistent with the rest of this app's no-modal-dialogs approach.
         reloadSummaryEl.textContent = _t('apps.modules.io.importFailed', { message: e.message });
-        reloadSummaryEl.style.color = '#f85149';
+        reloadSummaryEl.style.color = 'var(--text-danger)';
       }
     }, { signal: ac.signal });
 
@@ -324,7 +324,7 @@ registerApp({
         code = await res.text();
       } catch (e) {
         reloadSummaryEl.textContent = e.message;
-        reloadSummaryEl.style.color = '#f85149';
+        reloadSummaryEl.style.color = 'var(--text-danger)';
         return;
       }
 
@@ -350,7 +350,7 @@ registerApp({
         'aria-label': _t('apps.modules.editor.title', { id: mod.id }),
       });
       textarea.value = code;
-      textarea.style.cssText = 'flex:1;min-height:0;resize:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;padding:10px;background:var(--bg-default,#0d1117);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:6px;tab-size:2;white-space:pre;overflow:auto;';
+      textarea.style.cssText = 'flex:1;min-height:0;resize:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;padding:10px;background:var(--bg-base);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:6px;tab-size:2;white-space:pre;overflow:auto;';
       // Tab inserts two spaces instead of leaving the editor — editing with
       // a keyboard shouldn't cost you focus.
       textarea.addEventListener('keydown', (event) => {
@@ -375,21 +375,21 @@ registerApp({
       const saveBtn = createEl('button', {
         textContent: _t('apps.modules.editor.save'),
         'aria-label': _t('apps.modules.editor.save'),
-        style: 'padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;',
+        style: 'padding:6px 16px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:12px;',
       });
       saveBtn.dataset.role = 'save';
       saveBtn.addEventListener('click', async () => {
         const editedCode = textarea.value;
         if (!editedCode.trim()) {
           statusEl.textContent = _t('apps.modules.editor.emptyRefused');
-          statusEl.style.color = '#f85149';
+          statusEl.style.color = 'var(--text-danger)';
           return;
         }
         try {
           writeModuleFile(mod, editedCode);
         } catch (e) {
           statusEl.textContent = _t('apps.modules.editor.saveFailed', { message: e.message });
-          statusEl.style.color = '#f85149';
+          statusEl.style.color = 'var(--text-danger)';
           return;
         }
         // Re-fetch + re-import through the standard reload pipeline: the
@@ -401,10 +401,10 @@ registerApp({
           editorState.loadedCode = editedCode;
           refreshMeta();
           statusEl.textContent = _t('apps.modules.editor.saved');
-          statusEl.style.color = '#3fb950';
+          statusEl.style.color = 'var(--text-success)';
         } else if (!result.cancelled) {
           statusEl.textContent = _t('apps.modules.editor.saveFailed', { message: result.error || '' });
-          statusEl.style.color = '#f85149';
+          statusEl.style.color = 'var(--text-danger)';
         }
       }, { signal: ac.signal });
       btnRow.appendChild(saveBtn);
@@ -434,7 +434,7 @@ registerApp({
         }));
         const btnRow = createEl('div', { style: 'display:flex;gap:8px;justify-content:flex-end;' });
         const cancelBtn = createEl('button', { textContent: _t('common.cancel'), style: 'padding:6px 12px;background:transparent;color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;' });
-        const proceedBtn = createEl('button', { textContent: _t('apps.modules.confirm.reloadAnyway'), style: 'padding:6px 12px;background:#f85149;color:#fff;border:none;border-radius:4px;cursor:pointer;' });
+        const proceedBtn = createEl('button', { textContent: _t('apps.modules.confirm.reloadAnyway'), style: 'padding:6px 12px;background:var(--text-danger);color:#fff;border:none;border-radius:4px;cursor:pointer;' });
         cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
         proceedBtn.addEventListener('click', () => { overlay.remove(); resolve(true); });
         btnRow.appendChild(cancelBtn);
@@ -529,13 +529,13 @@ registerApp({
         } catch { /* best-effort refresh, not a reload failure */ }
 
         btn.textContent = '✓';
-        btn.style.background = '#3fb950';
+        btn.style.background = 'var(--text-success)';
         btn.title = '';
         render(); // refresh row to show/update the diff + undo affordances
         return { ok: true };
       } catch (e) {
         btn.textContent = '✗';
-        btn.style.background = '#f85149';
+        btn.style.background = 'var(--text-danger)';
         // Surface the actual error instead of just a red X — hovering
         // shows what broke (bad path, syntax error, import failure, etc),
         // which the original silently discarded.
@@ -604,8 +604,8 @@ registerApp({
             ? _t('apps.modules.badge.manuallyMarked', { state: override })
             : (dangerGuess === null ? _t('apps.modules.badge.notYetFetched') : _t('apps.modules.badge.autoDetected')),
           style: 'font-size:10px;padding:1px 6px;border-radius:3px;cursor:pointer;user-select:none;' +
-            (dangerGuess === null ? 'background:var(--bg-default);color:var(--text-muted);' :
-             dangerGuess ? 'background:rgba(248,81,73,0.15);color:#f85149;' : 'background:rgba(63,185,80,0.15);color:#3fb950;')
+            (dangerGuess === null ? 'background:var(--bg-base);color:var(--text-muted);' :
+             dangerGuess ? 'background:color-mix(in srgb,var(--text-danger) 15%,transparent);color:var(--text-danger);' : 'background:color-mix(in srgb,var(--text-success) 15%,transparent);color:var(--text-success);')
         });
         badge.addEventListener('click', () => {
           // Cycle: auto -> forced-safe -> forced-unsafe -> auto
@@ -621,7 +621,7 @@ registerApp({
         topLine.appendChild(info);
 
         const btns = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
-        const btn = createEl('button', { textContent: _t('apps.modules.row.reload'), style: 'padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+        const btn = createEl('button', { textContent: _t('apps.modules.row.reload'), style: 'padding:4px 12px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
         btn.dataset.role = 'reload';
         btn.addEventListener('click', () => reloadOne(mod, btn), { signal: ac.signal });
         btns.appendChild(btn);
@@ -743,7 +743,7 @@ registerApp({
         (cancelledCount ? _t('apps.modules.summary.cancelled', { count: cancelledCount }) : '') +
         (failCount ? _t('apps.modules.summary.failed', { count: failCount }) : '') +
         _t('apps.modules.summary.total', { count: results.length });
-      reloadSummaryEl.style.color = failCount ? '#f85149' : (cancelledCount ? '#fbbf24' : '#3fb950');
+      reloadSummaryEl.style.color = failCount ? 'var(--text-danger)' : (cancelledCount ? 'var(--text-warning)' : 'var(--text-success)');
     }, { signal: ac.signal });
 
     render();

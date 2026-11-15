@@ -172,7 +172,7 @@ describe("'Modules' app (js/apps/modules)", () => {
     expect(reloadAllBtn.textContent).toBe('Reload All'); // restored after the run
     expect(reloadAllBtn.disabled).toBe(false);
     expect(summary.textContent).toBe('Last run: 0 ok, 8 failed (8 total)');
-    expect(summary.style.color).toBe('rgb(248, 81, 73)'); // #f85149
+    expect(summary.style.color).toBe('var(--text-danger)');
   });
 
   it('cycles the safety override on badge click and persists it', async () => {

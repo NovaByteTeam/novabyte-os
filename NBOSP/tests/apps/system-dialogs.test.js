@@ -496,11 +496,19 @@ describe('SystemDialogs service (js/apps/system-dialogs)', () => {
     const p = window.SystemDialogs.open({ startPath: start });
     await settle(80);
 
-    // No mounted account root: root-anchored crumbs ("/ > tmp > … > sub").
+    // The temp folder is outside HOME on Linux, but inside the user profile
+    // on Windows; the dialog uses Home crumbs only for paths under HOME.
     const crumbTexts = () => [...document.querySelectorAll('.system-file-dialog-crumb')].map((b) => b.textContent);
     const root = nodePath.parse(start).root;
     const segments = start.slice(root.length).split(nodePath.sep).filter(Boolean);
-    expect(crumbTexts()).toEqual([root, ...segments.slice(0, -1)]); // root crumb + every ancestor segment
+    const homeRelative = nodePath.relative(nodeOs.homedir(), start);
+    const isUnderHome = homeRelative === '' ||
+      (homeRelative && !homeRelative.startsWith('..') && !nodePath.isAbsolute(homeRelative));
+    const ancestorSegments = isUnderHome
+      ? homeRelative.split(nodePath.sep).filter(Boolean)
+      : segments;
+    const crumbRoot = isUnderHome ? ['Home'] : [root];
+    expect(crumbTexts()).toEqual([...crumbRoot, ...ancestorSegments.slice(0, -1)]);
     expect(document.querySelector('.system-file-dialog-crumb-current').textContent).toBe('sub2');
 
     // Clicking a segment navigates (and records history).
@@ -509,7 +517,7 @@ describe('SystemDialogs service (js/apps/system-dialogs)', () => {
     subCrumb.click();
     await settle(80);
     expect(pathBar(document).value).toBe(nodePath.join(tmpRoot, 'sub'));
-    expect(crumbTexts()).toEqual([root, ...segments.slice(0, -2)]);
+    expect(crumbTexts()).toEqual([...crumbRoot, ...ancestorSegments.slice(0, -2)]);
 
     // Edit affordance: the pencil swaps the crumbs for the editable input.
     const editBtn = document.querySelector('.system-file-dialog-path-edit');
