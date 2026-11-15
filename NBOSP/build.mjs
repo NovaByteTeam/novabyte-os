@@ -145,6 +145,30 @@ async function main() {
 
   const iconExt = targetKey === "win" ? "ico" : targetKey === "osx" ? "icns" : "png";
 
+  // Build type — ONE switch that coherently controls every dev/release knob in
+  // this script (the NW.js flavor AND the dev chromium-args/dev_tools
+  // stripping below), so you can never end up with a half-dev bundle:
+  //   release (default)     -> "normal" NW.js flavor, dev flags stripped
+  //   development           -> "sdk" flavor, dev flags KEPT (never ship these)
+  // CI selects this from the workflow_dispatch dropdown in
+  // .github/workflows/nbosp-os-iso.yml ("release" / "development"); locally
+  // run NBOSP_BUILD_TYPE=development node build.mjs. The older per-knob env
+  // overrides (NBOSP_NW_FLAVOR, NBOSP_KEEP_DEV_FLAGS) still work on top for
+  // mixed local debugging.
+  const buildType = String(process.env.NBOSP_BUILD_TYPE || "release")
+    .trim()
+    .toLowerCase();
+  if (buildType !== "release" && buildType !== "development") {
+    console.error(
+      `Unknown NBOSP_BUILD_TYPE "${process.env.NBOSP_BUILD_TYPE}". Expected "release" or "development".`
+    );
+    process.exit(1);
+  }
+  const isDevelopmentBuild = buildType === "development";
+  console.log(
+    `Build type: ${buildType === "development" ? "development — dev flags KEPT + NW.js SDK flavor (not for shipping)" : "release — dev flags stripped + production NW.js flavor (normal)"}`
+  );
+
   // 1. Clean previous build output and any leftover staging dir
   console.log("Cleaning previous build output...");
   rmrf(outDir);
@@ -226,9 +250,11 @@ async function main() {
   // chromium-args containing --remote-debugging-port=9222 (an unauthenticated
   // CDP port on every end-user machine), --auto-open-devtools-for-tabs,
   // --disable-web-security and --allow-file-access-from-files. Only
-  // window.icon was ever patched. Strip the dangerous flags for release
-  // builds; set NBOSP_KEEP_DEV_FLAGS=1 to keep them for local debugging.
-  if (process.env.NBOSP_KEEP_DEV_FLAGS !== "1") {
+  // window.icon was ever patched. Strip the dangerous flags for Release
+  // builds (the default); Development builds — NBOSP_BUILD_TYPE=development,
+  // or the CI workflow dropdown — keep them, as does the legacy
+  // NBOSP_KEEP_DEV_FLAGS=1 for local debugging.
+  if (!isDevelopmentBuild && process.env.NBOSP_KEEP_DEV_FLAGS !== "1") {
     const stagedPkgPath = path.join(stageDir, "package.json");
     const stagedPkg = JSON.parse(fs.readFileSync(stagedPkgPath, "utf8"));
     const DEV_ONLY_FLAGS = [
@@ -322,11 +348,31 @@ async function main() {
   // SECURITY (2026-11-15 audit, finding MED-3): release bundles used to ship
   // the NW.js SDK flavor — the devtools-enabled runtime — which compounds
   // the dev chromium-args above (only the kiosk compensated, with
-  // --disable-devtools). "regular" is the production runtime; keep "sdk"
-  // available behind NBOSP_NW_FLAVOR=sdk for local debugging builds.
-  const nwFlavor = process.env.NBOSP_NW_FLAVOR === "sdk" ? "sdk" : "regular";
+  // --disable-devtools). The NW.js download server publishes exactly two
+  // flavors — "normal" (production) and "sdk" (devtools) — and nw-builder
+  // validates the flavor against that list, so "regular" (an earlier typo
+  // here) made every CI build die in options validation
+  // ("regular flavor is not supported by this download server").
+  // Development builds select "sdk" automatically; NBOSP_NW_FLAVOR=normal|sdk
+  // remains as a manual override for mixed local debugging builds.
+  const nwFlavorOverride = process.env.NBOSP_NW_FLAVOR;
+  if (
+    nwFlavorOverride !== undefined &&
+    nwFlavorOverride !== "sdk" &&
+    nwFlavorOverride !== "normal"
+  ) {
+    console.warn(
+      `[build] NBOSP_NW_FLAVOR="${nwFlavorOverride}" ignored — expected "normal" or "sdk".`
+    );
+  }
+  const nwFlavor =
+    nwFlavorOverride === "sdk" || nwFlavorOverride === "normal"
+      ? nwFlavorOverride
+      : isDevelopmentBuild
+        ? "sdk"
+        : "normal";
   if (nwFlavor === "sdk") {
-    console.warn("[build] NBOSP_NW_FLAVOR=sdk — building the DEV runtime; do not ship this bundle.");
+    console.warn("[build] SDK flavor — building the DEV runtime; do not ship this bundle.");
   }
   await nwbuild({
     mode: "build",
