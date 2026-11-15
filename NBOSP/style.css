@@ -435,6 +435,18 @@
   #lock-screen.active {
     display: flex;
   }
+  #lock-screen > .lock-wallpaper {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+  #lock-screen > .lock-wallpaper::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+  }
   .lock-avatar {
     width: 80px;
     height: 80px;

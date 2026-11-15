@@ -1554,6 +1554,31 @@ const NovaRegistry = (() => {
     return api;
   }
 
+  /**
+   * Read one value out of ANOTHER account's stored hive without mounting it.
+   * The login picker uses this to show an account's wallpaper before anyone
+   * has authenticated; nothing in the live state is touched, and only the
+   * per-account hives are readable this way. Resolves to undefined when the
+   * account, hive or value does not exist.
+   */
+  function peekUserValue(segment, path) {
+    ensureReady();
+    try {
+      if (typeof segment !== 'string' || !USER_DOC_RE.exec(`user:${segment}:HKNU`)) return undefined;
+      const parsed = parsePath(path);
+      if (parsed.error || !USER_HIVES.includes(parsed.hive)) return undefined;
+      if (!state.storage || typeof state.storage.read !== 'function') return undefined;
+      const raw = state.storage.read(`user:${segment}:${parsed.hive}`);
+      if (raw === null || raw === undefined) return undefined;
+      const decoded = decodeHive(parsed.hive, raw, () => { /* a read-only peek never quarantines */ });
+      if (!decoded) return undefined;
+      const { node, name } = resolveValueTarget({ [parsed.hive]: decoded }, parsed.hive, parsed.segments, false, { boundedTo: parsed.hive });
+      return node && node.values[name] ? node.values[name].data : undefined;
+    } catch (_) {
+      return undefined;
+    }
+  }
+
   const api = {
     HIVES,
     HIVE_ALIASES,
@@ -1596,6 +1621,7 @@ const NovaRegistry = (() => {
     hiveSnapshot,
     // Mounted per-account hives (multi-user): SessionManager-only surface.
     mountUserHives,
+    peekUserValue,
     unmountUserHives,
     flushUserHives,
     mountedUserUid,

@@ -114,6 +114,42 @@ function submitSheetIfComplete() {
 
 // ── Shared sheet rendering (numpad + dots are reused components) ─────
 
+const STOCK_WALLPAPER_ID = 'stock-blue';
+
+/**
+ * The login picker always shows stock blue; an account's own wallpaper only
+ * appears once that account is the one being unlocked. The account's hive is
+ * peeked read-only because nobody has authenticated yet, so it can't be mounted.
+ * customWallpaper is machine-wide (too big for a hive value), so an account
+ * flagged as custom shows whichever image is currently stored.
+ */
+function wallpaperFor(account) {
+  if (!account) return { id: STOCK_WALLPAPER_ID, custom: null };
+  const segment = account.username || account.uname || account.uid;
+  const peek = (path) => {
+    try { return NovaRegistry?.peekUserValue?.(segment, path); } catch (_) { return undefined; }
+  };
+  const id = peek('HKNU/shell/wallpaper');
+  const hasCustom = !!peek('HKNU/settings/customWallpaperName');
+  return {
+    id: typeof id === 'string' ? id : STOCK_WALLPAPER_ID,
+    custom: hasCustom ? (OS.settings?.get?.('customWallpaper') || null) : null,
+  };
+}
+
+function setLockWallpaper(account) {
+  const lockScreenEl = document.getElementById('lock-screen');
+  const service = window.WallpaperService;
+  if (!lockScreenEl || typeof service?.styleFor !== 'function') return;
+  let layer = lockScreenEl.querySelector(':scope > .lock-wallpaper');
+  if (!layer) {
+    layer = createEl('div', { className: 'lock-wallpaper', 'aria-hidden': 'true' });
+    lockScreenEl.prepend(layer);
+  }
+  const { id, custom } = wallpaperFor(account);
+  Object.assign(layer.style, service.styleFor(id, custom));
+}
+
 function renderLockScreen() {
   const usernameEl = document.getElementById('lock-username');
   const dotsEl = document.getElementById('lock-pin-dots');
@@ -533,6 +569,7 @@ async function lockScreen() {
         if (match) sheetAccount = match;
       }
     } catch (_) { }
+    setLockWallpaper(sheetAccount);
     document.getElementById('lock-screen')?.classList.add('active');
     showPinPadForAccount();
     await manager.lock?.();
@@ -633,6 +670,7 @@ async function showLoginPicker() {
     if (el) el.style.display = 'none';
   }
   lockScreenEl.querySelector('.lock-picker')?.remove();
+  setLockWallpaper(null);
 
   const picker = createEl('div', { className: 'lock-picker', role: 'group', 'aria-label': _t('shell.lock.accountPickerAria') });
 
@@ -791,6 +829,7 @@ function selectAccountForAuth(user, { resumable = false } = {}) {
   const lockScreenEl = document.getElementById('lock-screen');
   const pickerEl = lockScreenEl?.querySelector('.lock-picker');
   if (pickerEl) pickerEl.style.display = 'none';
+  setLockWallpaper(user);
 
   for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad']) {
     const el = document.getElementById(id);

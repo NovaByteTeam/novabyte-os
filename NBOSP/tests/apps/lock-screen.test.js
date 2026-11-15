@@ -72,7 +72,7 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     { uid: 'u-sam-002', displayName: 'Sam', username: 'sam', role: 'standard', roleLabel: 'Standard', status: 'active', locked: false, pinLength: 4, hasPassphrase: false, hasBiometric: false, mustChangePin: false },
   ];
 
-  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }, changePinResult = null, webauthnResult = null, status = 'loggedout' } = {}) {
+  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }, changePinResult = null, webauthnResult = null, status = 'loggedout', extraStubs = {} } = {}) {
     const loginCalls = [];
     const changePinCalls = [];
     const webauthnCalls = [];
@@ -126,6 +126,7 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
           renderDesktopIcons: () => wmCalls.push('renderDesktopIcons'),
           NovaUserScope: scope,
           SessionManager: manager,
+          ...extraStubs,
         },
       },
     });
@@ -319,6 +320,48 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     expect(numpadButtons(document)).toHaveLength(12);
     // Passphrase affordance only for accounts that carry one.
     expect(document.getElementById('lock-passphrase-toggle')).toBeTruthy();
+  });
+
+  it('shows stock blue on the picker and only switches to an account\'s wallpaper on its PIN screen', async () => {
+    const stored = { ada: { id: 'stock-red' }, sam: { id: 'stock-green' } };
+    const { window, document } = await loadMultiUser({
+      extraStubs: {
+        // the machine's desktop is still wearing whoever logged off last
+        WallpaperService: { styleFor: (id) => ({ backgroundImage: `url("${id}.png")` }) },
+        NovaRegistry: { peekUserValue: (segment, path) => (path === 'HKNU/shell/wallpaper' ? stored[segment]?.id : undefined) },
+      },
+    });
+    const layerImage = () => document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage;
+
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    expect(layerImage()).toBe('url("stock-blue.png")');
+
+    [...document.querySelectorAll('.lp-tile')][0].click(); // Ada
+    await settle();
+    expect(layerImage()).toBe('url("stock-red.png")');
+
+    document.getElementById('lock-picker-back').click();
+    await settle();
+    expect(layerImage()).toBe('url("stock-blue.png")');
+
+    [...document.querySelectorAll('.lp-tile')][1].click(); // Sam
+    await settle();
+    expect(layerImage()).toBe('url("stock-green.png")');
+  });
+
+  it('falls back to stock blue for an account whose hive has no wallpaper yet', async () => {
+    const { window, document } = await loadMultiUser({
+      extraStubs: {
+        WallpaperService: { styleFor: (id) => ({ backgroundImage: `url("${id}.png")` }) },
+        NovaRegistry: { peekUserValue: () => undefined },
+      },
+    });
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][0].click();
+    await settle();
+    expect(document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage).toBe('url("stock-blue.png")');
   });
 
   it('sheet verification is a server round-trip: failed login surfaces the server message', async () => {
