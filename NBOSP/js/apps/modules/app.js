@@ -424,8 +424,9 @@ registerApp({
     // the rest of the row-based UI and doesn't block the whole OS thread).
     function confirmDanger(mod) {
       return new Promise((resolve) => {
-        const overlay = createEl('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;' });
-        const box = createEl('div', { style: 'background:var(--bg-elevated,#1a1c22);border:1px solid var(--border-subtle);border-radius:8px;padding:20px;max-width:360px;font-size:13px;' });
+        const overlay = createEl('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:9999;' });
+        // The box is translucent, so it blurs what's behind it too; otherwise the editor text shows through the copy.
+        const box = createEl('div', { style: 'background:var(--bg-elevated,#1a1c22);backdrop-filter:var(--window-blur,blur(24px) saturate(160%));border:1px solid var(--border-subtle);border-radius:8px;padding:20px;max-width:360px;font-size:13px;' });
         box.appendChild(createEl('div', { textContent: _t('apps.modules.confirm.title', { id: mod.id }), style: 'font-weight:600;margin-bottom:8px;font-size:14px;' }));
         box.appendChild(createEl('div', {
           textContent: _t('apps.modules.confirm.body'),
