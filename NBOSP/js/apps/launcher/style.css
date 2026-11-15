@@ -470,10 +470,15 @@
     line-height: 1.3;
   }
 
-  /* Power menu. A popover, so the browser handles outside-click and Escape. */
+  /* Power menu. A popover, so the browser handles outside-click and Escape.
+     Logical inset (inline-end, not physical right) so the menu pins to the
+     tray edge in BOTH directions: in RTL the taskbar flex row mirrors and
+     the power button sits at the left edge, where the menu must appear. */
   .tray-menu {
     position: fixed;
-    inset: auto 8px calc(var(--taskbar-height) + 8px) auto;
+    inset: auto;
+    inset-inline-end: 8px;
+    inset-block-end: calc(var(--taskbar-height) + 8px);
     margin: 0;
     min-width: 200px;
     background: var(--bg-elevated);

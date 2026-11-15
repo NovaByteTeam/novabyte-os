@@ -1,0 +1,8 @@
+config BR2_PACKAGE_NOTO_CJK
+	bool "Noto Sans CJK fonts (SC/JP/KR, Regular only)"
+	depends on BR2_PACKAGE_FONTCONFIG
+	help
+	  Install per-region Noto Sans CJK subset fonts (Simplified Chinese,
+	  Japanese and Korean) for zh-CN, ja and ko. Regular faces only:
+	  the full-weight CJK set would add ~30MB of initramfs/ISO size for
+	  bold headers Chromium already renders cleanly with synthetic bold.

@@ -147,6 +147,7 @@ const NovaRegistry = (() => {
     searchEngine: 'HKNU/settings/searchEngine',
     proxyUrl: 'HKNU/settings/proxyUrl',
     region: 'HKNU/settings/region',
+    language: 'HKNU/settings/language',
     keyboardLayout: 'HKNU/settings/keyboardLayout',
     timezone: 'HKNU/settings/timezone',
     highContrast: 'HKNU/settings/highContrast',

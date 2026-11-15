@@ -15,7 +15,7 @@ registerApp({
       content.innerHTML =
         '<div style="font-size:32px">⚠️</div>' +
         '<div style="font-size:14px;text-align:center"><b>com.nbosp.clock</b><br>' +
-        'App data directory missing.<br>This app requires NovaByte OS.</div>';
+        _t('apps.clock.appDataMissing') + '<br>' + _t('apps.clock.requiresNovaByteOS') + '</div>';
       return;
     }
 
@@ -133,7 +133,7 @@ registerApp({
     content.appendChild(root);
 
     const TABS = ['alarm', 'clock', 'timer', 'stopwatch'];
-    const LABELS = { alarm: 'Alarm', clock: 'Clock', timer: 'Timer', stopwatch: 'Stopwatch' };
+    const LABELS = { alarm: _t('apps.clock.tabAlarm'), clock: _t('apps.clock.tabClock'), timer: _t('apps.clock.tabTimer'), stopwatch: _t('apps.clock.tabStopwatch') };
     let activeTab = 'clock';
 
     const tabBar = createEl('div', { className: 'nbc-tabbar' });
@@ -252,18 +252,18 @@ registerApp({
     const alarmHdr = createEl('div', {
       style: 'display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;',
     });
-    alarmHdr.appendChild(createEl('div', { textContent: 'Alarms', style: 'font-size:15px;font-weight:700;' }));
+    alarmHdr.appendChild(createEl('div', { textContent: _t('apps.clock.alarms'), style: 'font-size:15px;font-weight:700;' }));
 
     const addAlarmBtn = createEl('button', { className: 'btn btn-sm btn-primary', style: 'display:flex;align-items:center;gap:4px;' });
-    addAlarmBtn.innerHTML = svgIcon('plus', 13) + ' Add';
+    addAlarmBtn.innerHTML = svgIcon('plus', 13) + ' ' + _t('apps.clock.add');
     alarmHdr.appendChild(addAlarmBtn);
     alarmSec.appendChild(alarmHdr);
 
     const alarmList = createEl('div', { style: 'flex:1;overflow-y:auto;' });
     alarmSec.appendChild(alarmList);
 
-    const DOW      = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-    const DOW_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const DOW      = [_t('apps.clock.dayInitialSun'), _t('apps.clock.dayInitialMon'), _t('apps.clock.dayInitialTue'), _t('apps.clock.dayInitialWed'), _t('apps.clock.dayInitialThu'), _t('apps.clock.dayInitialFri'), _t('apps.clock.dayInitialSat')];
+    const DOW_FULL = [_t('apps.clock.daySun'), _t('apps.clock.dayMon'), _t('apps.clock.dayTue'), _t('apps.clock.dayWed'), _t('apps.clock.dayThu'), _t('apps.clock.dayFri'), _t('apps.clock.daySat')];
 
     // Simple id counter for toggle inputs.
     let _toggleIdCounter = 0;
@@ -305,7 +305,7 @@ registerApp({
 
       if (!sorted.length) {
         alarmList.appendChild(createEl('div', {
-          textContent: 'No alarms set. Tap + Add to create one.',
+          textContent: _t('apps.clock.noAlarms'),
           style: 'padding:40px 20px;text-align:center;color:var(--text-muted);font-size:13px;',
         }));
         return;
@@ -315,7 +315,7 @@ registerApp({
       for (const { idx, al } of sorted) {
         const [hhS, mmS] = al.time.split(':');
         const hh = +hhS, mm = +mmS;
-        const ampm = hh < 12 ? 'AM' : 'PM';
+        const ampm = hh < 12 ? _t('apps.clock.am') : _t('apps.clock.pm');
         const h12  = hh % 12 || 12;
 
         const row  = createEl('div', { className: 'nbc-alarm-row' });
@@ -331,9 +331,9 @@ registerApp({
         const meta = createEl('div', { className: 'nbc-alarm-meta' });
         const parts = [];
         if (al.label) parts.push(al.label);
-        if (al.days.length === 0) parts.push('Once');
-        else if (al.days.length === 7) parts.push('Every day');
-        else if (al.days.length === 5 && !al.days.includes(0) && !al.days.includes(6)) parts.push('Weekdays');
+        if (al.days.length === 0) parts.push(_t('apps.clock.repeatOnce'));
+        else if (al.days.length === 7) parts.push(_t('apps.clock.repeatEveryDay'));
+        else if (al.days.length === 5 && !al.days.includes(0) && !al.days.includes(6)) parts.push(_t('apps.clock.repeatWeekdays'));
         else parts.push(al.days.map(d => DOW[d]).join(' '));
         meta.textContent = parts.join(' · ');
 
@@ -351,8 +351,11 @@ registerApp({
       alarmList.appendChild(frag);
     }
 
-    // Track the open modal for teardown.
+    // Track the open modal for teardown, plus its label nodes — a live
+    // language switch re-labels the open editor through them instead of
+    // rebuilding it (which would discard the user's half-entered draft).
     let _activeModal = null;
+    let _activeModalTexts = null;
 
     function openAlarmModal(idx) {
       _activeModal?.remove();
@@ -370,6 +373,7 @@ registerApp({
       function closeModal() {
         ov.remove();
         _activeModal = null;
+        _activeModalTexts = null;
       }
 
       const box = createEl('div', {
@@ -377,7 +381,8 @@ registerApp({
       });
 
       const hdr = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;' });
-      hdr.appendChild(createEl('span', { textContent: isEdit ? 'Edit Alarm' : 'Add Alarm', style: 'font-size:15px;font-weight:700;' }));
+      const modalTitleEl = createEl('span', { textContent: isEdit ? _t('apps.clock.editAlarm') : _t('apps.clock.addAlarm'), style: 'font-size:15px;font-weight:700;' });
+      hdr.appendChild(modalTitleEl);
       const xBtn = createEl('button', { className: 'btn btn-icon btn-sm' });
       xBtn.innerHTML = svgIcon('x', 14);
       xBtn.addEventListener('click', closeModal);
@@ -399,16 +404,17 @@ registerApp({
         className: 'input',
         id: `alarm-label-${Date.now()}`,
         name: 'alarm-label',
-        placeholder: 'Label (optional)',
+        placeholder: _t('apps.clock.labelPlaceholder'),
         style: 'width:100%;margin-bottom:14px;',
       });
       labelInp.value = al.label;
       box.appendChild(labelInp);
 
-      box.appendChild(createEl('div', {
-        textContent: 'Repeat',
+      const repeatLbl = createEl('div', {
+        textContent: _t('apps.clock.repeat'),
         style: 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:8px;',
-      }));
+      });
+      box.appendChild(repeatLbl);
 
       const daysRow = createEl('div', { style: 'display:flex;gap:5px;margin-bottom:18px;' });
       const dayBtns = DOW_FULL.map((d, i) => {
@@ -434,8 +440,9 @@ registerApp({
 
       const acts = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
 
+      let delBtn = null;
       if (isEdit) {
-        const delBtn = createEl('button', { textContent: 'Delete', className: 'btn btn-sm', style: 'color:#f85149;border-color:#f85149;' });
+        delBtn = createEl('button', { textContent: _t('apps.clock.delete'), className: 'btn btn-sm', style: 'color:#f85149;border-color:#f85149;' });
         delBtn.addEventListener('click', () => {
           db.alarms.splice(idx, 1);
           saveDb();
@@ -448,10 +455,10 @@ registerApp({
       }
 
       const rightActs  = createEl('div', { style: 'display:flex;gap:8px;' });
-      const cancelBtn  = createEl('button', { textContent: 'Cancel', className: 'btn btn-sm' });
+      const cancelBtn  = createEl('button', { textContent: _t('common.cancel'), className: 'btn btn-sm' });
       cancelBtn.addEventListener('click', closeModal);
 
-      const saveBtn = createEl('button', { textContent: 'Save', className: 'btn btn-sm btn-primary' });
+      const saveBtn = createEl('button', { textContent: _t('common.save'), className: 'btn btn-sm btn-primary' });
       saveBtn.addEventListener('click', () => {
         const t = timeInp.value;
         if (!t || !TIME_RE.test(t)) return;
@@ -475,6 +482,10 @@ registerApp({
       ov.appendChild(box);
       content.appendChild(ov);
       _activeModal = ov;
+      _activeModalTexts = {
+        isEdit, title: modalTitleEl, repeat: repeatLbl, label: labelInp,
+        dayBtns, delete: delBtn, cancel: cancelBtn, save: saveBtn,
+      };
 
       requestAnimationFrame(() => timeInp.focus());
     }
@@ -543,12 +554,12 @@ registerApp({
     }
 
     const tiBtnRow = createEl('div', { style: 'display:flex;gap:10px;' });
-    const tiStart  = createEl('button', { className: 'nbc-pill-btn primary', textContent: 'Start' });
-    const tiReset  = createEl('button', { className: 'nbc-pill-btn', textContent: 'Reset', style: 'display:none;' });
+    const tiStart  = createEl('button', { className: 'nbc-pill-btn primary', textContent: _t('apps.clock.start') });
+    const tiReset  = createEl('button', { className: 'nbc-pill-btn', textContent: _t('apps.clock.reset'), style: 'display:none;' });
     tiBtnRow.append(tiReset, tiStart);
 
     function renderTiBtns() {
-      tiStart.textContent       = tiRun ? 'Pause' : tiDone ? 'Restart' : 'Start';
+      tiStart.textContent       = tiRun ? _t('apps.clock.pause') : tiDone ? _t('apps.clock.restart') : _t('apps.clock.start');
       tiReset.style.display     = (tiMs !== tiSet || tiDone) ? 'block' : 'none';
     }
 
@@ -601,13 +612,13 @@ registerApp({
     const swDisplay = createEl('div', { className: 'nbc-sw-display', textContent: '00:00.00' });
 
     const swBtnRow  = createEl('div', { style: 'display:flex;gap:12px;margin-top:16px;margin-bottom:16px;' });
-    const swStartBtn = createEl('button', { textContent: 'Start', className: 'nbc-pill-btn primary' });
-    const swLapBtn   = createEl('button', { textContent: 'Lap',   className: 'nbc-pill-btn', style: 'min-width:82px;' });
+    const swStartBtn = createEl('button', { textContent: _t('apps.clock.start'), className: 'nbc-pill-btn primary' });
+    const swLapBtn   = createEl('button', { textContent: _t('apps.clock.lap'),   className: 'nbc-pill-btn', style: 'min-width:82px;' });
     swBtnRow.append(swLapBtn, swStartBtn);
 
     const swLapHdr = createEl('div', { style: 'display:flex;justify-content:space-between;padding:6px 16px;border-bottom:1px solid var(--border-subtle);' });
     const mkHdrCell = t => createEl('span', { textContent: t, style: 'font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.07em;' });
-    swLapHdr.append(mkHdrCell('Lap'), mkHdrCell('Split'), mkHdrCell('Overall'));
+    swLapHdr.append(mkHdrCell(_t('apps.clock.lap')), mkHdrCell(_t('apps.clock.split')), mkHdrCell(_t('apps.clock.overall')));
 
     const swLapScroll = createEl('div', { style: 'flex:1;overflow-y:auto;width:100%;' });
     swSec.append(swDisplay, swBtnRow, swLapHdr, swLapScroll);
@@ -648,7 +659,7 @@ registerApp({
         const split = splits[ri];
         const row   = createEl('div', { className: 'nbc-lap-row' });
 
-        const lapLabel  = createEl('span', { textContent: `Lap ${ri + 1}`, style: 'color:var(--text-secondary);' });
+        const lapLabel  = createEl('span', { textContent: _t('apps.clock.lapIndex', { index: ri + 1 }), style: 'color:var(--text-secondary);' });
         const splitEl   = createEl('span', { textContent: fmtSw(split) });
         if (swLaps.length > 1) {
           if (split === bestSplit)  splitEl.className = 'nbc-lap-best';
@@ -672,8 +683,8 @@ registerApp({
         clockSvc?.startStopwatch?.();
       }
       swSync();
-      swStartBtn.textContent = swRun ? 'Stop'  : 'Start';
-      swLapBtn.textContent   = swRun ? 'Lap'   : 'Reset';
+      swStartBtn.textContent = swRun ? _t('apps.clock.stop')  : _t('apps.clock.start');
+      swLapBtn.textContent   = swRun ? _t('apps.clock.lap')   : _t('apps.clock.reset');
       if (swRun) {
         swEnsureRaf();
       } else {
@@ -694,8 +705,8 @@ registerApp({
         swRun = false; swElapsed = 0; swStart = 0; swLaps = [];
         swLapScroll.innerHTML = '';
         swDisplay.textContent = '00:00.00';
-        swStartBtn.textContent = 'Start';
-        swLapBtn.textContent   = 'Lap';
+        swStartBtn.textContent = _t('apps.clock.start');
+        swLapBtn.textContent   = _t('apps.clock.lap');
       }
     });
 
@@ -726,14 +737,14 @@ registerApp({
         // (e.g. when the stopwatch was started from elsewhere) and keep the
         // Start/Lap button labels accurate.
         swEnsureRaf();
-        swStartBtn.textContent = 'Stop';
-        swLapBtn.textContent   = 'Lap';
+        swStartBtn.textContent = _t('apps.clock.stop');
+        swLapBtn.textContent   = _t('apps.clock.lap');
       } else if (swWasRun) {
         // Just stopped/paused elsewhere: final paint + cancel the loop.
         swStopRaf();
         swDisplay.textContent = fmtSw(swCurrentMs());
-        swStartBtn.textContent = 'Start';
-        swLapBtn.textContent   = 'Reset';
+        swStartBtn.textContent = _t('apps.clock.start');
+        swLapBtn.textContent   = _t('apps.clock.reset');
       }
     }, 250);
 
@@ -753,6 +764,72 @@ registerApp({
     swSync();
     swDisplay.textContent = fmtSw(swCurrentMs());
     renderSwLaps();
+
+    // Live re-localisation — rebuild this window's UI when the OS language
+    // changes, so an already-open app follows the switch in real time.
+    // renderAlarms()/renderTiDisplay()/renderTiBtns()/renderSwLaps()
+    // re-derive their DOM from db + the background clock service (idempotent,
+    // no listener re-attachment); the tab bar, alarm header, stopwatch
+    // controls and the open editor modal are static scaffolding, so they get
+    // a targeted re-label pass instead. Timer inputs and the editor's
+    // time/label values + day toggles are user data and stay untouched.
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      const localeHandler = () => {
+        try {
+          window.NovaI18n?.applyStaticDom?.(content);
+
+          // Tab bar + alarm section header.
+          LABELS.alarm = _t('apps.clock.tabAlarm');
+          LABELS.clock = _t('apps.clock.tabClock');
+          LABELS.timer = _t('apps.clock.tabTimer');
+          LABELS.stopwatch = _t('apps.clock.tabStopwatch');
+          for (const t of TABS) tabEls[t].textContent = LABELS[t];
+          alarmHdr.children[0].textContent = _t('apps.clock.alarms');
+          addAlarmBtn.innerHTML = svgIcon('plus', 13) + ' ' + _t('apps.clock.add');
+
+          // Day-name tables are baked at init; refresh them in place so the
+          // alarm list, lap rows and the open editor follow the switch.
+          const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          DAYS.forEach((d, i) => {
+            DOW[i] = _t('apps.clock.dayInitial' + d);
+            DOW_FULL[i] = _t('apps.clock.day' + d);
+          });
+
+          // Timer + stopwatch surfaces (sync state first, as elsewhere).
+          renderTiDisplay();
+          renderTiBtns();
+          swSync();
+          renderSwLaps();
+          swStartBtn.textContent = swRun ? _t('apps.clock.stop') : _t('apps.clock.start');
+          swLapBtn.textContent = swRun ? _t('apps.clock.lap') : (swElapsed > 0 ? _t('apps.clock.reset') : _t('apps.clock.lap'));
+          const lapHdrs = [_t('apps.clock.lap'), _t('apps.clock.split'), _t('apps.clock.overall')];
+          Array.from(swLapHdr.children).forEach((cell, i) => {
+            if (lapHdrs[i] !== undefined) cell.textContent = lapHdrs[i];
+          });
+
+          // Open editor modal — labels only; inputs + day toggles survive.
+          if (_activeModal && _activeModalTexts) {
+            const m = _activeModalTexts;
+            m.title.textContent = m.isEdit ? _t('apps.clock.editAlarm') : _t('apps.clock.addAlarm');
+            m.label.placeholder = _t('apps.clock.labelPlaceholder');
+            m.repeat.textContent = _t('apps.clock.repeat');
+            m.dayBtns.forEach((btn, i) => {
+              btn.title = DOW_FULL[i];
+              btn.textContent = DOW_FULL[i].charAt(0);
+            });
+            if (m.delete) m.delete.textContent = _t('apps.clock.delete');
+            m.cancel.textContent = _t('common.cancel');
+            m.save.textContent = _t('common.save');
+          }
+
+          renderAlarms();
+        } catch (error) {
+          console.warn('[Clock] Language change re-render failed:', error);
+        }
+      };
+      typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+      state.cleanups?.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
+    }
     switchTab('clock');
   },
 });

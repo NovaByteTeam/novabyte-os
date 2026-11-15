@@ -1,4 +1,10 @@
 // Optimized Modal service using high-efficiency delegated handling to limit active closures
+// Localised strings — NovaI18n core engine (js/core/core/i18n.js) evaluated
+// before this service script; identity fallback for stripped-down contexts.
+var _t = (typeof window !== 'undefined' && typeof window._t === 'function')
+  ? window._t
+  : (key, vars) => key;
+
 const ModalService = {
   /**
    * Central core utility to generate and display fully flexible, optimized modals or prompts
@@ -98,7 +104,7 @@ const ModalService = {
           type: inputType || 'text',
           value: defaultInputValue,
           style: 'width: 100%; margin-top: 4px;',
-          'aria-label': title || 'Input'
+          'aria-label': title || _t('shell.modal.inputAria')
         });
         inputWrap.appendChild(modalInput);
         dialog.appendChild(inputWrap);
@@ -106,7 +112,7 @@ const ModalService = {
 
       // Render the actions layout block
       const actionsDiv = createEl('div', { className: 'modal-actions' });
-      const buttonArray = actions || [{ label: 'OK', primary: true, value: true }];
+      const buttonArray = actions || [{ label: _t('common.ok'), primary: true, value: true }];
       const btnLen = buttonArray.length;
 
       for (let i = 0; i < btnLen; i++) {
@@ -199,8 +205,11 @@ function showPrompt(title, defaultValue) {
     title, 
     null, 
     [
-      { label: 'Cancel' }, 
-      { label: 'OK', primary: true, value: true }
+      // value:null keeps the Cancel resolution independent of its label —
+      // callers treat it exactly like Escape/overlay-dismiss, and the
+      // button text can be localised without changing the return contract.
+      { label: _t('common.cancel'), value: null }, 
+      { label: _t('common.ok'), primary: true, value: true }
     ], 
     'text', 
     defaultValue

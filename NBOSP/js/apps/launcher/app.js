@@ -2,6 +2,10 @@
   'use strict';
   const _reducedMotionMQ = window.matchMedia('(prefers-reduced-motion: reduce)');
   let _debouncedLaunchpadSearch = null;
+  // Localised strings — the NovaI18n core engine (js/core/core/i18n.js)
+  // evaluated long before the launcher mounts; the identity fallback keeps
+  // this file safe when the engine is absent (stripped-down test hosts).
+  const _t = (typeof window._t === 'function') ? window._t : (key, vars) => key;
   function getLauncherDeveloperMode() {
     const settings = window.NovaByteSystem?.settings;
     if (!settings || typeof settings.get !== 'function') {
@@ -285,10 +289,10 @@ function showAppContextMenu(e, app) {
   const isSystemApp = storedApps.some(a => a.id === app.id && a.system === true);
 
   const menuItems = [
-    { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); WM.createWindow(app.id); } },
+    { label: _t('shell.desktop.open'), icon: 'play', action: () => { toggleLaunchpad(); WM.createWindow(app.id); } },
     { separator: true },
     {
-      label: isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+      label: isPinned ? _t('shell.desktop.unpinFromTaskbar') : _t('shell.desktop.pinToTaskbar'),
       icon: 'pin',
       action: () => toggleTaskbarPin(app.id, app.name, isPinned)
     }
@@ -296,23 +300,23 @@ function showAppContextMenu(e, app) {
 
   if (_hasDesktopShortcut(app.id)) {
     menuItems.push({ separator: true }, {
-      label: 'Unpin from Desktop', icon: 'pin',
+      label: _t('shell.desktop.unpinFromDesktop'), icon: 'pin',
       action: () => unpinAppFromDesktop(app)
     });
   } else {
     menuItems.push({ separator: true }, {
-      label: 'Pin to Desktop', icon: 'pin',
+      label: _t('shell.desktop.pinToDesktop'), icon: 'pin',
       action: () => pinAppToDesktop(app)
     });
   }
 
   if (isUserApp && isSystemApp) {
     menuItems.push({ separator: true }, {
-      label: 'System App', icon: 'lock', disabled: true
+      label: _t('shell.desktop.systemApp'), icon: 'lock', disabled: true
     });
   } else if (isUserApp) {
     menuItems.push({ separator: true }, {
-      label: 'Uninstall', icon: 'trash', danger: true,
+      label: _t('shell.desktop.uninstall'), icon: 'trash', danger: true,
       action: () => uninstallApp(app)
     });
   }
@@ -325,15 +329,15 @@ function toggleTaskbarPin(appId, appName, currentlyPinned) {
   if (currentlyPinned) {
     OS.settings.set('pinnedApps', pins.filter(id => id !== appId));
     WM.updateTaskbar();
-    Notify.show({ title: 'Unpinned', body: `${appName} removed from taskbar`, type: 'success', appName: 'Launchpad' });
+    Notify.show({ title: _t('shell.desktop.unpinned'), body: _t('shell.desktop.removedFromTaskbar', { app: appName }), type: 'success', appName: 'Launchpad' });
   } else {
     if (pins.includes(appId)) {
-      Notify.show({ title: 'Already Pinned', body: `${appName} is already pinned to taskbar`, type: 'info', appName: 'Launchpad' });
+      Notify.show({ title: _t('shell.desktop.alreadyPinned'), body: _t('shell.desktop.alreadyPinnedBody', { app: appName }), type: 'info', appName: 'Launchpad' });
       return;
     }
     OS.settings.set('pinnedApps', [...pins, appId]);
     WM.updateTaskbar();
-    Notify.show({ title: 'Pinned', body: `${appName} pinned to taskbar`, type: 'success', appName: 'Launchpad' });
+    Notify.show({ title: _t('shell.desktop.pinned'), body: _t('shell.desktop.pinnedBody', { app: appName }), type: 'success', appName: 'Launchpad' });
   }
 }
 
@@ -348,9 +352,9 @@ async function pinAppToDesktop(app) {
     });
     await FS.createFile(desktopFolder, app.name + '.lnk', shortcutContent, 'application/x-app-shortcut');
     renderDesktopIcons();
-    Notify.show({ title: 'Pinned to Desktop', body: `${app.name} shortcut added to desktop`, type: 'success', appName: 'Launchpad' });
+    Notify.show({ title: _t('shell.desktop.pinnedToDesktop'), body: _t('shell.desktop.shortcutAdded', { app: app.name }), type: 'success', appName: 'Launchpad' });
   } catch (err) {
-    Notify.show({ title: 'Error', body: `Failed to pin to desktop: ${err?.message || err}`, type: 'error', appName: 'Launchpad' });
+    Notify.show({ title: _t('common.error'), body: _t('shell.desktop.failedPin', { message: err?.message || err }), type: 'error', appName: 'Launchpad' });
   }
 }
 
@@ -376,14 +380,14 @@ async function unpinAppFromDesktop(app) {
     renderDesktopIcons();
     WM.updateTaskbar();
     Notify.show({
-      title: 'Unpinned from Desktop',
+      title: _t('shell.desktop.unpinnedFromDesktop'),
       body: removed > 0
-        ? `Removed ${removed} desktop shortcut${removed > 1 ? 's' : ''} for ${app.name}`
-        : `No desktop shortcuts found for ${app.name}`,
+        ? _t('shell.desktop.removedShortcuts', { count: removed, app: app.name })
+        : _t('shell.desktop.noShortcuts', { app: app.name }),
       type: 'success', appName: 'Launchpad'
     });
   } catch (err) {
-    Notify.show({ title: 'Error', body: `Failed to unpin from desktop: ${err?.message || err}`, type: 'error', appName: 'Launchpad' });
+    Notify.show({ title: _t('common.error'), body: _t('shell.desktop.failedUnpin', { message: err?.message || err }), type: 'error', appName: 'Launchpad' });
   }
 }
 
@@ -392,7 +396,7 @@ async function uninstallApp(app) {
   try {
     await uninstallThroughAppManager(app.id, 'Launchpad');
   } catch (err) {
-    Notify.show({ title: 'Error', body: `Failed to uninstall: ${err?.message || err}`, type: 'error', appName: 'Launchpad' });
+    Notify.show({ title: _t('common.error'), body: _t('shell.desktop.failedUninstall', { message: err?.message || err }), type: 'error', appName: 'Launchpad' });
   }
 }
 
@@ -401,11 +405,11 @@ async function uninstallThroughAppManager(appId, source) {
     const appManagerId = 'com.nbosp.appmanager';
     let managerWindow = [...(window.OS?.windows?.values() ?? [])].find(w => w.appId === appManagerId);
     managerWindow ??= WM.createWindow(appManagerId);
-    if (!managerWindow) throw new Error('App Manager is not available.');
+    if (!managerWindow) throw new Error(_t('shell.desktop.managerUnavailable'));
 
     const deadline = Date.now() + 8000;
     while (typeof managerWindow.content?._novaAppUninstall !== 'function') {
-      if (Date.now() > deadline) throw new Error('App Manager took too long to open.');
+      if (Date.now() > deadline) throw new Error(_t('shell.desktop.managerTimeout'));
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     await managerWindow.content._novaAppUninstall(appId);
@@ -413,7 +417,7 @@ async function uninstallThroughAppManager(appId, source) {
   } catch (error) {
     console.error(`[${source}] App Manager uninstall failed:`, error);
     Notify.show({
-      title: 'Cannot uninstall app',
+      title: _t('shell.desktop.cannotUninstall'),
       body: error?.message || String(error),
       type: 'error',
       appName: source,
@@ -424,7 +428,7 @@ async function uninstallThroughAppManager(appId, source) {
 function appendWebAppItem(webApp, grid) {
   const item = createEl('button', {
     className: 'launchpad-item',
-    'aria-label': `${webApp.name} (Web App)`,
+    'aria-label': `${webApp.name} (${_t('shell.launchpad.webApp')})`,
     // Cap URL length on the tooltip so very long data URIs don't reflow the
     // browser's native tooltip popup for seconds at a time.
     title: typeof webApp.url === 'string' ? webApp.url.slice(0, 2048) : '',
@@ -455,7 +459,7 @@ function appendWebAppItem(webApp, grid) {
   const name = createEl('div', { className: 'launchpad-name', textContent: webApp.name });
   const indicator = createEl('div', {
     style: 'position:absolute;bottom:4px;right:4px;width:8px;height:8px;background:#58a6ff;border-radius:50%;border:1px solid rgba(255,255,255,0.3);',
-    title: 'Web App'
+    title: _t('shell.launchpad.webApp')
   });
 
   item.append(icon, name, indicator);
@@ -472,7 +476,7 @@ function appendWebAppItem(webApp, grid) {
       if (!windowElement) throw new Error('Web app not found');
     } catch (error) {
       Notify.show({
-        title: 'Error', body: `Failed to launch app: ${error.message}`,
+        title: _t('common.error'), body: _t('shell.desktop.failedLaunch', { message: error.message }),
         type: 'error', appName: 'System'
       });
     }
@@ -487,31 +491,31 @@ function appendWebAppItem(webApp, grid) {
     const waId = 'webapp_' + webApp.id;
     const waIsPinned = waPins.includes(waId);
     ContextMenu.show(e.clientX, e.clientY, [
-      { label: 'Open', icon: 'play', action: launchWebApp },
+      { label: _t('shell.desktop.open'), icon: 'play', action: launchWebApp },
       { separator: true },
       {
-        label: waIsPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+        label: waIsPinned ? _t('shell.desktop.unpinFromTaskbar') : _t('shell.desktop.pinToTaskbar'),
         icon: 'pin',
         action: () => {
           const p = OS.settings.get('pinnedApps') || [];
           if (waIsPinned) {
             OS.settings.set('pinnedApps', p.filter(id => id !== waId));
             WM?.updateTaskbar?.();
-            Notify.show({ title: 'Unpinned', body: `${webApp.name} unpinned from taskbar`, type: 'success', appName: 'Launchpad' });
+            Notify.show({ title: _t('shell.desktop.unpinned'), body: _t('shell.desktop.unpinnedFromTaskbar', { app: webApp.name }), type: 'success', appName: 'Launchpad' });
           } else {
             if (p.includes(waId)) {
-              Notify.show({ title: 'Already Pinned', body: `${webApp.name} is already pinned to taskbar`, type: 'info', appName: 'Launchpad' });
+              Notify.show({ title: _t('shell.desktop.alreadyPinned'), body: _t('shell.desktop.alreadyPinnedBody', { app: webApp.name }), type: 'info', appName: 'Launchpad' });
               return;
             }
             OS.settings.set('pinnedApps', [...p, waId]);
             WM?.updateTaskbar?.();
-            Notify.show({ title: 'Pinned', body: `${webApp.name} pinned to taskbar`, type: 'success', appName: 'Launchpad' });
+            Notify.show({ title: _t('shell.desktop.pinned'), body: _t('shell.desktop.pinnedBody', { app: webApp.name }), type: 'success', appName: 'Launchpad' });
           }
         }
       },
       { separator: true },
       {
-        label: 'Remove Web App', icon: 'trash', danger: true,
+        label: _t('shell.desktop.removeWebApp'), icon: 'trash', danger: true,
         action: async () => {
           // removeWebApp (registry.js) also unpins from the taskbar and
           // deletes any desktop .lnk shortcut, matching the Web Apps tab's
@@ -522,7 +526,7 @@ function appendWebAppItem(webApp, grid) {
             WebAppManager.removeApp(webApp.id);
           }
           renderLaunchpad();
-          Notify.show({ title: 'Removed', body: `"${webApp.name}" has been removed`, type: 'success', appName: 'Launchpad' });
+          Notify.show({ title: _t('shell.desktop.removed'), body: _t('shell.desktop.webAppRemovedBody', { app: webApp.name }), type: 'success', appName: 'Launchpad' });
         }
       }
     ]);
@@ -595,7 +599,7 @@ _debouncedLaunchpadSearch = debounce((e) => {
       noResultsMsg = createEl('div', {
         id: 'launchpad-no-results',
         className: 'launchpad-no-results',
-        textContent: 'No apps found',
+        textContent: _t('shell.launchpad.noAppsFound'),
         style: 'grid-column:1/-1;text-align:center;color:var(--text-muted);padding:40px;'
       });
       document.getElementById('launchpad-grid')?.appendChild(noResultsMsg);
@@ -788,9 +792,9 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
         OS.settings.set('pinnedApps', pins);
         if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
         const app = OS.apps[appId];
-        Notify.show({ title: 'Pinned to Taskbar', body: `${app?.name || appId} pinned to taskbar`, type: 'success', appName: 'Desktop' });
+        Notify.show({ title: _t('shell.desktop.pinnedToTaskbar'), body: _t('shell.desktop.pinnedBody', { app: app?.name || appId }), type: 'success', appName: 'Desktop' });
       } else {
-        Notify.show({ title: 'Already Pinned', body: `${OS.apps[appId]?.name || appId} is already pinned to taskbar`, type: 'info', appName: 'Desktop' });
+        Notify.show({ title: _t('shell.desktop.alreadyPinned'), body: _t('shell.desktop.alreadyPinnedBody', { app: OS.apps[appId]?.name || appId }), type: 'info', appName: 'Desktop' });
       }
     }
 
@@ -996,7 +1000,7 @@ async function _handleDesktopDrop(e, desktopEl) {
             f.name === shortcutName && f.mimeType === 'application/x-app-shortcut'
           );
           if (alreadyExists) {
-            Notify.show({ title: 'Already Pinned', body: `${payload.appName} shortcut already exists on desktop`, type: 'info', appName: 'Desktop' });
+            Notify.show({ title: _t('shell.desktop.alreadyPinned'), body: _t('shell.desktop.shortcutExists', { app: payload.appName }), type: 'info', appName: 'Desktop' });
             return;
           }
           await FS.createFile(desktopFolderId, shortcutName, shortcutContent, 'application/x-app-shortcut');
@@ -1006,10 +1010,10 @@ async function _handleDesktopDrop(e, desktopEl) {
           iconPositions['app:' + payload.appId] = { col: freeCell.col, row: freeCell.row };
           OS.settings.set('desktopIconPositions', iconPositions);
           renderDesktopIcons();
-          Notify.show({ title: 'Shortcut Created', body: `${payload.appName} shortcut added to desktop`, type: 'success', appName: 'Desktop' });
+          Notify.show({ title: _t('shell.desktop.shortcutCreated'), body: _t('shell.desktop.shortcutAdded', { app: payload.appName }), type: 'success', appName: 'Desktop' });
         } catch (err) {
           console.error('[Desktop Drop] Failed to create shortcut:', err);
-          Notify.show({ title: 'Error', body: 'Failed to create shortcut', type: 'error', appName: 'Desktop' });
+          Notify.show({ title: _t('common.error'), body: _t('shell.desktop.failedCreateShortcut'), type: 'error', appName: 'Desktop' });
         }
         return;
       }
@@ -1021,7 +1025,7 @@ async function _handleDesktopDrop(e, desktopEl) {
 
     const desktopId = FS.specialFolders.desktop;
     if (!desktopId) {
-      Notify.show({ title: 'Error', body: 'Desktop folder not found', type: 'error', appName: 'System' });
+      Notify.show({ title: _t('common.error'), body: _t('shell.desktop.desktopFolderMissing'), type: 'error', appName: 'System' });
       return;
     }
 
@@ -1056,13 +1060,13 @@ async function _handleDesktopDrop(e, desktopEl) {
         verdict = await window.Scanner.scan(file);
       } catch (error) {
         console.error('[Desktop Drop] File scan failed:', file.name, error);
-        Notify.show({ title: 'File Scan Failed', body: `Could not safely scan ${file.name}`, type: 'error', appName: 'System' });
+        Notify.show({ title: _t('shell.desktop.fileScanFailed'), body: _t('shell.desktop.couldNotScan', { file: file.name }), type: 'error', appName: 'System' });
         return false;
       }
 
       if (!verdict.safe) {
-        const reason = verdict.reason || 'The file did not pass the safety scan.';
-        Notify.show({ title: 'File Blocked', body: `"${file.name}": ${reason}`, type: 'error', appName: 'System' });
+        const reason = verdict.reason || _t('shell.desktop.scanNotPassed');
+        Notify.show({ title: _t('shell.desktop.fileBlocked'), body: _t('shell.desktop.fileBlockedBody', { file: file.name, reason }), type: 'error', appName: 'System' });
         console.warn('[Security] File blocked by scanner:', { file: file.name, reason });
         if (typeof EventLog !== 'undefined') {
           EventLog.log({ app: 'Desktop', category: 'security', severity: 'warn', message: `Blocked file "${file.name}": ${reason}`, data: { file: file.name, reason } });
@@ -1088,7 +1092,7 @@ async function _handleDesktopDrop(e, desktopEl) {
         return true;
       } catch (error) {
         console.error('[Desktop Drop] File read or save failed:', file.name, error);
-        Notify.show({ title: 'Error', body: `Failed to add ${file.name}: ${error.message}`, type: 'error', appName: 'System' });
+        Notify.show({ title: _t('common.error'), body: _t('shell.desktop.failedAdd', { file: file.name, message: error.message }), type: 'error', appName: 'System' });
         return false;
       }
     };
@@ -1100,7 +1104,7 @@ async function _handleDesktopDrop(e, desktopEl) {
     renderDesktopIcons();
 
     if (succeeded > 0) {
-      Notify.show({ title: 'Files Added', body: `${succeeded} file(s) added to desktop`, type: 'success', appName: 'System', duration: 3000 });
+      Notify.show({ title: _t('shell.desktop.filesAdded'), body: _t('shell.desktop.filesAddedBody', { count: succeeded }), type: 'success', appName: 'System', duration: 3000 });
     }
   } catch (err) {
     console.error('[Desktop Drop] Unhandled error:', err);
@@ -1240,7 +1244,7 @@ function renderDesktopIcons() {
           pinnedApps.push(payload.appId);
           OS.settings.set('pinnedApps', pinnedApps);
           if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
-          Notify.show({ title: 'Pinned to Taskbar', body: `${payload.appName} pinned to taskbar`, type: 'success', appName: 'Taskbar' });
+          Notify.show({ title: _t('shell.desktop.pinnedToTaskbar'), body: _t('shell.desktop.pinnedBody', { app: payload.appName }), type: 'success', appName: 'Taskbar' });
         }
       } catch (err) {
         console.error('[Taskbar Drop] Error:', err);
@@ -1279,10 +1283,10 @@ function renderDesktopIcons() {
       const isUserApp = storedApps.some(a => a.id === app.id);
       const isSystemApp = storedApps.some(a => a.id === app.id && a.system === true);
       const items = [
-        { label: 'Open', icon: 'play', action: () => WM.createWindow(app.id) },
+        { label: _t('shell.desktop.open'), icon: 'play', action: () => WM.createWindow(app.id) },
         { separator: true },
         {
-          label: isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+          label: isPinned ? _t('shell.desktop.unpinFromTaskbar') : _t('shell.desktop.pinToTaskbar'),
           icon: 'pin',
           action: () => {
             const pins = OS.settings.get('pinnedApps') || [];
@@ -1290,27 +1294,27 @@ function renderDesktopIcons() {
               const next = pins.filter(id => id !== app.id);
               OS.settings.set('pinnedApps', next);
               WM.updateTaskbar();
-              Notify.show({ title: 'Unpinned', body: `${app.name} removed from taskbar`, type: 'success', appName: 'Desktop' });
+              Notify.show({ title: _t('shell.desktop.unpinned'), body: _t('shell.desktop.removedFromTaskbar', { app: app.name }), type: 'success', appName: 'Desktop' });
             } else {
               if (pins.includes(app.id)) {
-                Notify.show({ title: 'Already Pinned', body: `${app.name} is already pinned to taskbar`, type: 'info', appName: 'Desktop' });
+                Notify.show({ title: _t('shell.desktop.alreadyPinned'), body: _t('shell.desktop.alreadyPinnedBody', { app: app.name }), type: 'info', appName: 'Desktop' });
                 return;
               }
               const next = [...pins, app.id];
               OS.settings.set('pinnedApps', next);
               WM.updateTaskbar();
-              Notify.show({ title: 'Pinned', body: `${app.name} pinned to taskbar`, type: 'success', appName: 'Desktop' });
+              Notify.show({ title: _t('shell.desktop.pinned'), body: _t('shell.desktop.pinnedBody', { app: app.name }), type: 'success', appName: 'Desktop' });
             }
           }
         }
       ];
       if (isUserApp && isSystemApp) {
         items.push({ separator: true }, {
-          label: 'System App', icon: 'lock', disabled: true
+          label: _t('shell.desktop.systemApp'), icon: 'lock', disabled: true
         });
       } else if (isUserApp) {
         items.push({ separator: true }, {
-          label: 'Uninstall', icon: 'trash', danger: true,
+          label: _t('shell.desktop.uninstall'), icon: 'trash', danger: true,
           action: () => uninstallThroughAppManager(app.id, 'Desktop')
         });
       }
@@ -1412,7 +1416,7 @@ function renderDesktopIcons() {
       const viewOnly = OS.settings.get('filesViewOnly');
       const menuItems = [
         {
-          label: 'Open', icon: 'play',
+          label: _t('shell.desktop.open'), icon: 'play',
           action: () => {
             if (isShortcut && shortcutData) {
               if (typeof shortcutData.target === 'string' && shortcutData.target.startsWith('webapp_') && typeof window.openWebApp === 'function') {
@@ -1430,14 +1434,14 @@ function renderDesktopIcons() {
       ];
       if (!isShortcut && f.type !== 'folder') {
         menuItems.push({
-          label: 'Open with...', icon: 'external-link',
+          label: _t('shell.desktop.openWith'), icon: 'external-link',
           action: () => showOpenWithDialog(f),
         });
       }
       if (isShortcut && shortcutData) {
         menuItems.push(
           {
-            label: 'Unpin from Desktop', icon: 'pin',
+            label: _t('shell.desktop.unpinFromDesktop'), icon: 'pin',
             action: async () => {
               try {
                 const fileKey = 'file:' + f.id;
@@ -1445,9 +1449,9 @@ function renderDesktopIcons() {
                 OS.settings.set('desktopIconPositions', iconPositions);
                 await FS.permanentDelete(f.id);
                 renderDesktopIcons();
-                Notify.show({ title: 'Unpinned', body: `${f.name.replace(/\.lnk$/i, '')} removed from desktop`, type: 'success', appName: 'Desktop' });
+                Notify.show({ title: _t('shell.desktop.unpinned'), body: _t('shell.desktop.removedFromDesktop', { app: f.name.replace(/\.lnk$/i, '') }), type: 'success', appName: 'Desktop' });
               } catch (err) {
-                Notify.show({ title: 'Error', body: `Failed to remove shortcut: ${err.message}`, type: 'error', appName: 'Desktop' });
+                Notify.show({ title: _t('common.error'), body: _t('shell.desktop.failedRemoveShortcut', { message: err.message }), type: 'error', appName: 'Desktop' });
               }
             }
           },
@@ -1458,7 +1462,7 @@ function renderDesktopIcons() {
           const pins = OS.settings.get('pinnedApps') || [];
           const isPinned = pins.includes(shortcutData.target);
           menuItems.push({
-            label: isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+            label: isPinned ? _t('shell.desktop.unpinFromTaskbar') : _t('shell.desktop.pinToTaskbar'),
             icon: 'pin',
             action: () => {
               const pins = OS.settings.get('pinnedApps') || [];
@@ -1466,16 +1470,16 @@ function renderDesktopIcons() {
                 const next = pins.filter(id => id !== shortcutData.target);
                 OS.settings.set('pinnedApps', next);
                 WM.updateTaskbar();
-                Notify.show({ title: 'Unpinned', body: `${targetApp.name} removed from taskbar`, type: 'success', appName: 'Desktop' });
+                Notify.show({ title: _t('shell.desktop.unpinned'), body: _t('shell.desktop.removedFromTaskbar', { app: targetApp.name }), type: 'success', appName: 'Desktop' });
               } else {
                 if (pins.includes(shortcutData.target)) {
-                  Notify.show({ title: 'Already Pinned', body: `${targetApp.name} is already pinned to taskbar`, type: 'info', appName: 'Desktop' });
+                  Notify.show({ title: _t('shell.desktop.alreadyPinned'), body: _t('shell.desktop.alreadyPinnedBody', { app: targetApp.name }), type: 'info', appName: 'Desktop' });
                   return;
                 }
                 const next = [...pins, shortcutData.target];
                 OS.settings.set('pinnedApps', next);
                 WM.updateTaskbar();
-                Notify.show({ title: 'Pinned', body: `${targetApp.name} pinned to taskbar`, type: 'success', appName: 'Desktop' });
+                Notify.show({ title: _t('shell.desktop.pinned'), body: _t('shell.desktop.pinnedBody', { app: targetApp.name }), type: 'success', appName: 'Desktop' });
               }
             }
           }, { separator: true });
@@ -1484,9 +1488,9 @@ function renderDesktopIcons() {
       if (!viewOnly) {
         menuItems.push(
           {
-             label: 'Rename', icon: 'rename',
+             label: _t('shell.desktop.rename'), icon: 'rename',
             action: async () => {
-              const name = await showPrompt('Rename', f.name.replace(/\.lnk$/i, ''));
+              const name = await showPrompt(_t('shell.desktop.rename'), f.name.replace(/\.lnk$/i, ''));
               if (name && name !== f.name.replace(/\.lnk$/i, '')) {
                 await FS.rename(f.id, name.endsWith('.lnk') ? name : name + '.lnk');
                 renderDesktopIcons();
@@ -1510,13 +1514,13 @@ function renderDesktopIcons() {
           // existed on the desktop. Reuse the same removeWebApp() helper as
           // the Web Apps tab and launchpad so all three stay in sync.
           menuItems.push({
-            label: 'Remove Web App', icon: 'trash', danger: true,
+            label: _t('shell.desktop.removeWebApp'), icon: 'trash', danger: true,
             action: async () => {
               const appName = f.name.replace(/\.lnk$/i, '');
               const removeResult = await showModal(
-                'Remove Web App',
-                `Remove "${appName}"?`,
-                [{ label: 'Cancel' }, { label: 'Remove', value: 'confirm', danger: true }]
+                _t('shell.desktop.removeWebApp'),
+                _t('shell.desktop.webAppRemovedBody', { app: appName }),
+                [{ label: _t('common.cancel'), value: null }, { label: _t('common.remove'), value: 'confirm', danger: true }]
               );
               if (removeResult !== 'confirm') return;
               const waId = shortcutData.target.slice('webapp_'.length);
@@ -1527,23 +1531,23 @@ function renderDesktopIcons() {
               delete iconPositions['app:' + shortcutData.target];
               OS.settings.set('desktopIconPositions', iconPositions);
               renderDesktopIcons();
-              Notify.show({ title: 'Removed', body: `${appName} has been removed.`, type: 'success', appName: 'Desktop' });
+              Notify.show({ title: _t('shell.desktop.removed'), body: _t('shell.desktop.webAppRemovedDone', { app: appName }), type: 'success', appName: 'Desktop' });
             }
           });
         } else if (isUserApp && isSystemApp) {
           menuItems.push({
-            label: 'System App', icon: 'lock', disabled: true
+            label: _t('shell.desktop.systemApp'), icon: 'lock', disabled: true
           });
         } else if (isUserApp) {
           menuItems.push({
-            label: 'Uninstall', icon: 'trash', danger: true,
+            label: _t('shell.desktop.uninstall'), icon: 'trash', danger: true,
             action: () => uninstallThroughAppManager(shortcutData.target, 'Desktop')
           });
         }
       } else if (!viewOnly) {
         menuItems.push(
           {
-            label: 'Move to Trash', icon: 'trash', danger: true,
+            label: _t('shell.desktop.moveToTrash'), icon: 'trash', danger: true,
             action: async () => {
               await FS.deleteToTrash(f.id);
               renderDesktopIcons();
@@ -1624,7 +1628,7 @@ function updateTaskbar() {
 
         const btn = createEl('button', {
           className:   `taskbar-app-btn${isAnyActive ? ' active' : ''}${isPinned ? ' pinned' : ''}`,
-          'aria-label': app.name + (hasMultipleWindows ? ` (${windows.length} windows)` : ''),
+          'aria-label': app.name + (hasMultipleWindows ? _t('shell.window.windowsSuffix', { count: windows.length }) : ''),
         });
 
         btn.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 20);
@@ -1677,7 +1681,7 @@ function updateTaskbar() {
           e.preventDefault();
           const menuItems = [];
           menuItems.push({
-            label: 'Open', icon: 'play',
+            label: _t('shell.desktop.open'), icon: 'play',
             action: () => {
               if (appId.startsWith('webapp_') && typeof openWebApp === 'function') {
                 openWebApp(appId.slice('webapp_'.length));
@@ -1688,7 +1692,7 @@ function updateTaskbar() {
           });
           menuItems.push({ separator: true });
           menuItems.push({
-            label:  isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+            label:  isPinned ? _t('shell.desktop.unpinFromTaskbar') : _t('shell.desktop.pinToTaskbar'),
             icon:   'pin',
             action: () => {
               const pins = OS.settings.get('pinnedApps') ?? [];
@@ -1696,23 +1700,23 @@ function updateTaskbar() {
                 const next = pins.filter(p => p !== appId);
                 OS.settings.set('pinnedApps', next);
                 WM.updateTaskbar();
-                Notify.show({ title: 'Unpinned', body: `${app.name} removed from taskbar`, type: 'success', appName: 'Taskbar' });
+                Notify.show({ title: _t('shell.desktop.unpinned'), body: _t('shell.desktop.removedFromTaskbar', { app: app.name }), type: 'success', appName: 'Taskbar' });
               } else {
                 if (pins.includes(appId)) {
-                  Notify.show({ title: 'Already Pinned', body: `${app.name} is already pinned to taskbar`, type: 'info', appName: 'Taskbar' });
+                  Notify.show({ title: _t('shell.desktop.alreadyPinned'), body: _t('shell.desktop.alreadyPinnedBody', { app: app.name }), type: 'info', appName: 'Taskbar' });
                   return;
                 }
                 const next = [...pins, appId];
                 OS.settings.set('pinnedApps', next);
                 WM.updateTaskbar();
-                Notify.show({ title: 'Pinned', body: `${app.name} pinned to taskbar`, type: 'success', appName: 'Taskbar' });
+                Notify.show({ title: _t('shell.desktop.pinned'), body: _t('shell.desktop.pinnedBody', { app: app.name }), type: 'success', appName: 'Taskbar' });
               }
             },
           });
           if (hasWindows) {
             menuItems.push({ separator: true });
             menuItems.push({
-              label: 'Close Window',
+              label: _t('shell.window.closeWindow'),
               icon:   'x',
               danger: true,
               action: () => { for (const w of windows) WM.closeWindow(w.id); },
@@ -1748,7 +1752,7 @@ function showWindowPreview(btn, appId, windows) {
 
   for (const [index, w] of windows.entries()) {
     const app      = OS.apps[appId];
-    const winTitle = w.state.title ?? `Window ${index + 1}`;
+    const winTitle = w.state.title ?? _t('shell.window.windowFallbackTitle', { index: index + 1 });
     const isActive = OS.focusedWindowId === w.id && !w.state.minimized;
 
     const item = createEl('div', {
@@ -1759,7 +1763,7 @@ function showWindowPreview(btn, appId, windows) {
     icon.innerHTML = svgIcon(app.icon, 16);
 
     const title    = createEl('span', { className: 'preview-title', textContent: winTitle });
-    const closeBtn = createEl('button', { className: 'preview-close', 'aria-label': 'Close window' });
+    const closeBtn = createEl('button', { className: 'preview-close', 'aria-label': _t('shell.window.closeAria') });
     closeBtn.innerHTML = svgIcon('x', 12);
 
     closeBtn.addEventListener('click', (e) => {
@@ -1825,8 +1829,8 @@ if (desktopEl) {
     e.preventDefault();
     ContextMenu.show(e.clientX, e.clientY, [
       {
-        label: 'New File', icon: 'file', action: async () => {
-          const name = await showPrompt('New File Name', 'untitled.txt');
+        label: _t('shell.desktop.newFile'), icon: 'file', action: async () => {
+          const name = await showPrompt(_t('shell.desktop.newFileName'), 'untitled.txt');
           if (!name) return;
           const finalName = FS.uniqueName(FS.specialFolders.desktop, name);
           await FS.createFile(FS.specialFolders.desktop, finalName, '', 'text/plain');
@@ -1834,8 +1838,8 @@ if (desktopEl) {
         }
       },
       {
-        label: 'New Folder', icon: 'folder', action: async () => {
-          const name = await showPrompt('New Folder Name', 'New Folder');
+        label: _t('shell.desktop.newFolder'), icon: 'folder', action: async () => {
+          const name = await showPrompt(_t('shell.desktop.newFolderName'), _t('shell.desktop.newFolder'));
           if (!name) return;
           const finalName = FS.uniqueName(FS.specialFolders.desktop, name);
           await FS.createFolder(FS.specialFolders.desktop, finalName);
@@ -1845,9 +1849,9 @@ if (desktopEl) {
       ...(OS.clipboard?.fileId ? [
         { separator: true },
         {
-          label: 'Paste', icon: 'paste', action: async () => {
+          label: _t('shell.desktop.paste'), icon: 'paste', action: async () => {
             if (OS.settings?.get?.('disableClipboardPaste')) {
-              Notify.show({ title: 'Paste disabled', body: 'Paste disabled.', type: 'error', appName: 'Desktop' });
+              Notify.show({ title: _t('shell.desktop.pasteDisabledTitle'), body: _t('shell.desktop.pasteDisabledBody'), type: 'error', appName: 'Desktop' });
               return;
             }
             try {
@@ -1857,16 +1861,16 @@ if (desktopEl) {
               renderDesktopIcons();
             } catch (err) {
               console.error('[Desktop] paste failed:', err);
-              Notify.show({ title: 'Paste failed', body: err?.message || 'Unknown error', type: 'error', appName: 'Desktop' });
+              Notify.show({ title: _t('shell.desktop.pasteFailedTitle'), body: err?.message || _t('shell.desktop.unknownError'), type: 'error', appName: 'Desktop' });
             }
           }
         }
       ] : []),
       { separator: true },
-      { label: 'Open Terminal', icon: 'terminal', action: () => WM.createWindow('com.nbosp.terminal') },
-      { label: 'Open Settings', icon: 'settings', action: () => WM.createWindow('com.nbosp.settings') },
+      { label: _t('shell.desktop.openTerminal'), icon: 'terminal', action: () => WM.createWindow('com.nbosp.terminal') },
+      { label: _t('shell.desktop.openSettings'), icon: 'settings', action: () => WM.createWindow('com.nbosp.settings') },
       { separator: true },
-      { label: 'Refresh', action: () => renderDesktopIcons() }
+      { label: _t('shell.desktop.refresh'), action: () => renderDesktopIcons() }
     ]);
   });
 }
@@ -1972,8 +1976,8 @@ if (desktopEl) {
         const pins = OS.settings.get('pinnedApps') || [];
         if (pins.includes(payload.appId)) {
           Notify.show({
-            title: 'Already Pinned',
-            body: `${payload.appName || payload.appId} is already pinned to taskbar`,
+            title: _t('shell.desktop.alreadyPinned'),
+            body: _t('shell.desktop.alreadyPinnedBody', { app: payload.appName || payload.appId }),
             type: 'info',
             appName: 'Taskbar',
           });
@@ -1982,8 +1986,8 @@ if (desktopEl) {
         OS.settings.set('pinnedApps', [...pins, payload.appId]);
         updateTaskbar();
         Notify.show({
-          title: 'Pinned to Taskbar',
-          body: `${payload.appName || payload.appId} pinned to taskbar`,
+          title: _t('shell.desktop.pinnedToTaskbar'),
+          body: _t('shell.desktop.pinnedBody', { app: payload.appName || payload.appId }),
           type: 'success',
           appName: 'Taskbar',
         });
@@ -2014,6 +2018,27 @@ if (desktopEl) {
 // wiring keeps serving every future launcher DOM — wire it exactly once.
 if (!window.__launcherSettingsWired) {
   window.__launcherSettingsWired = true;
+  // Live re-localisation — re-render every shell surface this module owns
+  // when the OS language changes. Wired once for the same reason as the
+  // settings listener above (the launcher script re-evaluates per account
+  // mount; an unguarded registration would stack one listener per run).
+  if (!window.__launcherLocaleWired) {
+    window.__launcherLocaleWired = true;
+    OS.events.on('languageChanged', () => {
+      try {
+        // Static data-i18n markers first (search placeholder, aria labels).
+        window.NovaI18n?.applyStaticDom?.(document);
+        // Then the dynamic surfaces — full rebuilds pick up the new language.
+        const grid = document.getElementById('launchpad-grid');
+        if (grid) grid.dataset.renderedSignature = '';
+        if (document.getElementById('launchpad')?.classList.contains('active')) renderLaunchpad();
+        renderDesktopIcons();
+        updateTaskbar();
+      } catch (error) {
+        console.warn('[Launcher] Language change re-render failed:', error);
+      }
+    });
+  }
   OS.events.on('settings:changed', ({ key }) => {
   switch (key) {
     case 'taskbarSize':

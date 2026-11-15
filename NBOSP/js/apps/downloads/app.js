@@ -13,7 +13,7 @@ registerApp({
       content.innerHTML =
         '<div style="font-size:32px">⚠️</div>' +
         '<div style="font-size:14px;text-align:center"><b>com.nbosp.downloads</b>' +
-        '<br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+        '<br>' + _t('apps.downloads.appDataMissing') + '<br>' + _t('apps.downloads.requiresNovaByte') + '</div>';
       return;
     }
 
@@ -76,17 +76,18 @@ registerApp({
       style: 'display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;background:var(--bg-elevated);',
     });
     // FIX #5: titleEl was created and held in a variable but never read; inlined.
-    toolbar.append(
-      createEl('span', { textContent: 'Downloads', style: 'font-size:13px;font-weight:600;flex:1;' }),
-    );
-    const clearBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Clear completed' });
+    // Held again — the live re-localisation handler below relabels it without
+    // rebuilding the toolbar.
+    const titleEl = createEl('span', { textContent: _t('apps.downloads.title'), style: 'font-size:13px;font-weight:600;flex:1;' });
+    toolbar.append(titleEl);
+    const clearBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('apps.downloads.clearCompleted') });
     toolbar.appendChild(clearBtn);
     root.appendChild(toolbar);
 
     // ── Download list container ────────────────────────────────────────────────
     const list = createEl('div', { style: 'flex:1;overflow-y:auto;' });
     list.setAttribute('role', 'list');
-    list.setAttribute('aria-label', 'Downloads');
+    list.setAttribute('aria-label', _t('apps.downloads.title'));
     root.appendChild(list);
 
     // ── Row builder ────────────────────────────────────────────────────────────
@@ -108,7 +109,7 @@ registerApp({
       const nameEl = createEl('div', {
         style: 'font-size:13px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
       });
-      nameEl.textContent = item.name ?? '(unnamed)';
+      nameEl.textContent = item.name ?? _t('apps.downloads.unnamed');
 
       const metaEl = createEl('div', { style: 'font-size:11px;color:var(--text-muted);margin-top:2px;' });
       metaEl.textContent = item.ts
@@ -129,9 +130,9 @@ registerApp({
       const delBtn = createEl('button', {
         className: 'dl-delbtn',
         style: 'background:none;border:none;cursor:pointer;padding:4px;border-radius:4px;display:flex;align-items:center;',
-        title: 'Remove',
+        title: _t('common.remove'),
       });
-      delBtn.setAttribute('aria-label', `Remove ${String(item.name ?? 'download').slice(0, 200)}`);
+      delBtn.setAttribute('aria-label', _t('apps.downloads.removeAria', { name: String(item.name ?? 'download').slice(0, 200) }));
       delBtn.dataset.del = String(item.id);
       delBtn.innerHTML = svgIcon('x', 14); // OS-controlled — safe
 
@@ -150,10 +151,10 @@ registerApp({
       ico.innerHTML = svgIcon('archive', 34); // OS-controlled — safe
 
       const label = createEl('div', { style: 'font-size:13px;margin-top:10px;color:var(--text-secondary);' });
-      label.textContent = 'No downloads yet';
+      label.textContent = _t('apps.downloads.noDownloads');
 
       const sub = createEl('div', { style: 'font-size:11px;margin-top:4px;' });
-      sub.textContent = 'Files saved from the browser appear here';
+      sub.textContent = _t('apps.downloads.emptyHint');
 
       wrap.append(ico, label, sub);
       return wrap;
@@ -191,6 +192,27 @@ registerApp({
 
     state.cleanups = state.cleanups || [];
     state.cleanups.push(window.Downloads.subscribe(render));
+
+    // ── Live re-localisation ──────────────────────────────────────────────────
+    // Rebuild this window's UI when the OS language changes, so an
+    // already-open app follows the switch in real time. render() re-derives
+    // the list from window.Downloads.getAll() and re-attaches nothing (row
+    // deletion is delegated on `list`, registered once above), so in-flight
+    // downloads and their rows survive; the toolbar chrome is relabelled by
+    // hand because render() never rebuilds it.
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(content);
+        titleEl.textContent = _t('apps.downloads.title');
+        clearBtn.textContent = _t('apps.downloads.clearCompleted');
+        list.setAttribute('aria-label', _t('apps.downloads.title'));
+        render();
+      } catch (error) {
+        console.warn('[Downloads] Language change re-render failed:', error);
+      }
+    };
+    typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', localeHandler);
+    state.cleanups.push(() => typeof OS !== 'undefined' && OS.events?.off?.('languageChanged', localeHandler));
 
     render();
   },

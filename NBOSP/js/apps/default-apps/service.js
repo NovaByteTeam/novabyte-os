@@ -34,6 +34,23 @@
 //
 // @module js/core/services/default-apps
 
+// Localised display labels. The trusted host installs window._t (NovaI18n)
+// before service scripts load; this service is also evaluated inside bare VM
+// sandboxes (unit tests) where no engine exists, and early in boot before
+// catalogues are registered (when _t echoes the key) — in both cases the
+// inline English fallback keeps the picker rendering the original label.
+// Category `name` is an accessor so reads always resolve the active
+// language instead of freezing whatever was current at load time.
+function t(key, english) {
+  try {
+    if (typeof window !== 'undefined' && typeof window._t === 'function') {
+      const out = window._t(key);
+      if (typeof out === 'string' && out && out !== key) return out;
+    }
+  } catch (_) { /* fall back to the inline English */ }
+  return english;
+}
+
 // categoryId -> { name, apps: [{id, name, icon}] }
 // `apps` here is ONLY the hardcoded built-in candidates — third-party
 // apps are found dynamically in getAppsForCategory(), not listed here.
@@ -45,43 +62,43 @@
 // just its own. Same reasoning for ROUTES below.
 const CATEGORIES = Object.freeze({
   browser: Object.freeze({
-    name: 'Web Browser',
+    get name() { return t('apps.defaultApps.categoryBrowser', 'Web Browser'); },
     apps: Object.freeze([
       Object.freeze({ id: 'com.nbosp.browser', name: 'Browser', icon: 'globe' }),
     ]),
   }),
   texteditor: Object.freeze({
-    name: 'Text Editor',
+    get name() { return t('apps.defaultApps.categoryTexteditor', 'Text Editor'); },
     apps: Object.freeze([
       Object.freeze({ id: 'com.nbosp.textedit', name: 'TextEdit', icon: 'pen-tool' }),
     ]),
   }),
   music: Object.freeze({
-    name: 'Music Player',
+    get name() { return t('apps.defaultApps.categoryMusic', 'Music Player'); },
     apps: Object.freeze([
       Object.freeze({ id: 'com.nbosp.music', name: 'Music', icon: 'music' }),
     ]),
   }),
   gallery: Object.freeze({
-    name: 'Photo Viewer',
+    get name() { return t('apps.defaultApps.categoryGallery', 'Photo Viewer'); },
     apps: Object.freeze([
       Object.freeze({ id: 'com.nbosp.gallery', name: 'Gallery', icon: 'image' }),
     ]),
   }),
   email: Object.freeze({
-    name: 'Email',
+    get name() { return t('apps.defaultApps.categoryEmail', 'Email'); },
     apps: Object.freeze([
       Object.freeze({ id: 'com.nbosp.email', name: 'Email', icon: 'mail' }),
     ]),
   }),
   calendar: Object.freeze({
-    name: 'Calendar',
+    get name() { return t('apps.defaultApps.categoryCalendar', 'Calendar'); },
     apps: Object.freeze([
       Object.freeze({ id: 'com.nbosp.calendar', name: 'Calendar', icon: 'calendar' }),
     ]),
   }),
   home: Object.freeze({
-    name: 'Home app',
+    get name() { return t('apps.defaultApps.categoryHome', 'Home app'); },
     apps: Object.freeze([
       Object.freeze({ id: 'com.nbosp.launcher', name: 'Launcher', icon: 'home' }),
     ]),

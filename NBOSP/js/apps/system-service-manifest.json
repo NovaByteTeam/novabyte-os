@@ -4,6 +4,10 @@
     "entry": "service.js"
   },
   {
+    "id": "com.nbosp.localisation",
+    "entry": "service.js"
+  },
+  {
     "id": "com.nbosp.service.novabyte-system",
     "entry": "service.js"
   },

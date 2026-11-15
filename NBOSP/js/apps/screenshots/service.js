@@ -41,13 +41,25 @@ function _promptRegionSelect(frameCanvas) {
     });
 
     const hint = createEl('div', {
-      textContent: 'Drag to select a region · Esc to cancel',
+      textContent: _t('apps.screenshots.regionSelectHint'),
       style: 'position:absolute;top:-32px;left:0;color:#fff;font-size:12px;font-family:var(--font-ui, sans-serif);opacity:0.85;'
     });
 
     frame.append(img, selectionBox, hint);
     overlay.appendChild(frame);
     document.body.appendChild(overlay);
+
+    // Live re-localisation — the region hint relabels in place if the OS
+    // language flips while the picker is open; finish() un-registers the
+    // listener along with the keydown one so nothing leaks per capture.
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(overlay);
+        hint.textContent = _t('apps.screenshots.regionSelectHint');
+      } catch (error) {
+        console.warn('[Screenshots] Language change re-render failed:', error);
+      }
+    };
 
     let startX = 0, startY = 0, dragging = false;
     let settled = false;
@@ -58,6 +70,9 @@ function _promptRegionSelect(frameCanvas) {
       if (settled) return;
       settled = true;
       document.removeEventListener('keydown', onKeyDown, true);
+      if (typeof OS !== 'undefined' && OS.events?.off) {
+        typeof OS !== 'undefined' && OS.events.off('languageChanged', localeHandler);
+      }
       overlay.remove();
       resolve(result);
     };
@@ -122,6 +137,9 @@ function _promptRegionSelect(frameCanvas) {
     overlay.addEventListener('pointerup', onPointerUp);
     overlay.addEventListener('contextmenu', onContextMenu);
     document.addEventListener('keydown', onKeyDown, true);
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+    }
   });
 }
 
@@ -200,10 +218,10 @@ async function captureScreenshot(mode) {
     const name = FS.uniqueName(screenshotsId, `screenshot-${Date.now()}.png`);
     await FS.createFile(screenshotsId, name, base64, 'image/png');
 
-    Notify.show({ title: 'Screenshot Saved', body: `Saved to Pictures/Screenshots as ${name}`, type: 'success', appName: 'System' });
+    Notify.show({ title: _t('apps.screenshots.savedTitle'), body: _t('apps.screenshots.savedBody', { name }), type: 'success', appName: 'System' });
     EventLog?.log?.({ app: 'System', category: 'system', severity: 'info', message: `Screenshot captured (${mode})`, data: { mode, name } });
   } catch (err) {
-    Notify.show({ title: 'Screenshot Failed', body: 'Could not capture screenshot', type: 'error', appName: 'System' });
+    Notify.show({ title: _t('apps.screenshots.failedTitle'), body: _t('apps.screenshots.failedBody'), type: 'error', appName: 'System' });
     EventLog?.log?.({ app: 'System', category: 'system', severity: 'error', message: `Screenshot capture failed (${mode}): ${err?.message || err}`, data: { mode } });
   } finally {
     // Always stop tracks — never leave the screen-capture indicator dangling,

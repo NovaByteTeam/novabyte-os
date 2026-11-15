@@ -15,13 +15,13 @@ registerApp({
   init(content, state, options) {
     if (!window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>' + _t('apps.packages.appDataMissing') + '<br>' + _t('apps.packages.requiresNovaByte') + '</div>';
       return;
     }
 
     if (!OS.settings.get('devMode')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">Enable Developer Mode in Settings to use Packages.</div>';
+      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">' + _t('apps.packages.devModeRequired') + '</div>';
       return;
     }
 
@@ -39,9 +39,9 @@ registerApp({
     state.cleanups.push(() => ac.abort());
 
     const TABS = [
-      { id: 'sign', name: 'Sign' },
-      { id: 'verify', name: 'Verify' },
-      { id: 'install', name: 'Install' },
+      { id: 'sign', name: _t('apps.packages.tabSign') },
+      { id: 'verify', name: _t('apps.packages.tabVerify') },
+      { id: 'install', name: _t('apps.packages.tabInstall') },
     ];
 
     const tabBar = createEl('div', { style: 'display:flex;border-bottom:1px solid var(--border-subtle);background:var(--bg-elevated);flex-shrink:0;' });
@@ -105,8 +105,8 @@ registerApp({
     // than exporting "undefined".
     function exportButtons(getPkg, filenamePrefix, suffix = '.novaapp.json') {
       const row = createEl('div', { style: 'display:flex;gap:8px;margin-top:8px;' });
-      const copyBtn = createEl('button', { textContent: 'Copy', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
-      const downloadBtn = createEl('button', { textContent: 'Download', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const copyBtn = createEl('button', { textContent: _t('apps.packages.copyBtn'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const downloadBtn = createEl('button', { textContent: _t('apps.packages.downloadBtn'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
 
       copyBtn.addEventListener('click', async () => {
         const pkg = getPkg();
@@ -114,11 +114,11 @@ registerApp({
         try {
           await navigator.clipboard.writeText(JSON.stringify(pkg, null, 2));
           const prev = copyBtn.textContent;
-          copyBtn.textContent = 'Copied!';
+          copyBtn.textContent = _t('apps.packages.copiedBtn');
           setTimeout(() => { copyBtn.textContent = prev; }, 1200);
         } catch (e) {
           const prev = copyBtn.textContent;
-          copyBtn.textContent = 'Copy failed';
+          copyBtn.textContent = _t('apps.packages.copyFailedBtn');
           setTimeout(() => { copyBtn.textContent = prev; }, 1200);
         }
       }, { signal: ac.signal });
@@ -157,27 +157,27 @@ registerApp({
     // by default (BLAKE3) for tamper detection even without a signature.
     (function buildSignTab() {
       const panel = panels.sign;
-      const idF = field('App ID (reverse-domain, e.g. com.test.app)', 'com.test.app', 'com.test.app');
-      const nameF = field('App name', 'Test App', 'Test App');
-      const versionF = field('Version (x.y.z)', '1.0.0', '1.0.0');
-      const entryF = field('Entry file path', 'index.html', 'index.html');
+      const idF = field(_t('apps.packages.appIdLabel'), 'com.test.app', 'com.test.app');
+      const nameF = field(_t('apps.packages.appNameLabel'), _t('apps.packages.appNamePlaceholder'), _t('apps.packages.appNamePlaceholder'));
+      const versionF = field(_t('apps.packages.versionLabel'), '1.0.0', '1.0.0');
+      const entryF = field(_t('apps.packages.entryFileLabel'), 'index.html', 'index.html');
       [idF, nameF, versionF, entryF].forEach(f => panel.appendChild(f.wrap));
 
       const methods = AppPackage.listSigningMethods ? AppPackage.listSigningMethods() : [{ id: 'ed25519', label: 'Ed25519' }];
       const integrityMethods = AppPackage.listIntegrityMethods ? AppPackage.listIntegrityMethods() : [{ id: 'blake3', label: 'BLAKE3' }, { id: 'sha256', label: 'SHA-256' }, { id: 'sha512', label: 'SHA-512' }, { id: 'none', label: 'None' }];
 
       const methodRow = createEl('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px;' });
-      methodRow.appendChild(createEl('label', { textContent: 'Signing method:', style: 'font-size:11px;color:var(--text-muted);' }));
+      methodRow.appendChild(createEl('label', { textContent: _t('apps.packages.signingMethodLabel'), style: 'font-size:11px;color:var(--text-muted);' }));
       const methodSelect = createEl('select', { style: 'padding:4px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;' });
       methods.forEach(m => {
-        const opt = createEl('option', { value: m.id, textContent: m.label + (m.experimental ? ' (experimental)' : ''), selected: m.id === 'ed25519' });
+        const opt = createEl('option', { value: m.id, textContent: m.label + (m.experimental ? _t('apps.packages.experimentalSuffix') : ''), selected: m.id === 'ed25519' });
         methodSelect.appendChild(opt);
       });
       methodRow.appendChild(methodSelect);
       panel.appendChild(methodRow);
 
       const integrityRow = createEl('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px;' });
-      integrityRow.appendChild(createEl('label', { textContent: 'Integrity:', style: 'font-size:11px;color:var(--text-muted);' }));
+      integrityRow.appendChild(createEl('label', { textContent: _t('apps.packages.integrityLabel'), style: 'font-size:11px;color:var(--text-muted);' }));
       const integritySelect = createEl('select', { style: 'padding:4px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;' });
       integrityMethods.forEach(m => {
         const opt = createEl('option', { value: m.id, textContent: m.label, selected: m.id === 'blake3' });
@@ -187,20 +187,20 @@ registerApp({
       panel.appendChild(integrityRow);
 
       let devKeyPair = null;
-      const keyNote = createEl('div', { style: 'font-size:11px;color:var(--text-muted);margin:4px 0 10px;' , textContent: 'Generating a local dev signing keypair…' });
+      const keyNote = createEl('div', { style: 'font-size:11px;color:var(--text-muted);margin:4px 0 10px;' , textContent: _t('apps.packages.generatingKeypair') });
       panel.appendChild(keyNote);
 
       const customKeyWrap = createEl('div', { style: 'margin-bottom:10px;' });
       customKeyWrap.classList.add('hidden');
-      const customKeyLabel = createEl('label', { textContent: 'Custom signing key / payload', style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' });
-      const customKeyArea = createEl('textarea', { placeholder: 'Paste custom key material or signing payload here', style: 'width:100%;box-sizing:border-box;height:60px;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;' });
+      const customKeyLabel = createEl('label', { textContent: _t('apps.packages.customKeyLabel'), style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' });
+      const customKeyArea = createEl('textarea', { placeholder: _t('apps.packages.customKeyPlaceholder'), style: 'width:100%;box-sizing:border-box;height:60px;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;' });
       customKeyWrap.appendChild(customKeyLabel);
       customKeyWrap.appendChild(customKeyArea);
       panel.appendChild(customKeyWrap);
 
       const pubKeyWrap = createEl('div', { style: 'margin-bottom:10px;' });
       pubKeyWrap.classList.add('hidden');
-      const pubKeyLabel = createEl('div', { textContent: 'Generated public key (safe to share) — not used for trust automatically:', style: 'font-size:11px;color:var(--text-muted);margin-bottom:4px;' });
+      const pubKeyLabel = createEl('div', { textContent: _t('apps.packages.generatedPubKeyLabel'), style: 'font-size:11px;color:var(--text-muted);margin-bottom:4px;' });
       const pubKeyArea = createEl('textarea', { readonly: true, rows: 3, style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
       pubKeyWrap.appendChild(pubKeyLabel);
       pubKeyWrap.appendChild(pubKeyArea);
@@ -214,24 +214,24 @@ registerApp({
       // touches any other clone/fork/machine — packages signed with this
       // key still show as Unverified everywhere else, as they should.
       const trustLocalBtn = createEl('button', {
-        textContent: 'Trust this key locally (this session)',
+        textContent: _t('apps.packages.trustLocalBtn'),
         style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;margin-top:6px;'
       });
       const trustLocalNote = createEl('div', { style: 'font-size:10px;color:var(--text-muted);margin-top:4px;' });
       trustLocalBtn.addEventListener('click', () => {
         if (!devKeyPair || typeof TrustStore === 'undefined' || !TrustStore.add) {
-          trustLocalNote.textContent = 'TrustStore is not available in this context.';
+          trustLocalNote.textContent = _t('apps.packages.trustStoreUnavailable');
           return;
         }
         TrustStore.add({
-          name: 'Local dev key (session)',
+          name: _t('apps.packages.localDevKeyName'),
           id: `local-dev-${Date.now()}`,
           publicKey: devKeyPair.publicJwk,
-          description: 'Added locally via Packages app. Not persisted, not shared, cleared on restart.',
+          description: _t('apps.packages.localDevKeyDesc'),
         });
-        trustLocalNote.textContent = 'Added to this clone\u2019s TrustStore for the rest of the session. Packages you sign with this key will now verify as Trusted here only — this has no effect on any other clone, fork, or machine.';
+        trustLocalNote.textContent = _t('apps.packages.trustedLocallyNote');
         trustLocalBtn.disabled = true;
-        trustLocalBtn.textContent = 'Trusted locally ✓';
+        trustLocalBtn.textContent = _t('apps.packages.trustedLocallyBtn');
       }, { signal: ac.signal });
       pubKeyWrap.appendChild(trustLocalBtn);
       pubKeyWrap.appendChild(trustLocalNote);
@@ -247,19 +247,19 @@ registerApp({
         pubKeyWrap.classList.add('hidden');
         customKeyWrap.classList.add('hidden');
         if (method === 'custom') {
-          keyNote.textContent = 'Custom mode: paste your key/payload below. No keypair is generated.';
+          keyNote.textContent = _t('apps.packages.customModeNote');
           customKeyWrap.classList.remove('hidden');
           devKeyPair = null;
           return;
         }
-        keyNote.textContent = 'Generating keypair…';
+        keyNote.textContent = _t('apps.packages.generatingKeypairShort');
         try {
           devKeyPair = await AppPackage.generateSigningKeyPair(method);
           pubKeyArea.value = JSON.stringify(devKeyPair.publicJwk, null, 2);
           pubKeyWrap.classList.remove('hidden');
-          keyNote.textContent = `Local dev keypair ready (${method}) — self-signed only, won't show as Trusted on real installs.`;
+          keyNote.textContent = _t('apps.packages.keypairReadyNote', { method });
         } catch (e) {
-          keyNote.textContent = 'Could not generate keypair: ' + e.message;
+          keyNote.textContent = _t('apps.packages.keypairFailedNote', { message: e.message });
           devKeyPair = null;
         }
       }
@@ -268,22 +268,22 @@ registerApp({
       (async () => { await refreshKeypair(); })();
 
       // Files to package
-      panel.appendChild(createEl('label', { textContent: 'Files', style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;margin-top:4px;' }));
+      panel.appendChild(createEl('label', { textContent: _t('apps.packages.filesLabel'), style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;margin-top:4px;' }));
       const filesWrap = createEl('div', { style: 'display:flex;flex-direction:column;gap:8px;margin-bottom:10px;' });
       panel.appendChild(filesWrap);
 
       function addFileRow(path, content) {
         const row = createEl('div', { style: 'padding:8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:6px;' });
         const pathLine = createEl('div', { style: 'display:flex;gap:6px;align-items:center;' });
-        const pathInput = createEl('input', { placeholder: 'path (e.g. index.html)', value: path || '', style: 'flex:1;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
-        const removeBtn = createEl('button', { textContent: '✕', title: 'Remove file', style: 'padding:4px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+        const pathInput = createEl('input', { placeholder: _t('apps.packages.pathPlaceholder'), value: path || '', style: 'flex:1;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+        const removeBtn = createEl('button', { textContent: '✕', title: _t('apps.packages.removeFileTitle'), style: 'padding:4px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
         removeBtn.addEventListener('click', () => {
           if (filesWrap.children.length > 1) row.remove();
         }, { signal: ac.signal });
         pathLine.appendChild(pathInput);
         pathLine.appendChild(removeBtn);
         row.appendChild(pathLine);
-        const contentArea = createEl('textarea', { placeholder: 'file content', value: content || '', style: 'width:100%;box-sizing:border-box;height:70px;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;' });
+        const contentArea = createEl('textarea', { placeholder: _t('apps.packages.fileContentPlaceholder'), value: content || '', style: 'width:100%;box-sizing:border-box;height:70px;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;' });
         row.appendChild(contentArea);
         row.dataset.role = 'file-row';
         filesWrap.appendChild(row);
@@ -291,7 +291,7 @@ registerApp({
       addFileRow('index.html', '<h1>Hello</h1>');
 
       const fileBtnRow = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:10px;' });
-      const addFileBtn = createEl('button', { textContent: '+ Add File', style: 'padding:5px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const addFileBtn = createEl('button', { textContent: _t('apps.packages.addFileBtn'), style: 'padding:5px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
       addFileBtn.addEventListener('click', () => addFileRow('', ''), { signal: ac.signal });
       fileBtnRow.appendChild(addFileBtn);
 
@@ -301,9 +301,9 @@ registerApp({
       // Flat multi-select, file.name as the path. Text files only,
       // matching what the file-row textareas can hold; binary files
       // aren't representable here.
-      const importBtn = createEl('button', { textContent: '📁 Import Files…', style: 'padding:5px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const importBtn = createEl('button', { textContent: _t('apps.packages.importFilesBtn'), style: 'padding:5px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
       importBtn.addEventListener('click', async () => {
-        const fileList = await SystemDialogs.open({ title: 'Import Files', multiple: true });
+        const fileList = await SystemDialogs.open({ title: _t('apps.packages.importFilesTitle'), multiple: true });
         if (!fileList?.length) return;
         // Clear the single default placeholder row ('index.html') only if
         // it's still untouched, so importing doesn't silently discard a
@@ -326,18 +326,18 @@ registerApp({
       fileBtnRow.appendChild(importBtn);
       panel.appendChild(fileBtnRow);
 
-      const signBtn = createEl('button', { textContent: 'Create & Sign Package', style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+      const signBtn = createEl('button', { textContent: _t('apps.packages.createSignBtn'), style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
       const box = resultBox();
 
       signBtn.addEventListener('click', async () => {
         signBtn.disabled = true;
-        signBtn.textContent = 'Signing…';
+        signBtn.textContent = _t('apps.packages.signingBtn');
         try {
           const entry = entryF.input.value.trim() || 'index.html';
           const manifest = { id: idF.input.value.trim(), name: nameF.input.value.trim(), version: versionF.input.value.trim(), entry };
           const validation = AppPackage.validateManifest(manifest);
           if (!validation.valid) {
-            showResult(box, false, { error: 'Manifest invalid', errors: validation.errors });
+            showResult(box, false, { error: _t('apps.packages.errManifestInvalid'), errors: validation.errors });
             return;
           }
 
@@ -351,15 +351,15 @@ registerApp({
             files[p] = c;
           });
           if (!Object.keys(files).length) {
-            showResult(box, false, { error: 'At least one file with a path is required' });
+            showResult(box, false, { error: _t('apps.packages.errFileRequired') });
             return;
           }
           if (dupPaths.length) {
-            showResult(box, false, { error: 'Duplicate file paths: ' + [...new Set(dupPaths)].join(', ') + ' — each path must be unique' });
+            showResult(box, false, { error: _t('apps.packages.errDuplicatePaths', { paths: [...new Set(dupPaths)].join(', ') }) });
             return;
           }
           if (!files.hasOwnProperty(entry)) {
-            showResult(box, false, { error: `Entry file "${entry}" is not among the packaged files` });
+            showResult(box, false, { error: _t('apps.packages.errEntryNotPackaged', { entry }) });
             return;
           }
 
@@ -370,7 +370,7 @@ registerApp({
           if (signingMethod === 'custom') {
             privateKey = customKeyArea.value.trim();
             if (!privateKey) {
-              showResult(box, false, { error: 'Custom mode requires key/payload in the textarea below' });
+              showResult(box, false, { error: _t('apps.packages.errCustomKeyRequired') });
               return;
             }
             createOpts.signingKey = privateKey;
@@ -381,7 +381,7 @@ registerApp({
             createOpts.signingMethod = signingMethod;
             createOpts.signerName = 'local-dev-' + signingMethod;
           } else {
-            showResult(box, false, { error: 'Signing keypair isn\'t ready yet — wait a moment and try again.' });
+            showResult(box, false, { error: _t('apps.packages.errKeypairNotReady') });
             return;
           }
 
@@ -412,7 +412,7 @@ registerApp({
           showResult(box, false, { error: e.message });
         } finally {
           signBtn.disabled = false;
-          signBtn.textContent = 'Create & Sign Package';
+          signBtn.textContent = _t('apps.packages.createSignBtn');
         }
       }, { signal: ac.signal });
 
@@ -434,8 +434,8 @@ registerApp({
       // clone or fork.
       const trustPanel = createEl('div', { style: 'margin-bottom:14px;padding:10px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;' });
       const trustHeader = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;' });
-      trustHeader.appendChild(createEl('div', { textContent: 'Locally trusted signers (this session)', style: 'font-size:11px;color:var(--text-muted);font-weight:600;' }));
-      const refreshTrustBtn = createEl('button', { textContent: '↻ Refresh', style: 'padding:3px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:10px;' });
+      trustHeader.appendChild(createEl('div', { textContent: _t('apps.packages.trustedSignersLabel'), style: 'font-size:11px;color:var(--text-muted);font-weight:600;' }));
+      const refreshTrustBtn = createEl('button', { textContent: _t('apps.packages.refreshTrustBtn'), style: 'padding:3px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:10px;' });
       trustHeader.appendChild(refreshTrustBtn);
       trustPanel.appendChild(trustHeader);
       const trustList = createEl('div', { style: 'font-size:11px;font-family:monospace;color:var(--text-primary);display:flex;flex-direction:column;gap:4px;' });
@@ -445,13 +445,13 @@ registerApp({
         trustList.innerHTML = '';
         const entries = (typeof TrustStore !== 'undefined' && TrustStore.list) ? TrustStore.list() : [];
         if (!entries.length) {
-          trustList.appendChild(createEl('div', { textContent: '(none)', style: 'color:var(--text-muted);' }));
+          trustList.appendChild(createEl('div', { textContent: _t('apps.packages.trustNone'), style: 'color:var(--text-muted);' }));
           return;
         }
         entries.forEach(e => {
           const row = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
           row.appendChild(createEl('span', { textContent: `${e.name || e.id}`, title: JSON.stringify(e.publicKey) }));
-          row.appendChild(createEl('span', { textContent: e.id === 'novabyte-trusted-signing-v1' ? '(built-in)' : '', style: 'color:var(--text-muted);font-size:10px;' }));
+          row.appendChild(createEl('span', { textContent: e.id === 'novabyte-trusted-signing-v1' ? _t('apps.packages.builtInTag') : '', style: 'color:var(--text-muted);font-size:10px;' }));
           trustList.appendChild(row);
         });
       }
@@ -466,30 +466,30 @@ registerApp({
       // every other package signed with that key remains trusted, which
       // is the intended narrow scope (see revoke() doc comment).
       const revokePanel = createEl('div', { style: 'margin-bottom:14px;padding:10px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;' });
-      revokePanel.appendChild(createEl('div', { textContent: 'Revoke a package signature', style: 'font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:6px;' }));
-      const sigInput = createEl('input', { placeholder: 'Exact pkg.signature value to revoke', style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;margin-bottom:6px;' });
-      const reasonInput = createEl('input', { placeholder: 'Reason (optional)', style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;margin-bottom:6px;' });
+      revokePanel.appendChild(createEl('div', { textContent: _t('apps.packages.revokePanelTitle'), style: 'font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:6px;' }));
+      const sigInput = createEl('input', { placeholder: _t('apps.packages.revokeSigPlaceholder'), style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;margin-bottom:6px;' });
+      const reasonInput = createEl('input', { placeholder: _t('apps.packages.revokeReasonPlaceholder'), style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;margin-bottom:6px;' });
       revokePanel.appendChild(sigInput);
       revokePanel.appendChild(reasonInput);
       const revokeRow = createEl('div', { style: 'display:flex;gap:8px;align-items:center;' });
-      const revokeBtn = createEl('button', { textContent: 'Revoke', style: 'padding:5px 10px;background:transparent;color:#f85149;border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
-      const unrevokeBtn = createEl('button', { textContent: 'Unrevoke', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const revokeBtn = createEl('button', { textContent: _t('apps.packages.revokeBtn'), style: 'padding:5px 10px;background:transparent;color:#f85149;border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const unrevokeBtn = createEl('button', { textContent: _t('apps.packages.unrevokeBtn'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
       const revokeNote = createEl('span', { style: 'font-size:10px;color:var(--text-muted);' });
       revokeBtn.addEventListener('click', () => {
         const sig = sigInput.value.trim();
-        if (!sig) { revokeNote.textContent = 'Paste a signature first.'; return; }
+        if (!sig) { revokeNote.textContent = _t('apps.packages.pasteSignatureFirst'); return; }
         try {
           TrustStore.revoke(sig, reasonInput.value.trim() || null);
-          revokeNote.textContent = 'Revoked. Persisted to revoked-signatures.json.';
+          revokeNote.textContent = _t('apps.packages.revokedNote');
         } catch (e) {
-          revokeNote.textContent = 'Error: ' + e.message;
+          revokeNote.textContent = _t('apps.packages.revokeErrorNote', { message: e.message });
         }
       }, { signal: ac.signal });
       unrevokeBtn.addEventListener('click', () => {
         const sig = sigInput.value.trim();
-        if (!sig) { revokeNote.textContent = 'Paste a signature first.'; return; }
+        if (!sig) { revokeNote.textContent = _t('apps.packages.pasteSignatureFirst'); return; }
         const ok = TrustStore.unrevoke ? TrustStore.unrevoke(sig) : false;
-        revokeNote.textContent = ok ? 'Unrevoked.' : 'That signature wasn\u2019t on the revocation list.';
+        revokeNote.textContent = ok ? _t('apps.packages.unrevokedNote') : _t('apps.packages.notOnRevocationList');
       }, { signal: ac.signal });
       revokeRow.appendChild(revokeBtn);
       revokeRow.appendChild(unrevokeBtn);
@@ -497,45 +497,45 @@ registerApp({
       revokePanel.appendChild(revokeRow);
       panel.appendChild(revokePanel);
 
-      panel.appendChild(createEl('label', { textContent: 'Package JSON', style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' }));
+      panel.appendChild(createEl('label', { textContent: _t('apps.packages.packageJsonLabel'), style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' }));
       const textarea = createEl('textarea', {
-        placeholder: 'Paste a package object (e.g. copy "fullPackage" from the Sign tab result)',
+        placeholder: _t('apps.packages.verifyPlaceholder'),
         style: 'width:100%;box-sizing:border-box;height:160px;padding:8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;'
       });
       panel.appendChild(textarea);
 
-      const keyF = field('Public key (paste JWK JSON, or leave blank for integrity-only check)', '{"kty":"OKP","crv":"Ed25519",...}', '');
+      const keyF = field(_t('apps.packages.publicKeyLabel'), '{"kty":"OKP","crv":"Ed25519",...}', '');
       panel.appendChild(keyF.wrap);
       panel.appendChild(createEl('div', {
         style: 'font-size:11px;color:var(--text-muted);margin:-4px 0 8px;',
-        textContent: 'Verification needs a PUBLIC key for the signing method the package uses. Leave blank to verify via embedded integrity hashes only.',
+        textContent: _t('apps.packages.verificationNote'),
       }));
 
       const methodRow = createEl('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px;' });
-      methodRow.appendChild(createEl('label', { textContent: 'Signing method:', style: 'font-size:11px;color:var(--text-muted);' }));
+      methodRow.appendChild(createEl('label', { textContent: _t('apps.packages.signingMethodLabel'), style: 'font-size:11px;color:var(--text-muted);' }));
       const methodSelect = createEl('select', { style: 'padding:4px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;' });
       const methods = AppPackage.listSigningMethods ? AppPackage.listSigningMethods() : [{ id: 'ed25519', label: 'Ed25519' }];
       methods.forEach(m => {
-        const opt = createEl('option', { value: m.id, textContent: m.label + (m.experimental ? ' (experimental)' : ''), selected: m.id === 'ed25519' });
+        const opt = createEl('option', { value: m.id, textContent: m.label + (m.experimental ? _t('apps.packages.experimentalSuffix') : ''), selected: m.id === 'ed25519' });
         methodSelect.appendChild(opt);
       });
       methodRow.appendChild(methodSelect);
       panel.appendChild(methodRow);
 
-      const verifyBtn = createEl('button', { textContent: 'Validate & Verify', style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px;' });
+      const verifyBtn = createEl('button', { textContent: _t('apps.packages.validateVerifyBtn'), style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px;' });
       const box = resultBox();
 
       verifyBtn.addEventListener('click', async () => {
         const raw = textarea.value.trim();
         if (!raw) {
-          showResult(box, false, { error: 'Paste package JSON first' });
+          showResult(box, false, { error: _t('apps.packages.errPasteJsonFirst') });
           return;
         }
         let pkg;
         try {
           pkg = JSON.parse(raw);
         } catch {
-          showResult(box, false, { error: 'Invalid JSON' });
+          showResult(box, false, { error: _t('apps.packages.errInvalidJson') });
           return;
         }
         let publicKeyJwk = null;
@@ -544,7 +544,7 @@ registerApp({
           try {
             publicKeyJwk = JSON.parse(keyF.input.value.trim());
           } catch {
-            showResult(box, false, { error: 'Public key must be valid JWK JSON' });
+            showResult(box, false, { error: _t('apps.packages.errInvalidJwk') });
             return;
           }
         }
@@ -591,18 +591,18 @@ registerApp({
                 try {
                   text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
                 } catch {
-                  text = `(binary content, ${bytes.length} bytes — not valid UTF-8 text)`;
+                  text = _t('apps.packages.binaryContentNote', { count: bytes.length });
                 }
                 const MAX_PREVIEW = 5000;
                 const truncated = text.length > MAX_PREVIEW;
                 fileBox.appendChild(createEl('pre', {
-                  textContent: truncated ? text.slice(0, MAX_PREVIEW) + '\n… (truncated)' : text,
+                  textContent: truncated ? text.slice(0, MAX_PREVIEW) + '\n' + _t('apps.packages.truncatedSuffix') : text,
                   style: 'margin:0;padding:8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:140px;overflow:auto;'
                 }));
                 filesPreview.appendChild(fileBox);
               });
             } catch (e) {
-              filesPreview.appendChild(createEl('div', { textContent: 'Failed to extract files: ' + e.message, style: 'font-size:11px;color:#f85149;' }));
+              filesPreview.appendChild(createEl('div', { textContent: _t('apps.packages.errExtractFiles', { message: e.message }), style: 'font-size:11px;color:#f85149;' }));
             }
           }
 
@@ -628,20 +628,20 @@ registerApp({
     (function buildInstallTab() {
       const panel = panels.install;
       panel.appendChild(createEl('div', {
-        textContent: 'Installs a package into the live app registry (AppRegistry.registerApp). This is a real, immediate action — not a dry run.',
+        textContent: _t('apps.packages.installTabNote'),
         style: 'font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.4;'
       }));
 
       const sourceRow = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:10px;' });
-      const useSignedBtn = createEl('button', { textContent: 'Use last signed package', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
-      const useVerifiedBtn = createEl('button', { textContent: 'Use last verified package', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const useSignedBtn = createEl('button', { textContent: _t('apps.packages.useSignedBtn'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const useVerifiedBtn = createEl('button', { textContent: _t('apps.packages.useVerifiedBtn'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
       sourceRow.appendChild(useSignedBtn);
       sourceRow.appendChild(useVerifiedBtn);
       panel.appendChild(sourceRow);
 
-      panel.appendChild(createEl('label', { textContent: 'Package JSON', style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' }));
+      panel.appendChild(createEl('label', { textContent: _t('apps.packages.packageJsonLabel'), style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' }));
       const textarea = createEl('textarea', {
-        placeholder: 'Paste a package object, or use a button above',
+        placeholder: _t('apps.packages.installPlaceholder'),
         style: 'width:100%;box-sizing:border-box;height:140px;padding:8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;'
       });
       panel.appendChild(textarea);
@@ -664,36 +664,36 @@ registerApp({
       const skipVerifyLabel = createEl('label', { style: 'display:flex;align-items:center;gap:6px;cursor:pointer;' });
       const skipVerifyCb = createEl('input', { type: 'checkbox' });
       skipVerifyLabel.appendChild(skipVerifyCb);
-      skipVerifyLabel.appendChild(createEl('span', { textContent: 'Skip signature verification (installs unsigned/unverified packages — unsafe, dev use only)' }));
+      skipVerifyLabel.appendChild(createEl('span', { textContent: _t('apps.packages.skipVerifyLabel') }));
       optRow.appendChild(skipVerifyLabel);
 
       const allowUnverifiedLabel = createEl('label', { style: 'display:flex;align-items:center;gap:6px;cursor:pointer;' });
       const allowUnverifiedCb = createEl('input', { type: 'checkbox' });
       allowUnverifiedLabel.appendChild(allowUnverifiedCb);
-      allowUnverifiedLabel.appendChild(createEl('span', { textContent: 'Allow install even if signature doesn\u2019t match a trusted signer' }));
+      allowUnverifiedLabel.appendChild(createEl('span', { textContent: _t('apps.packages.allowUnverifiedLabel') }));
       optRow.appendChild(allowUnverifiedLabel);
 
       const forceLabel = createEl('label', { style: 'display:flex;align-items:center;gap:6px;cursor:pointer;' });
       const forceCb = createEl('input', { type: 'checkbox' });
       forceLabel.appendChild(forceCb);
-      forceLabel.appendChild(createEl('span', { textContent: 'Force overwrite if an app with this id is already installed' }));
+      forceLabel.appendChild(createEl('span', { textContent: _t('apps.packages.forceOverwriteLabel') }));
       optRow.appendChild(forceLabel);
       panel.appendChild(optRow);
 
-      const installBtn = createEl('button', { textContent: 'Install Package', style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+      const installBtn = createEl('button', { textContent: _t('apps.packages.installPackageBtn'), style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
       const box = resultBox();
 
       installBtn.addEventListener('click', async () => {
         const raw = textarea.value.trim();
         if (!raw) {
-          showResult(box, false, { error: 'Paste package JSON first, or use a button above' });
+          showResult(box, false, { error: _t('apps.packages.errPasteJsonOrButton') });
           return;
         }
         let pkg;
         try {
           pkg = JSON.parse(raw);
         } catch {
-          showResult(box, false, { error: 'Invalid JSON' });
+          showResult(box, false, { error: _t('apps.packages.errInvalidJson') });
           return;
         }
 
@@ -703,12 +703,12 @@ registerApp({
         // Check explicitly here too, rather than letting installPackage's
         // internal `?.` silently produce a "success" with `app: undefined`.
         if (typeof AppRegistry === 'undefined' || !AppRegistry) {
-          showResult(box, false, { error: 'AppRegistry is not available in this context — cannot install' });
+          showResult(box, false, { error: _t('apps.packages.errNoAppRegistry') });
           return;
         }
 
         installBtn.disabled = true;
-        installBtn.textContent = 'Installing…';
+        installBtn.textContent = _t('apps.packages.installingBtn');
         try {
           const options = {
             skipVerify: skipVerifyCb.checked,
@@ -721,7 +721,7 @@ registerApp({
           };
           const result = await AppPackage.installPackage(pkg, options);
           if (!result?.success || !result.app) {
-            showResult(box, false, { error: 'Install failed: ' + (result?.error || 'unknown') });
+            showResult(box, false, { error: _t('apps.packages.errInstallFailed', { error: result?.error || _t('apps.packages.errorUnknown') }) });
             return;
           }
 
@@ -802,16 +802,16 @@ registerApp({
           const ri = APP_REGISTRY.findIndex(a => a.id === appData.id);
           if (ri > -1) APP_REGISTRY[ri] = cfg; else APP_REGISTRY.push(cfg);
 
-          showResult(box, true, { ...result, persisted: true, message: `${appData.name} v${appData.version} installed and registered.` });
+          showResult(box, true, { ...result, persisted: true, message: _t('apps.packages.installedRegisteredMsg', { app: appData.name, version: appData.version }) });
           if (typeof renderLaunchpad === 'function') renderLaunchpad();
           if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
           if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
-          Notify.show({ title: 'App Installed', body: `${appData.name} v${appData.version} installed successfully.`, type: 'success', appName: 'Packages' });
+          Notify.show({ title: _t('apps.packages.appInstalledTitle'), body: _t('apps.packages.appInstalledBody', { app: appData.name, version: appData.version }), type: 'success', appName: 'Packages' });
         } catch (e) {
           showResult(box, false, { error: e.message });
         } finally {
           installBtn.disabled = false;
-          installBtn.textContent = 'Install Package';
+          installBtn.textContent = _t('apps.packages.installPackageBtn');
         }
       }, { signal: ac.signal });
 

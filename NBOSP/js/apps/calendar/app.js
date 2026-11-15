@@ -8,7 +8,7 @@ registerApp({
     // ── NovaByte runtime guard ──────────────────────────────────────────
     if (!window.AppDirs?.getAppDataPath('com.nbosp.calendar', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.calendar</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.calendar</b><br>' + _t('apps.calendar.appDataMissing') + '<br>' + _t('apps.calendar.requiresNovaByteOS') + '</div>';
       return;
     }
 
@@ -17,10 +17,10 @@ registerApp({
     const APP_ID      = 'com.nbosp.calendar';
     const DB_FILE     = 'events.json';
     const COLORS      = Object.freeze(['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#ff7b72','#79c0ff','#56d364']);
-    const COLOR_NAMES = Object.freeze(['Blue','Green','Yellow','Red','Purple','Salmon','Sky','Lime']);
+    const COLOR_NAMES = Object.freeze([_t('apps.calendar.colorBlue'), _t('apps.calendar.colorGreen'), _t('apps.calendar.colorYellow'), _t('apps.calendar.colorRed'), _t('apps.calendar.colorPurple'), _t('apps.calendar.colorSalmon'), _t('apps.calendar.colorSky'), _t('apps.calendar.colorLime')]);
     const VALID_VIEWS = Object.freeze(['month','week','day','agenda']);
-    const DAYS_SHORT  = Object.freeze(['Sun','Mon','Tue','Wed','Thu','Fri','Sat']);
-    const DAYS_MINI   = Object.freeze(['S','M','T','W','T','F','S']);
+    const DAYS_SHORT  = Object.freeze([_t('apps.calendar.daySun'), _t('apps.calendar.dayMon'), _t('apps.calendar.dayTue'), _t('apps.calendar.dayWed'), _t('apps.calendar.dayThu'), _t('apps.calendar.dayFri'), _t('apps.calendar.daySat')]);
+    const DAYS_MINI   = Object.freeze([_t('apps.calendar.miniDaySun'), _t('apps.calendar.miniDayMon'), _t('apps.calendar.miniDayTue'), _t('apps.calendar.miniDayWed'), _t('apps.calendar.miniDayThu'), _t('apps.calendar.miniDayFri'), _t('apps.calendar.miniDaySat')]);
 
     // ── Date helpers ────────────────────────────────────────────────────
     // FIX: always derive date strings from local getters, never toISOString()
@@ -95,7 +95,7 @@ registerApp({
         return true;
       } catch (error) {
         console.error('[Calendar] Could not save events:', error);
-        Notify?.show?.({ title: 'Calendar save failed', body: error.message, type: 'error', appName: 'Calendar' });
+        Notify?.show?.({ title: _t('apps.calendar.saveFailed'), body: error.message, type: 'error', appName: 'Calendar' });
         return false;
       }
     }
@@ -128,12 +128,12 @@ registerApp({
     miniNav.append(miniHdr, miniGrid);
 
     const upcomingWrap  = createEl('div', { style: 'flex:1;overflow-y:auto;padding:8px 10px;border-top:1px solid var(--border-subtle);' });
-    const upcomingTitle = createEl('div', { textContent: 'Upcoming', style: 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:6px;' });
+    const upcomingTitle = createEl('div', { textContent: _t('apps.calendar.upcoming'), style: 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:6px;' });
     const upcomingList  = createEl('div');
     upcomingWrap.append(upcomingTitle, upcomingList);
 
     const newEvtBtn = createEl('button', { className: 'btn btn-primary', style: 'margin:10px;width:calc(100% - 20px);font-size:12px;' });
-    newEvtBtn.innerHTML = svgIcon('plus', 12) + ' New Event';
+    newEvtBtn.innerHTML = svgIcon('plus', 12) + ' ' + _t('apps.calendar.newEvent');
 
     sidebar.append(miniNav, upcomingWrap, newEvtBtn);
 
@@ -143,13 +143,14 @@ registerApp({
     const toolbar   = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;' });
     const prevBtn   = createEl('button', { className: 'btn btn-icon btn-sm' }); prevBtn.innerHTML  = svgIcon('chevron-left', 16);
     const nextBtn   = createEl('button', { className: 'btn btn-icon btn-sm' }); nextBtn.innerHTML  = svgIcon('chevron-right', 16);
-    const todayBtn  = createEl('button', { className: 'btn btn-sm', textContent: 'Today' });
+    const todayBtn  = createEl('button', { className: 'btn btn-sm', textContent: _t('apps.calendar.today') });
     const mainTitle = createEl('h3', { style: 'margin:0;font-size:15px;font-weight:700;flex:1;' });
 
     const viewBtnsWrap = createEl('div', { style: 'display:flex;background:var(--bg-sunken);border-radius:8px;padding:3px;gap:2px;' });
+    const VIEW_LABELS = { month: _t('apps.calendar.viewMonth'), week: _t('apps.calendar.viewWeek'), day: _t('apps.calendar.viewDay'), agenda: _t('apps.calendar.viewAgenda') };
     VALID_VIEWS.forEach(v => {
       const b = createEl('button', {
-        textContent: v[0].toUpperCase() + v.slice(1),
+        textContent: VIEW_LABELS[v],
         style: 'padding:4px 10px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:500;transition:all 0.15s;'
       });
       b.dataset.view = v;
@@ -211,7 +212,7 @@ registerApp({
 
       const frag = document.createDocumentFragment();
       if (!upcoming.length) {
-        frag.appendChild(createEl('div', { textContent: 'No upcoming events', style: 'font-size:11px;color:var(--text-muted);padding:4px 0;' }));
+        frag.appendChild(createEl('div', { textContent: _t('apps.calendar.noUpcomingEvents'), style: 'font-size:11px;color:var(--text-muted);padding:4px 0;' }));
       } else {
         upcoming.forEach(ev => {
           const item = createEl('div', { style: 'padding:5px 0;border-bottom:1px solid var(--border-subtle);cursor:pointer;' });
@@ -322,7 +323,7 @@ registerApp({
       // FIX: All-day events row (no timeStart) — these were completely invisible before
       // because `parseInt('99') === hr` never matched any hour 0–23
       grid.appendChild(createEl('div', {
-        textContent: 'all', style: 'font-size:9px;color:var(--text-muted);padding:2px 4px;text-align:right;border-top:1px solid var(--border-subtle);line-height:2.8;'
+        textContent: _t('apps.calendar.allDay'), style: 'font-size:9px;color:var(--text-muted);padding:2px 4px;text-align:right;border-top:1px solid var(--border-subtle);line-height:2.8;'
       }));
       days.forEach(dt => {
         // FIX: toDateStr (local) not toISOString (UTC) — prevents off-by-one in UTC− zones
@@ -370,7 +371,7 @@ registerApp({
 
       const wrap = createEl('div', { style: 'padding:16px;max-width:600px;' });
       if (!dayEvs.length) {
-        wrap.appendChild(createEl('div', { textContent: 'No events — click to add one.', style: 'color:var(--text-muted);font-size:13px;margin-top:24px;' }));
+        wrap.appendChild(createEl('div', { textContent: _t('apps.calendar.dayViewEmpty'), style: 'color:var(--text-muted);font-size:13px;margin-top:24px;' }));
       } else {
         const frag = document.createDocumentFragment();
         dayEvs.forEach(ev => {
@@ -392,7 +393,7 @@ registerApp({
 
     // ── Agenda view ──────────────────────────────────────────────────────
     function renderAgendaView() {
-      mainTitle.textContent = 'Agenda';
+      mainTitle.textContent = _t('apps.calendar.viewAgenda');
       const today  = toDateStr(new Date()); // FIX: local date
       const sorted = events
         .filter(ev => ev.date >= today)
@@ -400,7 +401,7 @@ registerApp({
 
       const wrap = createEl('div', { style: 'padding:16px;' });
       if (!sorted.length) {
-        wrap.appendChild(createEl('div', { textContent: 'No upcoming events.', style: 'color:var(--text-muted);' }));
+        wrap.appendChild(createEl('div', { textContent: _t('apps.calendar.agendaEmpty'), style: 'color:var(--text-muted);' }));
         contentArea.replaceChildren(wrap);
         return;
       }
@@ -454,7 +455,7 @@ registerApp({
       });
       overlay.setAttribute('role', 'dialog');
       overlay.setAttribute('aria-modal', 'true');
-      overlay.setAttribute('aria-label', isEdit ? 'Edit Event' : 'New Event');
+      overlay.setAttribute('aria-label', isEdit ? _t('apps.calendar.editEvent') : _t('apps.calendar.newEvent'));
 
       const modal = createEl('div', {
         style: 'background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:12px;padding:20px;width:360px;max-width:90vw;'
@@ -464,7 +465,7 @@ registerApp({
       document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); }, { signal: sig });
 
       const titleRow = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;' });
-      titleRow.appendChild(createEl('span', { textContent: isEdit ? 'Edit Event' : 'New Event', style: 'font-size:15px;font-weight:700;' }));
+      titleRow.appendChild(createEl('span', { textContent: isEdit ? _t('apps.calendar.editEvent') : _t('apps.calendar.newEvent'), style: 'font-size:15px;font-weight:700;' }));
       const closeBtn = createEl('button', { className: 'btn btn-icon btn-sm' });
       closeBtn.innerHTML = svgIcon('x', 14);
       closeBtn.addEventListener('click', close, { signal: sig });
@@ -482,13 +483,13 @@ registerApp({
         return wrap;
       }
 
-      const titleInp = createEl('input', { className: 'input', placeholder: 'Event title', value: existing?.title ?? '', id: `evt-t-${uid}`, style: 'width:100%;' });
-      modal.appendChild(field('Title', `evt-t-${uid}`, titleInp));
+      const titleInp = createEl('input', { className: 'input', placeholder: _t('apps.calendar.titlePlaceholder'), value: existing?.title ?? '', id: `evt-t-${uid}`, style: 'width:100%;' });
+      modal.appendChild(field(_t('apps.calendar.titleLabel'), `evt-t-${uid}`, titleInp));
 
       // FIX: toDateStr(date) — safe local date string even if `date` came from parseDate()
       const safeDate = (date instanceof Date && !isNaN(date)) ? toDateStr(date) : toDateStr(new Date());
       const dateInp  = createEl('input', { type: 'date', className: 'input', value: safeDate, id: `evt-d-${uid}`, style: 'width:100%;' });
-      modal.appendChild(field('Date', `evt-d-${uid}`, dateInp));
+      modal.appendChild(field(_t('apps.calendar.dateLabel'), `evt-d-${uid}`, dateInp));
 
       const timeStartInp = createEl('input', { type: 'time', className: 'input', value: existing?.timeStart ?? '', id: `evt-ts-${uid}`, style: 'flex:1;' });
       const timeEndInp   = createEl('input', { type: 'time', className: 'input', value: existing?.timeEnd ?? '', id: `evt-te-${uid}`, style: 'flex:1;' });
@@ -500,16 +501,16 @@ registerApp({
         w.append(lbl, el);
         return w;
       }
-      timeRow.append(timeField('Start', `evt-ts-${uid}`, timeStartInp), timeField('End', `evt-te-${uid}`, timeEndInp));
+      timeRow.append(timeField(_t('apps.calendar.startLabel'), `evt-ts-${uid}`, timeStartInp), timeField(_t('apps.calendar.endLabel'), `evt-te-${uid}`, timeEndInp));
       modal.appendChild(timeRow);
 
-      const descInp = createEl('textarea', { className: 'input', id: `evt-dc-${uid}`, placeholder: 'Description (optional)', style: 'width:100%;resize:vertical;min-height:56px;' });
+      const descInp = createEl('textarea', { className: 'input', id: `evt-dc-${uid}`, placeholder: _t('apps.calendar.descPlaceholder'), style: 'width:100%;resize:vertical;min-height:56px;' });
       descInp.value = existing?.desc ?? '';
-      modal.appendChild(field('Description', `evt-dc-${uid}`, descInp));
+      modal.appendChild(field(_t('apps.calendar.descLabel'), `evt-dc-${uid}`, descInp));
 
       // Color picker
       const colorWrap = createEl('div', { style: 'margin-bottom:16px;' });
-      colorWrap.appendChild(createEl('label', { textContent: 'Color', style: 'display:block;font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;' }));
+      colorWrap.appendChild(createEl('label', { textContent: _t('apps.calendar.colorLabel'), style: 'display:block;font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;' }));
       const colorRow = createEl('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;' });
       // SECURITY: validate color from existing event against known COLORS
       let selectedColor = (existing?.color && COLORS.includes(existing.color)) ? existing.color : COLORS[0];
@@ -564,7 +565,7 @@ registerApp({
         events = nextEvents;
         close();
         renderAll();
-        Notify?.show?.({ title: isEdit ? 'Event updated' : 'Event added', body: t, type: 'success', appName: 'Calendar' });
+        Notify?.show?.({ title: isEdit ? _t('apps.calendar.eventUpdated') : _t('apps.calendar.eventAdded'), body: t, type: 'success', appName: 'Calendar' });
       }
 
       // Keyboard: Enter in title submits
@@ -572,13 +573,13 @@ registerApp({
 
       // Actions row
       const actions  = createEl('div', { style: 'display:flex;gap:8px;justify-content:space-between;' });
-      const saveBtn  = createEl('button', { className: 'btn btn-primary', textContent: isEdit ? 'Save Changes' : 'Add Event' });
-      const cancelBtn = createEl('button', { className: 'btn', textContent: 'Cancel' });
+      const saveBtn  = createEl('button', { className: 'btn btn-primary', textContent: isEdit ? _t('apps.calendar.saveChanges') : _t('apps.calendar.addEvent') });
+      const cancelBtn = createEl('button', { className: 'btn', textContent: _t('common.cancel') });
       saveBtn.addEventListener('click',   handleSave, { signal: sig });
       cancelBtn.addEventListener('click', close,      { signal: sig });
 
       if (isEdit) {
-        const delBtn = createEl('button', { className: 'btn', style: 'color:var(--text-danger);border-color:var(--text-danger);', textContent: 'Delete' });
+        const delBtn = createEl('button', { className: 'btn', style: 'color:var(--text-danger);border-color:var(--text-danger);', textContent: _t('apps.calendar.delete') });
         delBtn.addEventListener('click', () => {
           const nextEvents = events.filter(ev => ev.id !== existing.id);
           if (!saveEvents(nextEvents)) return;
@@ -627,6 +628,20 @@ registerApp({
       OS.events.on('calendar:updated', onCalendarUpdated);
       state.cleanups = state.cleanups || [];
       state.cleanups.push(() => OS.events.off('calendar:updated', onCalendarUpdated));
+    }
+
+    // Live language switching — the whole surface re-renders from renderAll(),
+    // so one guarded listener is enough (wired only once per host page).
+    if (typeof OS !== 'undefined' && OS.events?.on && !window.__calendarLocaleWired) {
+      window.__calendarLocaleWired = true;
+      OS.events.on('languageChanged', () => {
+        try {
+          window.NovaI18n?.applyStaticDom?.(document);
+          renderAll();
+        } catch (e) {
+          console.warn('[Calendar] Language change re-render failed:', e);
+        }
+      });
     }
     renderAll();
   }

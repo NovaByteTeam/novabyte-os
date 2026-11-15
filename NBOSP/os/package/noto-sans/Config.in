@@ -1,0 +1,7 @@
+config BR2_PACKAGE_NOTO_SANS
+	bool "Noto Sans font (Latin/Greek/Cyrillic)"
+	depends on BR2_PACKAGE_FONTCONFIG
+	help
+	  Install Google's Noto Sans Regular and Bold for Latin, Greek and
+	  Cyrillic scripts (en, es, fr, de, pt, ru, it) in NW.js and other
+	  Fontconfig-aware applications.

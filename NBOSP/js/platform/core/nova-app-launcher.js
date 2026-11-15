@@ -116,6 +116,19 @@
       el.textContent = str;
       return el.innerHTML;
     }
+
+    // ── Shell i18n with English fallback ──
+    // The localisation engine loads before this module; these dialogs render
+    // at runtime. Translated catalogue values are treated as untrusted text
+    // and escaped below before entering the innerHTML templates.
+    function t(key, vars) {
+      if (typeof window === 'undefined' || typeof window._t !== 'function') return undefined;
+      try { return window._t(key, vars); } catch { return undefined; }
+    }
+    function tt(key, fallback) {
+      const translated = t(key);
+      return (translated && translated !== key) ? translated : fallback;
+    }
     // ── System-impersonation gate ─────────────────────────────────────────
 // A package can claim `manifest.system === true` freely — that field is
 // just JSON the installer writes, anyone can set it. What actually makes
@@ -191,9 +204,9 @@ function showSystemImpersonationDialog(appData) {
       <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
         <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.14);border:1px solid rgba(248,81,73,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDEAB</div>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">Blocked — Suspected System Impersonation</div>
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">${escapeHtml(tt('shell.untrusted.impersonation.title', 'Blocked — Suspected System Impersonation'))}</div>
           <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
-            <b>${safeName}</b> <span style="color:var(--text-muted,#888);">(${safeId})</span> declares itself a NovaByte System package but does not hold a valid, matching System signature and intact contents.
+            <b>${safeName}</b> <span style="color:var(--text-muted,#888);">(${safeId})</span> — ${escapeHtml(tt('shell.untrusted.impersonation.summary', 'It declares itself a NovaByte System package but does not hold a valid, matching System signature and intact contents.'))}
           </div>
         </div>
       </div>
@@ -201,13 +214,13 @@ function showSystemImpersonationDialog(appData) {
         <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.4);border-radius:8px;">
           <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
           <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
-            <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">Why this is blocked, not just a warning</div>
-            A real NovaByte System package has no legitimate reason to fail signature or integrity verification. This combination — claiming the System badge while failing that check — is a defining sign of an attempt to impersonate a trusted system component rather than an ordinary publishing mistake. NovaByte OS does not offer an override for this case.
+            <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${escapeHtml(tt('shell.untrusted.impersonation.cautionTitle', 'Why this is blocked, not just a warning'))}</div>
+            ${escapeHtml(tt('shell.untrusted.impersonation.caution', 'A real NovaByte System package has no legitimate reason to fail signature or integrity verification. This combination — claiming the System badge while failing that check — is a defining sign of an attempt to impersonate a trusted system component rather than an ordinary publishing mistake. NovaByte OS does not offer an override for this case.'))}
           </div>
         </div>
       </div>
       <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;">
-        <button id="nb-impersonation-ack-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.4);color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:600;">Okay</button>
+        <button id="nb-impersonation-ack-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.4);color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:600;">${escapeHtml(tt('common.ok', 'Okay'))}</button>
       </div>
     `;
 
@@ -247,40 +260,42 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         const isRevoked = !!appData.revoked;
         const hasSignature = !!appData.signature;
         const integrityStatus = appData.integrityStatus || 'unavailable';
-        const integrityLabel = integrityStatus === 'ok' ? 'passed — contents match build-time hash'
-          : integrityStatus === 'failed' ? '\u26A0\uFE0F failed — contents do not match build-time hash'
-          : 'not available — package has no integrity hash to check against';
+        // Translated catalogue values are untrusted text — escape before
+        // they enter the innerHTML template below.
+        const integrityLabel = integrityStatus === 'ok'
+          ? escapeHtml(tt('shell.untrusted.integrityOk', 'passed — contents match build-time hash'))
+          : integrityStatus === 'failed'
+            ? '\u26A0\uFE0F ' + escapeHtml(tt('shell.untrusted.integrityFailed', 'failed — contents do not match build-time hash'))
+            : escapeHtml(tt('shell.untrusted.integrityUnavailable', 'not available — package has no integrity hash to check against'));
         const integrityColor = integrityStatus === 'failed' ? '#f85149' : 'var(--text-primary,#eee)';
 
         let title, summary, cautionText, cautionBorderColor, cautionBgColor, cautionDotColor, cautionTitle, iconEmoji;
+        const idSuffix = safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : '';
 
         if (isRevoked) {
           iconEmoji = '\uD83D\uDD34';
-          title = 'Revoked Package — Do Not Install';
-          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} carries a signature that has been individually revoked by NovaByte OS.
-            This package was previously verified as signed by a trusted authority, but was subsequently pulled from the trust list — most likely because it was found to be harmful, deceptive, or non-compliant after review.`;
-          cautionTitle = 'Why this is serious';
-          cautionText = 'A revoked signature means NovaByte OS once recognised the publisher, but has since decided this specific package should not be trusted. Other packages from the same publisher may still be trusted, but this one is not. Installing it bypasses an explicit security decision.';
+          title = escapeHtml(tt('shell.untrusted.revokedTitle', 'Revoked Package — Do Not Install'));
+          summary = `<b>${safeName}</b>${idSuffix} — ${escapeHtml(tt('shell.untrusted.revokedSummary', 'This package carries a signature that has been individually revoked by NovaByte OS. It was previously verified as signed by a trusted authority, but was subsequently pulled from the trust list — most likely because it was found to be harmful, deceptive, or non-compliant after review.'))}`;
+          cautionTitle = escapeHtml(tt('shell.untrusted.cautionWhySerious', 'Why this is serious'));
+          cautionText = escapeHtml(tt('shell.untrusted.cautionRevoked', 'A revoked signature means NovaByte OS once recognised the publisher, but has since decided this specific package should not be trusted. Other packages from the same publisher may still be trusted, but this one is not. Installing it bypasses an explicit security decision.'));
           cautionBorderColor = 'rgba(248,81,73,0.35)';
           cautionBgColor = 'rgba(248,81,73,0.1)';
           cautionDotColor = '#f85149';
         } else if (hasSignature) {
           iconEmoji = '\u26A0\uFE0F';
-          title = 'Untrusted App — Unknown Publisher';
-          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} is signed, but the signer is not in NovaByte OS's trust store.
-            This usually means the app is self-signed by an individual developer, or signed by an authority that hasn't been reviewed and added to the system trust list.`;
-          cautionTitle = 'What this means';
-          cautionText = `NovaByte OS cannot confirm the identity of the publisher or guarantee that the package has not been modified since it was signed. This doesn't prove the app is malicious — it just means nobody vetted the publisher on your behalf. Proceed only if you obtained the package directly from a developer or source you personally trust.`;
+          title = escapeHtml(tt('shell.untrusted.signedTitle', 'Untrusted App — Unknown Publisher'));
+          summary = `<b>${safeName}</b>${idSuffix} — ${escapeHtml(tt('shell.untrusted.signedSummary', "This app is signed, but the signer is not in NovaByte OS's trust store. This usually means the app is self-signed by an individual developer, or signed by an authority that hasn't been reviewed and added to the system trust list."))}`;
+          cautionTitle = escapeHtml(tt('shell.untrusted.cautionWhatThisMeans', 'What this means'));
+          cautionText = escapeHtml(tt('shell.untrusted.cautionSigned', "NovaByte OS cannot confirm the identity of the publisher or guarantee that the package has not been modified since it was signed. This doesn't prove the app is malicious — it just means nobody vetted the publisher on your behalf. Proceed only if you obtained the package directly from a developer or source you personally trust."));
           cautionBorderColor = 'rgba(210,153,34,0.3)';
           cautionBgColor = 'rgba(210,153,34,0.08)';
           cautionDotColor = '#d29922';
         } else {
           iconEmoji = '\u26A0\uFE0F';
-          title = 'Untrusted App — Not Signed';
-          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} is not digitally signed.
-            NovaByte OS cannot verify who created the package, when it was built, or whether it has been altered since distribution.`;
-          cautionTitle = 'What this means';
-          cautionText = 'An unsigned package provides no cryptographic proof of origin. Anyone could have created or modified it. Only proceed if you inspected the package yourself and trust its source completely.';
+          title = escapeHtml(tt('shell.untrusted.unsignedTitle', 'Untrusted App — Not Signed'));
+          summary = `<b>${safeName}</b>${idSuffix} — ${escapeHtml(tt('shell.untrusted.unsignedSummary', 'This app is not digitally signed. NovaByte OS cannot verify who created the package, when it was built, or whether it has been altered since distribution.'))}`;
+          cautionTitle = escapeHtml(tt('shell.untrusted.cautionWhatThisMeans', 'What this means'));
+          cautionText = escapeHtml(tt('shell.untrusted.cautionUnsigned', 'An unsigned package provides no cryptographic proof of origin. Anyone could have created or modified it. Only proceed if you inspected the package yourself and trust its source completely.'));
           cautionBorderColor = 'rgba(210,153,34,0.25)';
           cautionBgColor = 'rgba(210,153,34,0.06)';
           cautionDotColor = '#d29922';
@@ -305,25 +320,25 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             </div>
 
             <div id="nb-untrusted-more" style="display:none;padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;animation:nb-fade-in 150ms ease-out;">
-              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">Package Details</div>
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">${escapeHtml(tt('shell.untrusted.detailsTitle', 'Package Details'))}</div>
               <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Signature</span><span style="font-weight:500;color:var(--text-primary,#eee);">${isRevoked ? 'present, but revoked by NovaByte OS' : hasSignature ? 'present, but not from a recognised signer' : 'none — package is not signed'}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Integrity</span><span style="font-weight:500;color:${integrityColor};text-align:right;">${integrityLabel}</span></div>
-                ${isRevoked ? '<div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Revocation reason</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;">Removed from trust list by NovaByte OS</span></div>' : ''}
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${escapeHtml(tt('apps.appmanager.detailPackageId', 'Package ID'))}</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${escapeHtml(tt('apps.appmanager.detailVersion', 'Version'))}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${escapeHtml(tt('apps.appmanager.detailSignature', 'Signature'))}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${isRevoked ? escapeHtml(tt('shell.untrusted.signatureRevoked', 'present, but revoked by NovaByte OS')) : hasSignature ? escapeHtml(tt('shell.untrusted.signatureUnrecognised', 'present, but not from a recognised signer')) : escapeHtml(tt('shell.untrusted.signatureNone', 'none — package is not signed'))}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${escapeHtml(tt('apps.appmanager.detailIntegrity', 'Integrity'))}</span><span style="font-weight:500;color:${integrityColor};text-align:right;">${integrityLabel}</span></div>
+                ${isRevoked ? `<div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${escapeHtml(tt('apps.appmanager.detailRevocationReason', 'Revocation reason'))}</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;">${escapeHtml(tt('shell.untrusted.revocationReasonValue', 'Removed from trust list by NovaByte OS'))}</span></div>` : ''}
               </div>
               <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));font-size:12px;color:var(--text-muted,#999);line-height:1.6;">
-                Only install or run apps obtained from sources you trust. A missing or unrecognised signature means NovaByte OS cannot confirm who published this app or guarantee it has not been modified since distribution.${isRevoked ? ' A revoked signature means NovaByte OS reviewed this package and explicitly decided it should no longer be trusted — installing it overrides that decision.' : ''} If you do not trust the source, cancel this operation and remove the package.
+                ${escapeHtml(tt('shell.untrusted.footer', 'Only install or run apps obtained from sources you trust. A missing or unrecognised signature means NovaByte OS cannot confirm who published this app or guarantee it has not been modified since distribution.'))}${isRevoked ? ' ' + escapeHtml(tt('shell.untrusted.footerRevokedSuffix', 'A revoked signature means NovaByte OS reviewed this package and explicitly decided it should no longer be trusted — installing it overrides that decision.')) : ''}
               </div>
             </div>
           </div>
 
           <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-            <button id="nb-untrusted-more-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text-muted,#ccc);padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;transition:all 0.12s;font-weight:500;">More Info</button>
+            <button id="nb-untrusted-more-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text-muted,#ccc);padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;transition:all 0.12s;font-weight:500;">${escapeHtml(tt('shell.untrusted.moreInfo', 'More Info'))}</button>
             <div style="display:flex;gap:8px;">
-              <button id="nb-untrusted-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">Cancel</button>
-              <button id="nb-untrusted-launch-btn" style="display:none;background:rgba(248,81,73,0.15);border:1px solid ${isRevoked ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.3)'};color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:${isRevoked ? 700 : 600};">${isRevoked ? 'Install Despite Revocation' : 'Install Anyway'}</button>
+              <button id="nb-untrusted-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">${escapeHtml(tt('common.cancel', 'Cancel'))}</button>
+              <button id="nb-untrusted-launch-btn" style="display:none;background:rgba(248,81,73,0.15);border:1px solid ${isRevoked ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.3)'};color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:${isRevoked ? 700 : 600};">${isRevoked ? escapeHtml(tt('shell.untrusted.installDespiteRevocation', 'Install Despite Revocation')) : escapeHtml(tt('shell.untrusted.installAnyway', 'Install Anyway'))}</button>
             </div>
           </div>
         `;
@@ -352,7 +367,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           const panel = box.querySelector('#nb-untrusted-more');
           const isHidden = panel.style.display === 'none';
           panel.style.display = isHidden ? 'block' : 'none';
-          box.querySelector('#nb-untrusted-more-btn').textContent = isHidden ? 'Less Info' : 'More Info';
+          box.querySelector('#nb-untrusted-more-btn').textContent = isHidden ? tt('shell.untrusted.lessInfo', 'Less Info') : tt('shell.untrusted.moreInfo', 'More Info');
           box.querySelector('#nb-untrusted-launch-btn').style.display = isHidden ? 'inline-block' : 'none';
         });
         box.querySelector('#nb-untrusted-cancel-btn').addEventListener('click', () => {
@@ -404,17 +419,18 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         const safeName = escapeHtml(appData.name || appData.id || 'This app');
         const safeId = escapeHtml(appData.id || '');
         const safeVersion = escapeHtml(appData.version || 'unknown');
+        const moreCount = t('shell.untrusted.tamper.moreCount', { count: mismatchedFiles.length - 8 });
         const fileList = mismatchedFiles.slice(0, 8).map(f => escapeHtml(f)).join(', ')
-          + (mismatchedFiles.length > 8 ? `, and ${mismatchedFiles.length - 8} more` : '');
+          + (mismatchedFiles.length > 8 ? `, ${(moreCount && moreCount !== 'shell.untrusted.tamper.moreCount') ? escapeHtml(moreCount) : `and ${mismatchedFiles.length - 8} more`}` : '');
+        const tamperIdSuffix = safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : '';
 
         box.innerHTML = `
           <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
             <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
             <div style="flex:1;min-width:0;">
-              <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">Tamper Detected — Package Modified</div>
+              <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">${escapeHtml(tt('shell.untrusted.tamper.title', 'Tamper Detected — Package Modified'))}</div>
               <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
-                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} failed its integrity check.
-                The package's contents no longer match the hash that was recorded when it was built. This is true regardless of whether the package is signed by a trusted publisher — a valid signature only proves who signed the <i>original</i> file, not that these are still its unmodified contents.
+                <b>${safeName}</b>${tamperIdSuffix} — ${escapeHtml(tt('shell.untrusted.tamper.summary', "It failed its integrity check. The package's contents no longer match the hash that was recorded when it was built. This is true regardless of whether the package is signed by a trusted publisher — a valid signature only proves who signed the original file, not that these are still its unmodified contents."))}
               </div>
             </div>
           </div>
@@ -423,30 +439,30 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
               <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
               <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
-                <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">Why this is serious</div>
-                A mismatch here usually means the file was altered after it was packaged — by corruption in transit, or by someone modifying it deliberately. NovaByte OS cannot tell which. Installing this package means running code that is provably different from what its integrity hash says it should be.
+                <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${escapeHtml(tt('shell.untrusted.cautionWhySerious', 'Why this is serious'))}</div>
+                ${escapeHtml(tt('shell.untrusted.tamper.caution', 'A mismatch here usually means the file was altered after it was packaged — by corruption in transit, or by someone modifying it deliberately. NovaByte OS cannot tell which. Installing this package means running code that is provably different from what its integrity hash says it should be.'))}
               </div>
             </div>
 
             <div style="padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;">
-              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">Package Details</div>
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">${escapeHtml(tt('shell.untrusted.detailsTitle', 'Package Details'))}</div>
               <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Integrity</span><span style="font-weight:500;color:#f85149;text-align:right;">\u26A0\uFE0F failed — contents do not match build-time hash</span></div>
-                ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">Affected file(s)</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${escapeHtml(tt('apps.appmanager.detailPackageId', 'Package ID'))}</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${escapeHtml(tt('apps.appmanager.detailVersion', 'Version'))}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${escapeHtml(tt('apps.appmanager.detailIntegrity', 'Integrity'))}</span><span style="font-weight:500;color:#f85149;text-align:right;">\u26A0\uFE0F ${escapeHtml(tt('shell.untrusted.integrityFailed', 'failed — contents do not match build-time hash'))}</span></div>
+                ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">${escapeHtml(tt('shell.untrusted.tamper.affectedFiles', 'Affected file(s)'))}</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
               </div>
             </div>
 
             <div style="display:flex;flex-direction:column;gap:6px;">
-              <label for="nb-tamper-confirm-input" style="font-size:12px;color:var(--text-muted,#999);">To install anyway, type <b style="color:var(--text-primary,#ddd);">install tampered</b> below:</label>
+              <label for="nb-tamper-confirm-input" style="font-size:12px;color:var(--text-muted,#999);">${escapeHtml(tt('shell.untrusted.tamper.confirmLabel', 'To install anyway, type the confirmation phrase below:'))}</label>
               <input id="nb-tamper-confirm-input" type="text" autocomplete="off" spellcheck="false" style="background:var(--bg-inset,rgba(255,255,255,0.04));border:1px solid var(--border,#444);border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--text-primary,#eee);font-family:inherit;outline:none;" placeholder="install tampered" />
             </div>
           </div>
 
           <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
-            <button id="nb-tamper-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">Cancel</button>
-            <button id="nb-tamper-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">Install Despite Tampering</button>
+            <button id="nb-tamper-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">${escapeHtml(tt('common.cancel', 'Cancel'))}</button>
+            <button id="nb-tamper-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">${escapeHtml(tt('shell.untrusted.tamper.installDespiteTampering', 'Install Despite Tampering'))}</button>
           </div>
         `;
 

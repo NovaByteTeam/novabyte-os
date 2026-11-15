@@ -2,6 +2,13 @@
    UTILITY FUNCTIONS
    ═══════════════════════════════════════════════════════════════ */
 
+// Localised strings — NovaI18n core engine (js/core/core/i18n.js)
+// evaluated before this service script; identity fallback for
+// stripped-down host contexts.
+var _t = (typeof window !== 'undefined' && typeof window._t === 'function')
+  ? window._t
+  : (key, vars) => key;
+
 function getShellSystemSetting(key) {
   const settings = window.NovaByteSystem?.settings;
   if (!settings || typeof settings.get !== 'function') {
@@ -1834,8 +1841,8 @@ function openFileWithApp(fileNode, appId, rememberDefault = false, requireHandle
   const liveFile = fileNode?.id ? FS.files.get(fileNode.id) : null;
   if (!liveFile || liveFile.type !== 'file' || !appId || !OS.apps?.[appId]) {
     Notify.show({
-      title: 'Unable to open file',
-      body: 'The file or selected app is no longer available.',
+      title: _t('shell.desktop.unableToOpenTitle'),
+      body: _t('shell.desktop.unableToOpenBody'),
       type: 'warn',
       appName: 'Desktop',
     });
@@ -1848,8 +1855,8 @@ function openFileWithApp(fileNode, appId, rememberDefault = false, requireHandle
     && DefaultApps.supportsFile(appId, query);
   if (requireHandler && !canHandle) {
     Notify.show({
-      title: 'App no longer supports this file',
-      body: 'Choose an app that currently declares support for this file type.',
+      title: _t('shell.desktop.noLongerSupportsTitle'),
+      body: _t('shell.desktop.noLongerSupportsBody'),
       type: 'warn',
       appName: 'Desktop',
     });
@@ -1860,8 +1867,8 @@ function openFileWithApp(fileNode, appId, rememberDefault = false, requireHandle
     : false;
   if (rememberDefault && canHandle && !defaultSaved) {
     Notify.show({
-      title: 'Default not saved',
-      body: 'The selected app could not be saved as the default for this file type.',
+      title: _t('shell.desktop.defaultNotSavedTitle'),
+      body: _t('shell.desktop.defaultNotSavedBody'),
       type: 'warn',
       appName: 'Desktop',
     });
@@ -1894,8 +1901,8 @@ function showOpenWithDialog(fileNode) {
   const candidates = DefaultApps.getAppsForFile(query);
   if (candidates.length === 0) {
     Notify.show({
-      title: 'No compatible apps',
-      body: `No installed app declares support for ${name || 'this file'}.`,
+      title: _t('shell.desktop.noCompatibleApps'),
+      body: _t('shell.desktop.noCompatibleAppsBody', { file: name || _t('shell.desktop.thisFile') }),
       type: 'info',
       appName: 'Desktop',
     });
@@ -1927,7 +1934,7 @@ function showOpenWithDialog(fileNode) {
   form.style.cssText = 'display:flex;flex-direction:column;gap:14px;padding:20px;';
   const title = document.createElement('h2');
   title.id = 'open-with-title';
-  title.textContent = 'Open with';
+  title.textContent = _t('shell.desktop.openWithTitle');
   title.style.cssText = 'font-size:18px;margin:0;';
   const subtitle = document.createElement('p');
   subtitle.textContent = name;
@@ -1964,16 +1971,16 @@ function showOpenWithDialog(fileNode) {
   rememberLabel.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;';
   const remember = document.createElement('input');
   remember.type = 'checkbox';
-  rememberLabel.append(remember, document.createTextNode('Always use this app for this file type'));
+  rememberLabel.append(remember, document.createTextNode(_t('shell.desktop.alwaysUseApp')));
 
   const actions = document.createElement('div');
   actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:2px;';
   const cancel = document.createElement('button');
   cancel.type = 'button';
-  cancel.textContent = 'Cancel';
+  cancel.textContent = _t('common.cancel');
   const open = document.createElement('button');
   open.type = 'submit';
-  open.textContent = 'Open';
+  open.textContent = _t('common.open');
   open.className = 'primary';
   for (const button of [cancel, open]) {
     button.style.cssText = 'border:1px solid var(--border-color,rgba(255,255,255,.16));border-radius:7px;padding:8px 14px;color:inherit;background:var(--bg-overlay,rgba(255,255,255,.08));cursor:pointer;';

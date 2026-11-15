@@ -31,7 +31,7 @@
     });
     const closeBtn = createEl('button', {
       textContent: '✕',
-      'aria-label': 'Close',
+      'aria-label': _t('common.close'),
       style: 'background:rgba(248,81,73,0.18);border:1px solid rgba(248,81,73,0.35);color:#f85149;border-radius:6px;width:24px;height:24px;font-size:11px;cursor:pointer;font-weight:700;display:flex;align-items:center;justify-content:center;'
     });
     titleBar.append(titleText, closeBtn);
@@ -39,15 +39,15 @@
     const scoreBar = createEl('div', {
       style: 'display:flex;align-items:center;justify-content:space-between;padding:6px 14px;background:rgba(0,0,0,0.2);font-size:12px;color:var(--text-secondary);'
     });
-    const scoreLabel = createEl('span', { textContent: 'Score: 0' });
-    const hintLabel = createEl('span', { textContent: 'Arrow keys / WASD', style: 'color:var(--text-muted);font-size:11px;' });
+    const scoreLabel = createEl('span', { textContent: _t('apps.easterEgg.score', { score: 0 }) });
+    const hintLabel = createEl('span', { textContent: _t('apps.easterEgg.controlsHint'), style: 'color:var(--text-muted);font-size:11px;' });
     scoreBar.append(scoreLabel, hintLabel);
 
     const canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
     canvas.style.display = 'block';
-    canvas.setAttribute('aria-label', 'Snake game canvas');
+    canvas.setAttribute('aria-label', _t('apps.easterEgg.canvasAria'));
     const ctx = canvas.getContext('2d');
 
     win.append(titleBar, scoreBar, canvas);
@@ -71,7 +71,7 @@
       nextDir = { x: 1, y: 0 };
       food = spawnFood();
       score = 0;
-      scoreLabel.textContent = 'Score: 0';
+      scoreLabel.textContent = _t('apps.easterEgg.score', { score: 0 });
       canvas.parentElement?.querySelector('.snake-game-over')?.remove();
     }
 
@@ -116,9 +116,9 @@
     function gameOver() {
       if (gameLoop) { clearInterval(gameLoop); gameLoop = null; }
       const gameOverElement = createEl('div', { className: 'snake-game-over' });
-      const title = createEl('div', { className: 'snake-game-over-title', textContent: 'Game Over' });
-      const finalScore = createEl('div', { className: 'snake-game-over-score', textContent: `Score: ${score}` });
-      const restart = createEl('button', { className: 'snake-restart-btn', textContent: '↺ Play Again' });
+      const title = createEl('div', { className: 'snake-game-over-title', textContent: _t('apps.easterEgg.gameOver') });
+      const finalScore = createEl('div', { className: 'snake-game-over-score', textContent: _t('apps.easterEgg.score', { score }) });
+      const restart = createEl('button', { className: 'snake-restart-btn', textContent: _t('apps.easterEgg.playAgain') });
       restart.addEventListener('click', () => { gameOverElement.remove(); startGame(); });
       gameOverElement.append(title, finalScore, restart);
       const wrap = canvas.parentElement;
@@ -136,7 +136,7 @@
       snake.unshift(head);
       if (head.x === food.x && head.y === food.y) {
         score++;
-        scoreLabel.textContent = `Score: ${score}`;
+        scoreLabel.textContent = _t('apps.easterEgg.score', { score });
         food = spawnFood();
       } else {
         snake.pop();
@@ -160,9 +160,38 @@
     }
 
     document.addEventListener('keydown', onKey);
+
+    // Live re-localisation — relabel the running game overlay in place when
+    // the OS language changes. The game state, score and any half-typed
+    // input are untouched; a visible game-over panel is relabelled rather
+    // than rebuilt so its restart handler stays attached.
+    const localeHandler = () => {
+      try {
+        window.NovaI18n?.applyStaticDom?.(overlay);
+        closeBtn.setAttribute('aria-label', _t('common.close'));
+        hintLabel.textContent = _t('apps.easterEgg.controlsHint');
+        canvas.setAttribute('aria-label', _t('apps.easterEgg.canvasAria'));
+        scoreLabel.textContent = _t('apps.easterEgg.score', { score });
+        const overTitle = overlay.querySelector('.snake-game-over-title');
+        if (overTitle) overTitle.textContent = _t('apps.easterEgg.gameOver');
+        const overScore = overlay.querySelector('.snake-game-over-score');
+        if (overScore) overScore.textContent = _t('apps.easterEgg.score', { score });
+        const restartBtn = overlay.querySelector('.snake-restart-btn');
+        if (restartBtn) restartBtn.textContent = _t('apps.easterEgg.playAgain');
+      } catch (error) {
+        console.warn('[EasterEgg] Language change re-render failed:', error);
+      }
+    };
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+    }
+
     const cleanup = () => {
       if (gameLoop) { clearInterval(gameLoop); gameLoop = null; }
       document.removeEventListener('keydown', onKey);
+      if (typeof OS !== 'undefined' && OS.events?.off) {
+        typeof OS !== 'undefined' && OS.events.off('languageChanged', localeHandler);
+      }
     };
     closeBtn.addEventListener('click', () => { cleanup(); overlay.remove(); });
     overlay.addEventListener('click', event => {

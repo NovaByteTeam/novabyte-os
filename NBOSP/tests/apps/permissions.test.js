@@ -187,8 +187,9 @@ describe("'Permissions' app (js/apps/permissions)", () => {
     expect(manager.calls.some(([kind, p, id, opts]) =>
       kind === 'grant' && p === 'fs:read:images' && id === 'com.test.photo' &&
       opts?.reason === 'Granted via Permissions dev tool')).toBe(true);
-    // Status badge flips to granted (CSS uppercases it visually).
-    expect([...content.querySelectorAll('span')].some((s) => s.textContent === 'granted')).toBe(true);
+    // Status badge flips to granted (localised catalogue value; CSS
+    // uppercases it visually in the real UI).
+    expect([...content.querySelectorAll('span')].some((s) => s.textContent === 'Granted')).toBe(true);
 
     // Bulk bar offers revoke-all for the now-granted permission.
     expect([...content.querySelectorAll('button')]
@@ -215,7 +216,7 @@ describe("'Permissions' app (js/apps/permissions)", () => {
 
     expect(manager.calls.some(([kind, p]) => kind === 'revoke' && p === 'fs:access')).toBe(true);
     // Revoked → denied state with a reset affordance.
-    expect([...content.querySelectorAll('span')].some((s) => s.textContent === 'denied')).toBe(true);
+    expect([...content.querySelectorAll('span')].some((s) => s.textContent === 'Denied')).toBe(true);
     const resetBtn = [...content.querySelectorAll('button')].find((b) => b.textContent === 'Reset to pending');
     expect(resetBtn).toBeTruthy();
 

@@ -1064,11 +1064,16 @@
     border: none;
     background: none;
     width: 100%;
-    text-align: left;
+    text-align: start;
   }
   .ctx-item:hover {
     background: var(--accent-muted);
     transform: translateX(2px);
+  }
+  /* RTL mirrors the context menu's hover nudge toward inline-start. */
+  [dir="rtl"] .ctx-item:hover {
+    background: var(--accent-muted);
+    transform: translateX(-2px);
   }
   .ctx-item:active {
     transform: scale(0.98);
@@ -1264,16 +1269,16 @@
   .toast.warning { border-inline-start: 3px solid var(--text-warning);  }
   .toast.error   { border-inline-start: 3px solid var(--text-danger);   }
 
-  /* Notification panel — slides in from the right edge, full height. */
+  /* Notification panel — slides in from the taskbar-tray edge (inline-end,
+     so it mirrors in RTL where the tray sits at the left edge), full height. */
   #notification-panel {
     position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
+    inset-block: 0;
+    inset-inline-end: 0;
     width: min(380px, 100vw);
     z-index: 9100;
     background: transparent;
-    border-left: none;
+    border-inline-start: none;
     box-shadow:
       -24px 0 56px rgba(0, 0, 0, 0.45),
       -8px 0 24px rgba(0, 0, 0, 0.25),
@@ -1282,6 +1287,8 @@
       transform 320ms var(--ease-macos),
       box-shadow 320ms var(--ease-macos),
       visibility 0s linear 320ms;
+    /* Hidden state slides toward the inline-end side: +x in LTR (right),
+       mirrored by the RTL override below. */
     transform: translate3d(calc(100% + 32px), 0, 0);
     visibility: hidden;
     contain: layout paint style;
@@ -1290,6 +1297,15 @@
     display: flex;
     flex-direction: column;
     pointer-events: none;
+  }
+  /* RTL mirror — pinned at the left edge, so it slides out to the LEFT
+     and its shadow casts to the right instead of the left. */
+  [dir="rtl"] #notification-panel {
+    transform: translate3d(calc(-100% - 32px), 0, 0);
+    box-shadow:
+      24px 0 56px rgba(0, 0, 0, 0.45),
+      8px 0 24px rgba(0, 0, 0, 0.25),
+      0 0 0 0.5px rgba(255, 255, 255, 0.10);
   }
   /* Layer 0 — glass backdrop, same pattern as .app-window. */
   #notification-panel::before {
@@ -1332,6 +1348,12 @@
       -8px 0 24px rgba(0, 0, 0, 0.25),
       0 0 0 0.5px rgba(255, 255, 255, 0.10);
     pointer-events: auto;
+  }
+  [dir="rtl"] #notification-panel.active {
+    box-shadow:
+      24px 0 56px rgba(0, 0, 0, 0.45),
+      8px 0 24px rgba(0, 0, 0, 0.25),
+      0 0 0 0.5px rgba(255, 255, 255, 0.10);
   }
 
   .notif-header {
@@ -2115,7 +2137,7 @@
     border: none;
     background: transparent;
     width: 100%;
-    text-align: left;
+    text-align: start;
     min-height: 36px;
   }
   .nook-section-btn:hover {
@@ -2392,7 +2414,7 @@
     border-collapse: collapse;
   }
   .nook-shortcuts-table th {
-    text-align: left;
+    text-align: start;
     padding: 10px 12px;
     font-size: 11px;
     font-weight: 600;
@@ -2863,3 +2885,35 @@
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ── RTL (right-to-left) shell mirroring ──────────────────────────────
+   NovaI18n sets <html dir="rtl"> for RTL languages (Arabic). Setting the
+   dir attribute already flips inline base direction for text, but the
+   shell's flex rows and physical paddings need explicit mirroring so the
+   chrome (titlebars, menus, panels, dialogs) reads correctly end-to-end. */
+[dir="rtl"] .window-titlebar { flex-direction: row-reverse; }
+[dir="rtl"] .window-controls { flex-direction: row-reverse; }
+[dir="rtl"] .tray-menu { direction: rtl; }
+[dir="rtl"] .tray-menu-item { flex-direction: row-reverse; text-align: right; }
+[dir="rtl"] .volume-popup { direction: rtl; text-align: right; }
+[dir="rtl"] .calendar-popup { direction: rtl; }
+[dir="rtl"] .calendar-popup-header { flex-direction: row-reverse; }
+[dir="rtl"] #notification-panel { direction: rtl; }
+[dir="rtl"] .notif-header { flex-direction: row-reverse; }
+[dir="rtl"] .notif-header-actions { flex-direction: row-reverse; }
+[dir="rtl"] .notif-item { flex-direction: row-reverse; }
+[dir="rtl"] .notif-item-controls { justify-content: flex-start; }
+[dir="rtl"] .modal-dialog { direction: rtl; }
+[dir="rtl"] .modal-actions { flex-direction: row-reverse; }
+[dir="rtl"] .context-menu { direction: rtl; }
+[dir="rtl"] .launchpad-search { direction: rtl; text-align: right; }
+[dir="rtl"] .toast { direction: rtl; }
+[dir="rtl"] .toast-content { flex-direction: row-reverse; }
+[dir="rtl"] .lock-picker { direction: rtl; }
+[dir="rtl"] .lock-picker-power { flex-direction: row-reverse; }
+[dir="rtl"] .lock-picker-tiles { direction: rtl; }
+[dir="rtl"] .system-file-dialog-toolbar { flex-direction: row-reverse; }
+[dir="rtl"] .system-file-dialog-footer { flex-direction: row-reverse; }
+[dir="rtl"] .taskbar-window-preview { direction: rtl; }
+[dir="rtl"] .preview-window-item { flex-direction: row-reverse; }
+[dir="rtl"] .app-switcher-item { flex-direction: row-reverse; }

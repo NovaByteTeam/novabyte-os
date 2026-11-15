@@ -207,6 +207,7 @@ const OS = {
       username: 'user',
       pinnedApps: [],
       region: 'en-US',
+      language: 'en',
       keyboardLayout: 'us',
       timezone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
         ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'

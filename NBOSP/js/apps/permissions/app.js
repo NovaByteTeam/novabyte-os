@@ -11,13 +11,13 @@ registerApp({
   init(content, state, options) {
     if (!window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>' + _t('apps.permissions.guard.appDataMissing') + '<br>' + _t('apps.permissions.guard.requiresNovaByte') + '</div>';
       return;
     }
 
     if (!OS.settings.get('devMode')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">Enable Developer Mode in Settings to use Permissions.</div>';
+      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">' + _t('apps.permissions.guard.devModeRequired') + '</div>';
       return;
     }
 
@@ -78,8 +78,8 @@ registerApp({
     }
 
     const tabBar = createEl('div', { style: 'display:flex;border-bottom:1px solid var(--border-subtle);background:var(--bg-elevated);flex-shrink:0;' });
-    const listTabBtn = createEl('button', { textContent: 'Apps', style: 'padding:8px 16px;background:transparent;border:none;color:var(--accent);cursor:pointer;font-size:13px;border-bottom:2px solid var(--accent);' });
-    const logTabBtn = createEl('button', { textContent: 'Consent Log', style: 'padding:8px 16px;background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;border-bottom:2px solid transparent;' });
+    const listTabBtn = createEl('button', { textContent: _t('apps.permissions.tabs.apps'), style: 'padding:8px 16px;background:transparent;border:none;color:var(--accent);cursor:pointer;font-size:13px;border-bottom:2px solid var(--accent);' });
+    const logTabBtn = createEl('button', { textContent: _t('apps.permissions.tabs.consentLog'), style: 'padding:8px 16px;background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;border-bottom:2px solid transparent;' });
     listTabBtn.addEventListener('click', () => { view = 'list'; detailAppId = null; syncTabs(); render(); }, { signal: ac.signal });
     logTabBtn.addEventListener('click', () => { view = 'log'; syncTabs(); render(); }, { signal: ac.signal });
     tabBar.appendChild(listTabBtn);
@@ -100,7 +100,9 @@ registerApp({
     function riskBadge(permission) {
       const cat = managerAvailable ? AppPermissionManager.PERMISSION_CATEGORIES[permission] : null;
       const risk = cat?.risk ?? 'low';
-      const label = cat?.label ?? permission;
+      const label = managerAvailable && AppPermissionManager.permissionLabel
+        ? AppPermissionManager.permissionLabel(permission)
+        : (cat?.label ?? permission);
       return { risk, label, color: RISK_COLORS[risk] || RISK_COLORS.low };
     }
 
@@ -140,12 +142,12 @@ registerApp({
       const allApps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
 
       if (!allApps.length) {
-        scroll.appendChild(createEl('div', { textContent: 'No apps registered', style: 'color:var(--text-muted);' }));
+        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.list.noAppsRegistered'), style: 'color:var(--text-muted);' }));
         return;
       }
 
       const searchInput = createEl('input', {
-        placeholder: 'Filter by app name or id…',
+        placeholder: _t('apps.permissions.list.filterPlaceholder'),
         value: listSearch,
         style: 'width:100%;padding:6px 10px;margin-bottom:12px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:12px;box-sizing:border-box;'
       });
@@ -161,21 +163,21 @@ registerApp({
       const apps = q ? allApps.filter(a => (a.name || '').toLowerCase().includes(q) || a.id.toLowerCase().includes(q)) : allApps;
 
       if (!managerAvailable) {
-        scroll.appendChild(createEl('div', { textContent: 'AppPermissionManager unavailable — showing app list only.', style: 'color:#d29922;margin-bottom:12px;font-size:12px;' }));
+        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.list.managerUnavailableListOnly'), style: 'color:#d29922;margin-bottom:12px;font-size:12px;' }));
       }
 
       if (q && !apps.length) {
-        scroll.appendChild(createEl('div', { textContent: 'No apps match "' + listSearch + '"', style: 'color:var(--text-muted);' }));
+        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.list.noAppsMatch', { query: listSearch }), style: 'color:var(--text-muted);' }));
         return;
       }
 
       const table = createEl('table', { style: 'width:100%;border-collapse:collapse;font-size:12px;' });
       table.appendChild(createEl('thead', {},
         [createEl('tr', {}, [
-          createEl('th', { textContent: 'App', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
-          createEl('th', { textContent: 'Granted', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
-          createEl('th', { textContent: 'Denied', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
-          createEl('th', { textContent: 'Pending', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
+          createEl('th', { textContent: _t('apps.permissions.list.colApp'), style: 'text-align:start;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
+          createEl('th', { textContent: _t('apps.permissions.list.colGranted'), style: 'text-align:start;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
+          createEl('th', { textContent: _t('apps.permissions.list.colDenied'), style: 'text-align:start;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
+          createEl('th', { textContent: _t('apps.permissions.list.colPending'), style: 'text-align:start;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
           createEl('th', { textContent: '', style: 'padding:6px;border-bottom:1px solid var(--border-subtle);' }),
         ])]
       ));
@@ -197,13 +199,13 @@ registerApp({
         row.appendChild(createEl('td', { textContent: app.name || app.id, style: 'padding:6px;' }));
         row.appendChild(createEl('td', { textContent: String(granted), style: 'padding:6px;color:#3fb950;' }));
         row.appendChild(createEl('td', { textContent: String(denied), style: 'padding:6px;color:#f85149;' }));
-        row.appendChild(createEl('td', { textContent: unknown ? '—' : String(pending), style: 'padding:6px;color:#d29922;', title: unknown ? 'AppPermissionManager unavailable' : '' }));
+        row.appendChild(createEl('td', { textContent: unknown ? '—' : String(pending), style: 'padding:6px;color:#d29922;', title: unknown ? _t('apps.permissions.list.managerUnavailableTitle') : '' }));
 
-        const actionsCell = createEl('td', { style: 'padding:6px;text-align:right;white-space:nowrap;' });
+        const actionsCell = createEl('td', { style: 'padding:6px;text-align:end;white-space:nowrap;' });
         if (managerAvailable && granted > 0) {
           const revokeAllBtn = createEl('button', {
-            textContent: 'Revoke all',
-            title: 'Revoke every granted permission for ' + (app.name || app.id),
+            textContent: _t('apps.permissions.list.revokeAll'),
+            title: _t('apps.permissions.list.revokeAllTitle', { app: app.name || app.id }),
             style: 'padding:2px 8px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:10px;margin-right:6px;'
           });
           revokeAllBtn.addEventListener('click', (e) => {
@@ -225,13 +227,17 @@ registerApp({
       // for risk badges above instead of the flat PERMISSION_TYPES map, so
       // it shows risk/category context instead of just the raw string.
       const ref = createEl('div', { style: 'margin-top:20px;' });
-      ref.appendChild(createEl('h4', { textContent: 'Permission Types', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+      ref.appendChild(createEl('h4', { textContent: _t('apps.permissions.list.typesTitle'), style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
       const cats = managerAvailable ? AppPermissionManager.PERMISSION_CATEGORIES : {};
       const list = createEl('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px;font-size:11px;font-family:monospace;' });
       for (const [key, val] of Object.entries(cats)) {
         const row = createEl('div', { style: `padding:4px 6px;background:var(--bg-elevated);border-radius:4px;border-left:3px solid ${RISK_COLORS[val.risk] || RISK_COLORS.low};` });
         row.appendChild(createEl('div', { textContent: key, style: 'color:var(--text-primary);' }));
-        row.appendChild(createEl('div', { textContent: `${val.label} · ${val.risk}`, style: 'color:var(--text-muted);font-size:10px;' }));
+        const glossLabel = managerAvailable && AppPermissionManager.permissionLabel
+          ? AppPermissionManager.permissionLabel(key) : (val.label ?? key);
+        const glossRisk = managerAvailable && AppPermissionManager.riskLabel
+          ? AppPermissionManager.riskLabel(val.risk) : val.risk;
+        row.appendChild(createEl('div', { textContent: `${glossLabel} · ${glossRisk}`, style: 'color:var(--text-muted);font-size:10px;' }));
         list.appendChild(row);
       }
       ref.appendChild(list);
@@ -248,7 +254,7 @@ registerApp({
         return;
       }
 
-      const back = createEl('button', { textContent: '‹ All apps', style: 'padding:4px 10px;background:transparent;color:var(--accent);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;' });
+      const back = createEl('button', { textContent: _t('apps.permissions.detail.backToApps'), style: 'padding:4px 10px;background:transparent;color:var(--accent);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;' });
       back.addEventListener('click', () => { view = 'list'; detailAppId = null; render(); }, { signal: ac.signal });
       scroll.appendChild(back);
 
@@ -266,12 +272,12 @@ registerApp({
         : new Map();
 
       if (!effectivePerms.length) {
-        scroll.appendChild(createEl('div', { textContent: 'This app declares no permissions and has no bootstrap-map entry.', style: 'color:var(--text-muted);' }));
+        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.detail.noPermissions'), style: 'color:var(--text-muted);' }));
         return;
       }
 
       if (!managerAvailable) {
-        scroll.appendChild(createEl('div', { textContent: 'AppPermissionManager unavailable — grant/revoke disabled.', style: 'color:#d29922;font-size:12px;' }));
+        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.detail.managerUnavailable'), style: 'color:#d29922;font-size:12px;' }));
       } else {
         // Bulk actions scoped to this one app, backed by real manager
         // calls — grantPermission looped per-pending permission (no bulk
@@ -291,7 +297,7 @@ registerApp({
           const bulkBar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;' });
           if (pendingPerms.length) {
             const grantAllBtn = createEl('button', {
-              textContent: 'Grant all pending (' + pendingPerms.length + ')',
+              textContent: _t('apps.permissions.detail.grantAllPending', { count: pendingPerms.length }),
               style: 'padding:4px 12px;background:#3fb950;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;'
             });
             grantAllBtn.addEventListener('click', async () => {
@@ -305,7 +311,7 @@ registerApp({
           }
           if (grantedCount) {
             const revokeAllBtn = createEl('button', {
-              textContent: 'Revoke all granted (' + grantedCount + ')',
+              textContent: _t('apps.permissions.detail.revokeAllGranted', { count: grantedCount }),
               style: 'padding:4px 12px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;'
             });
             revokeAllBtn.addEventListener('click', () => {
@@ -322,6 +328,9 @@ registerApp({
         const grant = grantMap.get(permission);
         const status = grant ? (grant.granted ? 'granted' : 'denied') : 'pending';
         const statusColor = status === 'granted' ? '#3fb950' : status === 'denied' ? '#f85149' : '#d29922';
+        const statusText = _t(status === 'granted' ? 'apps.permissions.detail.statusGranted'
+          : status === 'denied' ? 'apps.permissions.detail.statusDenied'
+          : 'apps.permissions.detail.statusPending');
         const { risk, label, color } = riskBadge(permission);
 
         const row = createEl('div', { style: `padding:10px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);border-left:3px solid ${color};margin-bottom:8px;` });
@@ -329,9 +338,14 @@ registerApp({
         const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
         const left = createEl('div', {});
         left.appendChild(createEl('div', { textContent: permission, style: 'font-family:monospace;font-size:12px;font-weight:600;' }));
-        left.appendChild(createEl('div', { textContent: `${label} · risk: ${risk} · tier: ${tier}`, style: 'font-size:11px;color:var(--text-muted);' }));
+        const riskText = managerAvailable && AppPermissionManager.riskLabel
+          ? AppPermissionManager.riskLabel(risk) : risk;
+        const tierText = _t(tier === 'dangerous' ? 'apps.permissions.detail.tierDangerous'
+          : tier === 'normal' ? 'apps.permissions.detail.tierNormal'
+          : 'apps.permissions.detail.tierDeclared');
+        left.appendChild(createEl('div', { textContent: _t('apps.permissions.detail.permMeta', { label, risk: riskText, tier: tierText }), style: 'font-size:11px;color:var(--text-muted);' }));
         header.appendChild(left);
-        header.appendChild(createEl('span', { textContent: status, style: `font-size:11px;color:${statusColor};border:1px solid ${statusColor};border-radius:3px;padding:1px 6px;flex-shrink:0;text-transform:uppercase;` }));
+        header.appendChild(createEl('span', { textContent: statusText, style: `font-size:11px;color:${statusColor};border:1px solid ${statusColor};border-radius:3px;padding:1px 6px;flex-shrink:0;text-transform:uppercase;` }));
         row.appendChild(header);
 
         if (managerAvailable) {
@@ -344,7 +358,7 @@ registerApp({
           // normal consent flow, so the button says so rather than reading
           // like an ordinary toggle.
           if (status !== 'granted') {
-            const grantBtn = createEl('button', { textContent: 'Grant (no prompt)', style: 'padding:3px 10px;background:#3fb950;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
+            const grantBtn = createEl('button', { textContent: _t('apps.permissions.detail.grantNoPrompt'), style: 'padding:3px 10px;background:#3fb950;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
             grantBtn.addEventListener('click', async () => {
               grantBtn.disabled = true;
               await AppPermissionManager.grantPermission(permission, app.id, { reason: 'Granted via Permissions dev tool' });
@@ -354,7 +368,7 @@ registerApp({
           }
 
           if (status !== 'pending') {
-            const resetBtn = createEl('button', { textContent: 'Reset to pending', style: 'padding:3px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+            const resetBtn = createEl('button', { textContent: _t('apps.permissions.detail.resetToPending'), style: 'padding:3px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
             resetBtn.addEventListener('click', () => {
               AppPermissionManager.resetPermission(permission, app.id);
               renderDetail();
@@ -363,7 +377,7 @@ registerApp({
           }
 
           if (status === 'granted') {
-            const revokeBtn = createEl('button', { textContent: 'Revoke', style: 'padding:3px 10px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;' });
+            const revokeBtn = createEl('button', { textContent: _t('apps.permissions.detail.revoke'), style: 'padding:3px 10px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;' });
             revokeBtn.addEventListener('click', () => {
               AppPermissionManager.revokePermission(permission, app.id);
               renderDetail();
@@ -381,13 +395,13 @@ registerApp({
     function renderLog() {
       scroll.innerHTML = '';
       if (!managerAvailable) {
-        scroll.appendChild(createEl('div', { textContent: 'AppPermissionManager unavailable.', style: 'color:var(--text-muted);' }));
+        scroll.appendChild(createEl('div', { textContent: _t('apps.permissions.log.managerUnavailable'), style: 'color:var(--text-muted);' }));
         return;
       }
 
       const toolbar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;' });
       const searchInput = createEl('input', {
-        placeholder: 'Filter by app id or permission…',
+        placeholder: _t('apps.permissions.log.filterPlaceholder'),
         value: logSearch,
         style: 'flex:1;padding:6px 10px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:12px;box-sizing:border-box;'
       });
@@ -395,8 +409,8 @@ registerApp({
       toolbar.appendChild(searchInput);
 
       const clearBtn = createEl('button', {
-        textContent: 'Clear view',
-        title: 'Hides entries older than now. The underlying log itself is not cleared — AppPermissionManager has no delete API — so entries reappear if you clear this cutoff or the manager is reset elsewhere.',
+        textContent: _t('apps.permissions.log.clearView'),
+        title: _t('apps.permissions.log.clearViewTitle'),
         style: 'padding:6px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;'
       });
       clearBtn.addEventListener('click', () => {
@@ -408,8 +422,8 @@ registerApp({
 
       if (logCutoff) {
         const resetBtn = createEl('button', {
-          textContent: 'Show all',
-          title: 'Remove the clear-view cutoff and show full history again',
+          textContent: _t('apps.permissions.log.showAll'),
+          title: _t('apps.permissions.log.showAllTitle'),
           style: 'padding:6px 12px;background:transparent;color:var(--accent);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;'
         });
         resetBtn.addEventListener('click', () => {
@@ -431,7 +445,7 @@ registerApp({
       if (q) entries = entries.filter(e => (e.appId || '').toLowerCase().includes(q) || (e.permission || '').toLowerCase().includes(q));
 
       if (!entries.length) {
-        scroll.appendChild(createEl('div', { textContent: q ? 'No log entries match "' + logSearch + '"' : 'No consent events recorded yet.', style: 'color:var(--text-muted);' }));
+        scroll.appendChild(createEl('div', { textContent: q ? _t('apps.permissions.log.noEntriesMatch', { query: logSearch }) : _t('apps.permissions.log.noEvents'), style: 'color:var(--text-muted);' }));
         return;
       }
       entries.forEach(e => {
@@ -439,7 +453,7 @@ registerApp({
         const row = createEl('div', { style: `padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);border-left:3px solid ${color};margin-bottom:6px;font-size:11px;` });
         row.appendChild(createEl('div', { textContent: `${e.granted ? 'GRANT' : 'DENY'} · ${e.permission} → ${e.appId}`, style: `font-family:monospace;color:${color};font-weight:600;` }));
         row.appendChild(createEl('div', { textContent: e.timestamp ? new Date(e.timestamp).toLocaleString() : '', style: 'color:var(--text-muted);margin-top:2px;' }));
-        if (e.reason) row.appendChild(createEl('div', { textContent: `reason: ${e.reason}`, style: 'color:var(--text-muted);margin-top:2px;' }));
+        if (e.reason) row.appendChild(createEl('div', { textContent: _t('apps.permissions.log.reason', { reason: e.reason }), style: 'color:var(--text-muted);margin-top:2px;' }));
         scroll.appendChild(row);
       });
     }
@@ -467,5 +481,14 @@ registerApp({
       clearTimeout(timeoutId);
       clearInterval(intervalId);
     });
+
+    // Live re-localisation — the 5s poll keeps permission state fresh but
+    // never fires on a language switch; this hook re-renders immediately so
+    // catalogue labels, risk names and chrome follow the OS language in
+    // real time. Same focus guard as pollRender so a keystroke in flight
+    // is never destroyed; the next poll picks the change up after blur.
+    const localeHandler = () => { pollRender(); };
+    OS.events?.on?.('languageChanged', localeHandler);
+    state.cleanups.push(() => OS.events?.off?.('languageChanged', localeHandler));
   }
 });

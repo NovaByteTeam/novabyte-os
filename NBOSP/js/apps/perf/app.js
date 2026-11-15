@@ -11,13 +11,13 @@ registerApp({
   init(content, state, options) {
     if (!window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>' + _t('apps.perf.appDataMissing') + '<br>' + _t('apps.perf.requiresNovaByteOS') + '</div>';
       return;
     }
 
     if (!OS.settings.get('devMode')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">Enable Developer Mode in Settings to use Perf Monitor.</div>';
+      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">' + _t('apps.perf.devModeRequired') + '</div>';
       return;
     }
 
@@ -27,9 +27,9 @@ registerApp({
     state.cleanups.push(() => ac.abort());
 
     const toolbar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;flex-shrink:0;' });
-    const pauseBtn = createEl('button', { textContent: 'Pause', style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
-    const resetBtn = createEl('button', { textContent: 'Reset', style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
-    const exportBtn = createEl('button', { textContent: 'Export', style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+    const pauseBtn = createEl('button', { textContent: _t('apps.perf.pause'), style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+    const resetBtn = createEl('button', { textContent: _t('apps.perf.reset'), style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+    const exportBtn = createEl('button', { textContent: _t('apps.perf.export'), style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
     toolbar.appendChild(pauseBtn);
     toolbar.appendChild(resetBtn);
     toolbar.appendChild(exportBtn);
@@ -41,19 +41,19 @@ registerApp({
     canvas.id = 'perf-chart-fps';
     canvas.style.cssText = 'width:100%;height:120px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);';
     content.appendChild(canvas);
-    content.appendChild(createEl('div', { textContent: 'FPS', style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
+    content.appendChild(createEl('div', { textContent: _t('apps.perf.fps'), style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
 
     const memCanvas = document.createElement('canvas');
     memCanvas.id = 'perf-chart-mem';
     memCanvas.style.cssText = 'width:100%;height:80px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);';
     content.appendChild(memCanvas);
-    content.appendChild(createEl('div', { textContent: 'Memory (MB)', style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
+    content.appendChild(createEl('div', { textContent: _t('apps.perf.memoryMb'), style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
 
     const domCanvas = document.createElement('canvas');
     domCanvas.id = 'perf-chart-dom';
     domCanvas.style.cssText = 'width:100%;height:80px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);';
     content.appendChild(domCanvas);
-    content.appendChild(createEl('div', { textContent: 'DOM Nodes', style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
+    content.appendChild(createEl('div', { textContent: _t('apps.perf.domNodes'), style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
 
     // Threshold alerts. FPS uses a *sustained* check (N consecutive
     // sub-threshold samples, not one dip) since a single low reading during
@@ -75,16 +75,16 @@ registerApp({
     };
 
     const fpsEl = createEl('div', { textContent: '--', style: 'font-size:20px;font-weight:700;color:#3fb950;font-family:monospace;' });
-    addStat('FPS', fpsEl);
+    addStat(_t('apps.perf.fps'), fpsEl);
 
     const memEl = createEl('div', { textContent: '--', style: 'font-size:13px;font-family:monospace;' });
-    addStat('Memory', memEl);
+    addStat(_t('apps.perf.memory'), memEl);
 
     const domEl = createEl('div', { textContent: '--', style: 'font-size:13px;font-family:monospace;' });
-    addStat('DOM Nodes', domEl);
+    addStat(_t('apps.perf.domNodes'), domEl);
 
     const longEl = createEl('div', { textContent: '--', style: 'font-size:13px;font-family:monospace;' });
-    addStat('Long Tasks', longEl);
+    addStat(_t('apps.perf.longTasks'), longEl);
 
     content.appendChild(stats);
 
@@ -97,7 +97,7 @@ registerApp({
     // document tells you *which* window is heavy, which the single global
     // count never could.
     const perWindowSection = createEl('div', { style: 'margin-top:16px;' });
-    perWindowSection.appendChild(createEl('h4', { textContent: 'DOM Nodes by Window', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+    perWindowSection.appendChild(createEl('h4', { textContent: _t('apps.perf.domNodesByWindow'), style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
     const perWindowList = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
     perWindowSection.appendChild(perWindowList);
     content.appendChild(perWindowSection);
@@ -106,7 +106,7 @@ registerApp({
       perWindowList.innerHTML = '';
       const wins = typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [];
       if (!wins.length) {
-        perWindowList.appendChild(createEl('div', { textContent: 'No windows open', style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
+        perWindowList.appendChild(createEl('div', { textContent: _t('apps.perf.noWindowsOpen'), style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
         return;
       }
       const rows = wins.map(w => ({
@@ -121,7 +121,7 @@ registerApp({
       rows.forEach(r => {
         const row = createEl('div', { style: 'display:flex;justify-content:space-between;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;font-size:11px;font-family:monospace;' });
         row.appendChild(createEl('span', { textContent: r.appId || r.id }));
-        row.appendChild(createEl('span', { textContent: r.count === null ? 'n/a' : String(r.count), style: 'color:var(--text-muted);' }));
+        row.appendChild(createEl('span', { textContent: r.count === null ? _t('apps.perf.notAvailableShort') : String(r.count), style: 'color:var(--text-muted);' }));
         perWindowList.appendChild(row);
       });
     }
@@ -130,7 +130,7 @@ registerApp({
     // something blocked the main thread; this tells you *what*. Newest
     // first, capped ring buffer (see LONGTASK_LOG_CAP above).
     const longTaskSection = createEl('div', { style: 'margin-top:16px;' });
-    longTaskSection.appendChild(createEl('h4', { textContent: 'Long Task Log', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+    longTaskSection.appendChild(createEl('h4', { textContent: _t('apps.perf.longTaskLog'), style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
     const longTaskList = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;max-height:180px;overflow:auto;' });
     longTaskSection.appendChild(longTaskList);
     content.appendChild(longTaskSection);
@@ -138,25 +138,25 @@ registerApp({
     function renderLongTaskLog() {
       longTaskList.innerHTML = '';
       if (!longTaskSupported) {
-        longTaskList.appendChild(createEl('div', { textContent: 'Long task tracking not supported in this browser', style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
+        longTaskList.appendChild(createEl('div', { textContent: _t('apps.perf.longTaskUnsupported'), style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
         return;
       }
       if (!longTaskLog.length) {
-        longTaskList.appendChild(createEl('div', { textContent: 'No long tasks recorded yet', style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
+        longTaskList.appendChild(createEl('div', { textContent: _t('apps.perf.noLongTasks'), style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
         return;
       }
       longTaskLog.forEach(entry => {
         const row = createEl('div', { style: 'display:flex;flex-direction:column;gap:1px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;font-size:11px;font-family:monospace;' });
         const topLine = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
-        const left = createEl('span', { textContent: entry.detail ? entry.detail.source : '(no attribution available)', style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:' + (entry.detail ? 'var(--text-primary)' : 'var(--text-muted)') + ';' });
-        const right = createEl('span', { textContent: entry.duration + 'ms', style: 'flex-shrink:0;color:' + (entry.duration > 200 ? '#f85149' : '#fbbf24') + ';' });
+        const left = createEl('span', { textContent: entry.detail ? entry.detail.source : _t('apps.perf.noAttribution'), style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:' + (entry.detail ? 'var(--text-primary)' : 'var(--text-muted)') + ';' });
+        const right = createEl('span', { textContent: _t('apps.perf.durationMs', { value: entry.duration }), style: 'flex-shrink:0;color:' + (entry.duration > 200 ? '#f85149' : '#fbbf24') + ';' });
         topLine.appendChild(left);
         topLine.appendChild(right);
         row.appendChild(topLine);
         if (entry.focusedWindow) {
           // Correlation, not causation — labeled "likely" since we can only
           // know which window had focus, not which one actually ran the task.
-          row.appendChild(createEl('div', { textContent: `likely: ${entry.focusedWindow}`, style: 'font-size:10px;color:var(--text-muted);' }));
+          row.appendChild(createEl('div', { textContent: _t('apps.perf.longTaskLikely', { window: entry.focusedWindow }), style: 'font-size:10px;color:var(--text-muted);' }));
         }
         longTaskList.appendChild(row);
       });
@@ -183,13 +183,13 @@ registerApp({
 
     const networkSection = createEl('div', { style: 'margin-top:16px;' });
     const netHeader = createEl('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;' });
-    netHeader.appendChild(createEl('h4', { textContent: 'Network', style: 'margin:0;font-size:13px;color:var(--accent);flex-shrink:0;' }));
+    netHeader.appendChild(createEl('h4', { textContent: _t('apps.perf.network'), style: 'margin:0;font-size:13px;color:var(--accent);flex-shrink:0;' }));
     const netSourceSelect = createEl('select', { style: 'padding:3px 6px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;' });
-    [['all', 'All sources'], ['os', 'OS apps'], ['browser', 'Browser tabs']].forEach(([val, label]) => {
+    [['all', _t('apps.perf.sourceAll')], ['os', _t('apps.perf.sourceOsApps')], ['browser', _t('apps.perf.sourceBrowserTabs')]].forEach(([val, label]) => {
       netSourceSelect.appendChild(createEl('option', { value: val, textContent: label }));
     });
-    const netSearchInput = createEl('input', { placeholder: 'Filter by URL…', style: 'flex:1;min-width:100px;padding:3px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
-    const netClearBtn = createEl('button', { textContent: 'Clear', style: 'padding:3px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    const netSearchInput = createEl('input', { placeholder: _t('apps.perf.filterByUrl'), style: 'flex:1;min-width:100px;padding:3px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+    const netClearBtn = createEl('button', { textContent: _t('apps.perf.clear'), style: 'padding:3px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
     netHeader.appendChild(netSourceSelect);
     netHeader.appendChild(netSearchInput);
     netHeader.appendChild(netClearBtn);
@@ -207,7 +207,7 @@ registerApp({
         (!q || e.url.toLowerCase().includes(q))
       );
       if (!visible.length) {
-        netList.appendChild(createEl('div', { textContent: netLog.length ? 'No requests match the current filter' : 'No requests recorded yet', style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
+        netList.appendChild(createEl('div', { textContent: netLog.length ? _t('apps.perf.noRequestsMatch') : _t('apps.perf.noRequestsRecorded'), style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
         return;
       }
       visible.forEach(entry => {
@@ -216,18 +216,18 @@ registerApp({
         const methodBadge = createEl('span', { textContent: entry.method || '?', style: 'flex-shrink:0;color:var(--text-muted);width:42px;' });
         const urlEl = createEl('span', { textContent: entry.url, style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;color:var(--text-primary);' });
         const statusColor = entry.error ? '#f85149' : (entry.status >= 400 ? '#f85149' : (entry.status >= 300 ? '#fbbf24' : '#3fb950'));
-        const statusEl = createEl('span', { textContent: entry.error ? 'ERR' : (entry.status ?? '—'), style: 'flex-shrink:0;color:' + statusColor + ';width:32px;text-align:right;' });
+        const statusEl = createEl('span', { textContent: entry.error ? _t('apps.perf.statusError') : (entry.status ?? '—'), style: 'flex-shrink:0;color:' + statusColor + ';width:32px;text-align:right;' });
         topLine.appendChild(methodBadge);
         topLine.appendChild(urlEl);
         topLine.appendChild(statusEl);
         row.appendChild(topLine);
 
         const metaLine = createEl('div', { style: 'font-size:10px;color:var(--text-muted);display:flex;gap:8px;' });
-        metaLine.appendChild(createEl('span', { textContent: entry.source === 'browser' ? `browser · ${entry.label}` : `os · ${entry.label}` }));
+        metaLine.appendChild(createEl('span', { textContent: entry.source === 'browser' ? _t('apps.perf.sourceBrowser', { label: entry.label }) : _t('apps.perf.sourceOs', { label: entry.label }) }));
         // Duration is only meaningful for OS-level entries (see comment
         // above the netLog declaration) — omit it entirely for browser
         // entries rather than showing a fabricated or misleading number.
-        if (entry.duration != null) metaLine.appendChild(createEl('span', { textContent: entry.duration + 'ms' }));
+        if (entry.duration != null) metaLine.appendChild(createEl('span', { textContent: _t('apps.perf.durationMs', { value: entry.duration }) }));
         if (entry.error) metaLine.appendChild(createEl('span', { textContent: entry.error, style: 'color:#f85149;' }));
 
         // Only OS-level entries can ever have a body — Browser-tab entries
@@ -235,7 +235,7 @@ registerApp({
         // so they simply never render this affordance rather than showing
         // a "no body" state that would look like a bug for every row.
         if (entry.body != null) {
-          const bodyToggle = createEl('span', { textContent: '▸ body', style: 'cursor:pointer;color:var(--accent);' });
+          const bodyToggle = createEl('span', { textContent: _t('apps.perf.showBody'), style: 'cursor:pointer;color:var(--accent);' });
           metaLine.appendChild(bodyToggle);
           row.appendChild(metaLine);
 
@@ -244,7 +244,7 @@ registerApp({
             if (bodyPre) {
               bodyPre.remove();
               bodyPre = null;
-              bodyToggle.textContent = '▸ body';
+              bodyToggle.textContent = _t('apps.perf.showBody');
               return;
             }
             bodyPre = createEl('pre', {
@@ -252,11 +252,11 @@ registerApp({
               style: 'margin:4px 0 0;padding:6px;background:var(--bg-default);border-radius:4px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:10px;'
             });
             row.appendChild(bodyPre);
-            bodyToggle.textContent = '▾ body';
+            bodyToggle.textContent = _t('apps.perf.hideBody');
           }, { signal: ac.signal });
         } else {
           if (entry.bodySkipped && entry.source === 'os') {
-            metaLine.appendChild(createEl('span', { textContent: 'body not captured' + (entry.contentType ? ` (${entry.contentType.split(';')[0]})` : ''), style: 'color:var(--text-muted);' }));
+            metaLine.appendChild(createEl('span', { textContent: _t('apps.perf.bodyNotCaptured', { type: entry.contentType ? ' (' + entry.contentType.split(';')[0] + ')' : '' }), style: 'color:var(--text-muted);' }));
           }
           row.appendChild(metaLine);
         }
@@ -350,7 +350,7 @@ registerApp({
       const w = (typeof OS !== 'undefined' && OS.windows && OS.focusedWindowId)
         ? OS.windows.get(OS.focusedWindowId)
         : null;
-      return w?.appId || 'unknown app';
+      return w?.appId || _t('apps.perf.unknownApp');
     }
 
     if (typeof _origFetch === 'function') {
@@ -382,11 +382,11 @@ registerApp({
           // .then(res => res.json()) etc.
           res.clone().text().then(text => {
             const truncated = text.length > BODY_CAPTURE_MAX_BYTES;
-            finish(truncated ? text.slice(0, BODY_CAPTURE_MAX_BYTES) + '\n…(truncated)' : text, false);
+            finish(truncated ? _t('apps.perf.bodyTruncated', { text: text.slice(0, BODY_CAPTURE_MAX_BYTES) }) : text, false);
           }).catch(() => finish(null, true));
           return res;
         }).catch(err => {
-          pushNetEntry({ source: 'os', method, url, status: null, duration: Math.round(performance.now() - start), error: err?.message || 'network error', label, time: Date.now(), body: null, bodySkipped: true });
+          pushNetEntry({ source: 'os', method, url, status: null, duration: Math.round(performance.now() - start), error: err?.message || _t('apps.perf.networkError'), label, time: Date.now(), body: null, bodySkipped: true });
           throw err;
         });
       };
@@ -418,7 +418,7 @@ registerApp({
           try {
             const text = this.responseText;
             bodySkipped = false;
-            body = text.length > BODY_CAPTURE_MAX_BYTES ? text.slice(0, BODY_CAPTURE_MAX_BYTES) + '\n…(truncated)' : text;
+            body = text.length > BODY_CAPTURE_MAX_BYTES ? _t('apps.perf.bodyTruncated', { text: text.slice(0, BODY_CAPTURE_MAX_BYTES) }) : text;
           } catch { /* non-text responseType — leave bodySkipped true */ }
         }
         pushNetEntry({
@@ -427,7 +427,7 @@ registerApp({
           url: this._nbPerfUrl,
           status: this.status || null,
           duration: Math.round(performance.now() - start),
-          error: this.status === 0 ? 'network error' : null,
+          error: this.status === 0 ? _t('apps.perf.networkError') : null,
           label,
           time: Date.now(),
           body,
@@ -498,7 +498,7 @@ registerApp({
         // swept up in the same frame.
         const top = [...e.scripts].sort((a, b) => (b.duration || 0) - (a.duration || 0))[0];
         entry.detail = {
-          source: top.sourceFunctionName || top.sourceURL || 'unknown script',
+          source: top.sourceFunctionName || top.sourceURL || _t('apps.perf.unknownScript'),
           invoker: top.invoker || null,
           scriptDuration: Math.round(top.duration || 0),
           scriptCount: e.scripts.length,
@@ -506,7 +506,7 @@ registerApp({
       } else if (longTaskEntryType === 'longtask' && Array.isArray(e.attribution) && e.attribution.length) {
         const a = e.attribution[0];
         entry.detail = {
-          source: a.containerName || a.containerSrc || a.containerType || 'unknown container',
+          source: a.containerName || a.containerSrc || a.containerType || _t('apps.perf.unknownContainer'),
           invoker: null,
           scriptDuration: null,
           scriptCount: e.attribution.length,
@@ -622,7 +622,7 @@ registerApp({
 
     function updateStats(domCount) {
       const latest = fpsHistory[fpsHistory.length - 1] || 0;
-      fpsEl.textContent = latest + ' fps';
+      fpsEl.textContent = _t('apps.perf.fpsValue', { value: latest });
 
       // Sustained-low-FPS alert: require several consecutive sub-threshold
       // samples before flagging, so one dip during a window-open animation
@@ -637,9 +637,9 @@ registerApp({
 
       if (performance.memory) {
         const mb = memHistory[memHistory.length - 1] || 0;
-        memEl.textContent = mb.toFixed(1) + ' MB';
+        memEl.textContent = _t('apps.perf.memoryValue', { value: mb.toFixed(1) });
       } else {
-        memEl.textContent = 'N/A';
+        memEl.textContent = _t('apps.perf.notAvailable');
       }
 
       // DOM spike alert: relative to a baseline captured on first sample,
@@ -651,17 +651,17 @@ registerApp({
       domEl.style.color = domSpike ? '#f85149' : 'var(--text-primary)';
 
       if (longTaskSupported) {
-        longEl.textContent = longTaskCount > 0 ? longTaskCount + ' (>50ms)' : 'None';
+        longEl.textContent = longTaskCount > 0 ? _t('apps.perf.longTasksValue', { count: longTaskCount }) : _t('apps.perf.none');
         longEl.style.color = longTaskCount > 0 ? '#fbbf24' : 'var(--text-primary)';
         longTaskCount = 0; // reset for next window; the observer accumulates continuously
       } else {
-        longEl.textContent = 'N/A';
+        longEl.textContent = _t('apps.perf.notAvailable');
       }
     }
 
     pauseBtn.addEventListener('click', () => {
       paused = !paused;
-      pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+      pauseBtn.textContent = paused ? _t('apps.perf.resume') : _t('apps.perf.pause');
       pauseBtn.style.color = paused ? 'var(--accent)' : 'var(--text-primary)';
     }, { signal: ac.signal });
 

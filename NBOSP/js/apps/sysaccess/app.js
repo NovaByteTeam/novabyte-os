@@ -11,19 +11,19 @@ registerApp({
   init(content, state, options) {
     if (!window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>' + _t('apps.sysaccess.guard.appDataMissing') + '<br>' + _t('apps.sysaccess.guard.requiresNovaByte') + '</div>';
       return;
     }
 
     if (!OS.settings.get('devMode')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">Enable Developer Mode in Settings to use System Access.</div>';
+      content.innerHTML = '<div style="font-size:32px">🔒</div><div style="font-size:14px;text-align:center">' + _t('apps.sysaccess.guard.devModeRequired') + '</div>';
       return;
     }
 
     const TABS = [
-      { id: 'network', name: 'Network', icon: 'globe' },
-      { id: 'fs',      name: 'FS',      icon: 'folder' },
+      { id: 'network', name: _t('apps.sysaccess.tabs.network'), icon: 'globe' },
+      { id: 'fs',      name: _t('apps.sysaccess.tabs.fs'),      icon: 'folder' },
     ];
 
     content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;';
@@ -78,15 +78,15 @@ registerApp({
       panels.network.innerHTML = '';
 
       const desc = createEl('div', { style: 'margin-bottom:12px;color:var(--text-muted);font-size:12px;' });
-      desc.textContent = 'Shows proxy routes, SSRF guard state, and recent network configuration.';
+      desc.textContent = _t('apps.sysaccess.network.desc');
       panels.network.appendChild(desc);
 
       const runBtn = createEl('button', {
-        textContent: 'Run Test',
+        textContent: _t('apps.sysaccess.network.runTest'),
         style: 'padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;margin-right:8px;'
       });
       const exportBtn = createEl('button', {
-        textContent: 'Export Results',
+        textContent: _t('apps.sysaccess.network.exportResults'),
         style: 'padding:6px 14px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;'
       });
       let lastRunResults = null; // set after each successful Run Test; convenience handle to the object also pushed into runHistory
@@ -94,7 +94,7 @@ registerApp({
       const section = createEl('div', { style: 'display:flex;flex-direction:column;gap:12px;' });
 
       const statusEl = createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:6px;' });
-      statusEl.textContent = 'Click Run Test to probe endpoints.';
+      statusEl.textContent = _t('apps.sysaccess.network.clickToProbe');
 
       // Proxy status — these are server-side Express routes (proxies.js,
       // module.exports, req/res/next signatures), not browser globals.
@@ -106,13 +106,13 @@ registerApp({
       // still proves the route is mounted and responding; only a network
       // failure means it genuinely isn't reachable.
       const proxyCard = createEl('div', { style: 'padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
-      proxyCard.appendChild(createEl('h4', { textContent: 'Proxy Configuration', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
-      proxyCard.appendChild(createEl('div', { textContent: 'Waiting for test…', style: 'font-size:11px;color:var(--text-muted);margin-bottom:6px;' }));
+      proxyCard.appendChild(createEl('h4', { textContent: _t('apps.sysaccess.network.proxyConfiguration'), style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+      proxyCard.appendChild(createEl('div', { textContent: _t('apps.sysaccess.network.waitingForTest'), style: 'font-size:11px;color:var(--text-muted);margin-bottom:6px;' }));
       section.appendChild(proxyCard);
 
       const proxyProbes = [
-        { label: 'Frame Check Proxy',  url: '/api/frame-check' },
-        { label: 'App Network Proxy',  url: '/api/proxy', method: 'POST' },
+        { label: _t('apps.sysaccess.network.frameCheckProxy'),  url: '/api/frame-check' },
+        { label: _t('apps.sysaccess.network.appNetworkProxy'),  url: '/api/proxy', method: 'POST' },
       ];
 
       // SSRF guard test — the previous version re-implemented a crude
@@ -123,8 +123,8 @@ registerApp({
       // send each test URL through the real App Network Proxy endpoint —
       // a 403 means the server's SSRF guard blocked it for real.
       const ssrfCard = createEl('div', { style: 'padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
-      ssrfCard.appendChild(createEl('h4', { textContent: 'SSRF Guard Test', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
-      ssrfCard.appendChild(createEl('div', { textContent: 'Waiting for test…', style: 'font-size:11px;color:var(--text-muted);margin-bottom:6px;' }));
+      ssrfCard.appendChild(createEl('h4', { textContent: _t('apps.sysaccess.network.ssrfGuardTest'), style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+      ssrfCard.appendChild(createEl('div', { textContent: _t('apps.sysaccess.network.waitingForTest'), style: 'font-size:11px;color:var(--text-muted);margin-bottom:6px;' }));
       section.appendChild(ssrfCard);
 
       // Run history — lets you compare "it failed 2 minutes ago, now it
@@ -135,7 +135,7 @@ registerApp({
       const HISTORY_CAP = 20;
       const runHistory = [];
       const historyCard = createEl('div', { style: 'padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
-      historyCard.appendChild(createEl('h4', { textContent: 'Run History', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+      historyCard.appendChild(createEl('h4', { textContent: _t('apps.sysaccess.network.runHistory'), style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
       const historyList = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto;' });
       historyCard.appendChild(historyList);
       section.appendChild(historyCard);
@@ -143,7 +143,7 @@ registerApp({
       function renderHistory() {
         historyList.innerHTML = '';
         if (!runHistory.length) {
-          historyList.appendChild(createEl('div', { textContent: 'No runs yet', style: 'font-size:11px;color:var(--text-muted);' }));
+          historyList.appendChild(createEl('div', { textContent: _t('apps.sysaccess.network.noRunsYet'), style: 'font-size:11px;color:var(--text-muted);' }));
           return;
         }
         runHistory.forEach(run => {
@@ -153,7 +153,7 @@ registerApp({
           const proxyOk = run.proxyResults.filter(r => r.ok).length;
           const ssrfBlocked = run.ssrfRows.filter(r => r.blocked).length;
           row.appendChild(createEl('span', {
-            textContent: `proxy ${proxyOk}/${run.proxyResults.length} · ssrf blocked ${ssrfBlocked}/${run.ssrfRows.length}`,
+            textContent: _t('apps.sysaccess.network.historySummary', { ok: proxyOk, total: run.proxyResults.length, blocked: ssrfBlocked, ssrfTotal: run.ssrfRows.length }),
             style: 'color:' + (proxyOk === run.proxyResults.length ? '#3fb950' : '#f85149') + ';'
           }));
           historyList.appendChild(row);
@@ -165,21 +165,21 @@ registerApp({
 
       runBtn.addEventListener('click', async () => {
         runBtn.disabled = true;
-        runBtn.textContent = 'Running…';
-        statusEl.textContent = 'Probing endpoints…';
+        runBtn.textContent = _t('apps.sysaccess.network.running');
+        statusEl.textContent = _t('apps.sysaccess.network.probing');
 
         const proxyResults = await Promise.all(proxyProbes.map(async p => {
           try {
             const res = await fetch(p.url, { method: p.method || 'GET' });
-            if (res.status === 404) return { ...p, status: 'not found (404)', ok: false };
-            return { ...p, status: `reachable (${res.status})`, ok: true };
+            if (res.status === 404) return { ...p, status: _t('apps.sysaccess.network.statusNotFound'), ok: false };
+            return { ...p, status: _t('apps.sysaccess.network.statusReachable', { status: res.status }), ok: true };
           } catch (e) {
-            return { ...p, status: 'unreachable', ok: false };
+            return { ...p, status: _t('apps.sysaccess.network.statusUnreachable'), ok: false };
           }
         }));
 
         proxyCard.innerHTML = '';
-        proxyCard.appendChild(createEl('h4', { textContent: 'Proxy Configuration', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+        proxyCard.appendChild(createEl('h4', { textContent: _t('apps.sysaccess.network.proxyConfiguration'), style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
         proxyResults.forEach(item => {
           const row = createEl('div', { style: 'display:flex;justify-content:space-between;padding:4px 0;font-size:12px;' });
           row.appendChild(createEl('span', { textContent: item.label, style: 'color:var(--text-muted);' }));
@@ -195,14 +195,14 @@ registerApp({
               body: JSON.stringify({ url, method: 'GET' })
             });
             const blocked = res.status === 403;
-            return { url, blocked, verdict: blocked ? 'BLOCKED' : `ALLOWED (${res.status})` };
+            return { url, blocked, verdict: blocked ? _t('apps.sysaccess.network.ssrfBlocked') : _t('apps.sysaccess.network.ssrfAllowed', { status: res.status }) };
           } catch (e) {
-            return { url, blocked: null, verdict: 'request failed' };
+            return { url, blocked: null, verdict: _t('apps.sysaccess.network.ssrfRequestFailed') };
           }
         }));
 
         ssrfCard.innerHTML = '';
-        ssrfCard.appendChild(createEl('h4', { textContent: 'SSRF Guard Test', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+        ssrfCard.appendChild(createEl('h4', { textContent: _t('apps.sysaccess.network.ssrfGuardTest'), style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
         ssrfRows.forEach(r => {
           const row = createEl('div', { style: 'display:flex;justify-content:space-between;padding:4px 0;font-size:12px;font-family:monospace;' });
           row.appendChild(createEl('span', { textContent: r.url, style: 'color:var(--text-muted);' }));
@@ -211,9 +211,9 @@ registerApp({
           ssrfCard.appendChild(row);
         });
 
-        statusEl.textContent = 'Test complete.';
+        statusEl.textContent = _t('apps.sysaccess.network.testComplete');
         runBtn.disabled = false;
-        runBtn.textContent = 'Run Test';
+        runBtn.textContent = _t('apps.sysaccess.network.runTest');
         lastRunResults = { timestamp: new Date().toISOString(), proxyResults, ssrfRows };
         runHistory.unshift(lastRunResults);
         if (runHistory.length > HISTORY_CAP) runHistory.length = HISTORY_CAP;
@@ -241,7 +241,7 @@ registerApp({
 
       // CORS origins
       const corsCard = createEl('div', { style: 'padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
-      corsCard.appendChild(createEl('h4', { textContent: 'CORS / Security', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+      corsCard.appendChild(createEl('h4', { textContent: _t('apps.sysaccess.network.corsSecurity'), style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
       const corsRow = createEl('div', { style: 'font-size:12px;' });
       corsRow.appendChild(createEl('span', { textContent: 'CORS_ORIGIN: ', style: 'color:var(--text-muted);' }));
       // process.env.CORS_ORIGIN — confirmed safe here: NBOSP/package.json
@@ -271,11 +271,11 @@ registerApp({
       panels.fs.innerHTML = '';
 
       const desc = createEl('div', { style: 'margin-bottom:12px;color:var(--text-muted);font-size:12px;' });
-      desc.textContent = 'Virtual filesystem tree rooted at /. Read-only in dev mode for safety.';
+      desc.textContent = _t('apps.sysaccess.fs.desc');
       panels.fs.appendChild(desc);
 
       if (!FS.rootId) {
-        panels.fs.appendChild(createEl('div', { textContent: 'FS not initialized', style: 'color:var(--text-muted);' }));
+        panels.fs.appendChild(createEl('div', { textContent: _t('apps.sysaccess.fs.notInitialized'), style: 'color:var(--text-muted);' }));
         return;
       }
 
@@ -285,8 +285,8 @@ registerApp({
       }
 
       const filterRow = createEl('div', { style: 'margin-bottom:10px;display:flex;gap:8px;align-items:center;' });
-      const filterInput = createEl('input', { placeholder: 'Filter by name…', value: fsFilterValue, style: 'flex:1;box-sizing:border-box;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
-      const fsExportBtn = createEl('button', { textContent: 'Export', title: 'Download the currently visible tree as JSON (metadata only, not file content)', style: 'padding:6px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+      const filterInput = createEl('input', { placeholder: _t('apps.sysaccess.fs.filterPlaceholder'), value: fsFilterValue, style: 'flex:1;box-sizing:border-box;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+      const fsExportBtn = createEl('button', { textContent: _t('apps.sysaccess.fs.export'), title: _t('apps.sysaccess.fs.exportTitle'), style: 'padding:6px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
       filterRow.appendChild(filterInput);
       filterRow.appendChild(fsExportBtn);
       panels.fs.appendChild(filterRow);
@@ -365,12 +365,12 @@ registerApp({
       function renderDetail() {
         detailWrap.innerHTML = '';
         if (!selectedNodeId) {
-          detailWrap.appendChild(createEl('div', { textContent: 'Click a node to inspect it.', style: 'font-size:11px;color:var(--text-muted);padding:8px;' }));
+          detailWrap.appendChild(createEl('div', { textContent: _t('apps.sysaccess.fs.clickToInspect'), style: 'font-size:11px;color:var(--text-muted);padding:8px;' }));
           return;
         }
         const node = FS.files.get(selectedNodeId);
         if (!node) {
-          detailWrap.appendChild(createEl('div', { textContent: 'Node no longer exists.', style: 'font-size:11px;color:var(--text-muted);padding:8px;' }));
+          detailWrap.appendChild(createEl('div', { textContent: _t('apps.sysaccess.fs.nodeGone'), style: 'font-size:11px;color:var(--text-muted);padding:8px;' }));
           return;
         }
         const box = createEl('div', { style: 'padding:10px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);font-size:11px;' });
@@ -407,22 +407,22 @@ registerApp({
         // wired-up editor nobody asked for.
         if (node.type === 'file') {
           const contentBox = createEl('div', { style: 'margin-top:8px;padding:10px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
-          contentBox.appendChild(createEl('div', { textContent: 'Content', style: 'color:var(--text-muted);font-size:10px;margin-bottom:4px;' }));
+          contentBox.appendChild(createEl('div', { textContent: _t('apps.sysaccess.fs.content'), style: 'color:var(--text-muted);font-size:10px;margin-bottom:4px;' }));
 
           if (node.content === null || node.content === undefined) {
-            contentBox.appendChild(createEl('div', { textContent: '(empty — no content stored)', style: 'font-size:11px;color:var(--text-muted);font-style:italic;' }));
+            contentBox.appendChild(createEl('div', { textContent: _t('apps.sysaccess.fs.emptyContent'), style: 'font-size:11px;color:var(--text-muted);font-style:italic;' }));
           } else if (typeof node.content !== 'string') {
             // Guard against a shape we don't actually expect (e.g. binary
             // blobKey-backed content) rather than silently rendering
             // "[object Object]" or crashing on a non-string.
-            contentBox.appendChild(createEl('div', { textContent: `(non-text content, typeof "${typeof node.content}" — cannot preview)`, style: 'font-size:11px;color:var(--text-muted);font-style:italic;' }));
+            contentBox.appendChild(createEl('div', { textContent: _t('apps.sysaccess.fs.nonTextContent', { type: typeof node.content }), style: 'font-size:11px;color:var(--text-muted);font-style:italic;' }));
           } else {
             const MAX_PREVIEW = 20000;
             const truncated = node.content.length > MAX_PREVIEW;
             const pre = createEl('pre', { textContent: truncated ? node.content.slice(0, MAX_PREVIEW) : node.content, style: 'font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;margin:0;color:var(--text-primary);' });
             contentBox.appendChild(pre);
             if (truncated) {
-              contentBox.appendChild(createEl('div', { textContent: `(truncated — showing first ${MAX_PREVIEW.toLocaleString()} of ${node.content.length.toLocaleString()} characters)`, style: 'font-size:10px;color:var(--text-muted);margin-top:4px;' }));
+              contentBox.appendChild(createEl('div', { textContent: _t('apps.sysaccess.fs.truncated', { shown: MAX_PREVIEW.toLocaleString(), total: node.content.length.toLocaleString() }), style: 'font-size:10px;color:var(--text-muted);margin-top:4px;' }));
             }
           }
           detailWrap.appendChild(contentBox);

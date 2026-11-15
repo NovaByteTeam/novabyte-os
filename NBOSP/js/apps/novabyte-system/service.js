@@ -23,7 +23,7 @@
   ]);
   const readableKeys = new Set([
     'accentColor', 'autoLock', 'clockFormat', 'cursorSize', 'devMode',
-    'highContrast', 'keyboardLayout', 'osVersion', 'prohibitWallpaperChange',
+    'highContrast', 'keyboardLayout', 'language', 'osVersion', 'prohibitWallpaperChange',
     'reduceMotion', 'region', 'removeTransparency', 'rootAccessEnabled',
     'showTaskbarClock', 'taskbarSize', 'theme', 'timezone', 'username',
     'wallpaperId', 'customWallpaper', 'customWallpaperName', 'doNotDisturb',
@@ -33,6 +33,15 @@
     'biometricCredentialId', 'bootPassword', 'osVersion',
     'prohibitWallpaperChange',
   ]);
+  // The display languages NovaByte ships. The canonical registry lives on
+  // the NovaI18n core engine (js/core/core/i18n.js); this validator accepts
+  // exactly those codes so the settings store and the engine can never
+  // disagree about what a valid language is. The inline fallback only
+  // matters in stripped-down host contexts (service unit tests) where the
+  // engine script was never evaluated.
+  const languages = new Set((typeof window !== 'undefined' && window.NovaI18n?.getLanguages)
+    ? window.NovaI18n.getLanguages().map(language => language?.code).filter(code => typeof code === 'string')
+    : ['en', 'es', 'zh-CN', 'fr', 'de', 'ja', 'pt', 'ar', 'ru', 'hi', 'ko', 'it']);
   const validators = new Map([
     ['theme', value => typeof value === 'string' && themes.has(value)],
     ['accentColor', value => value === null || (typeof value === 'string' && /^#[\da-f]{6}$/i.test(value))],
@@ -57,6 +66,7 @@
       }
     }],
     ['keyboardLayout', value => typeof value === 'string' && keyboardLayouts.has(value)],
+    ['language', value => typeof value === 'string' && languages.has(value)],
     ['wallpaperId', value => value === null || (typeof value === 'string' && wallpaperIds.has(value))],
     ['customWallpaper', value => value === null ||
       (typeof value === 'string' && value.length <= 5_500_000 &&

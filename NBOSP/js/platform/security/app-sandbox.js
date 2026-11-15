@@ -12,6 +12,15 @@
 const AppSandbox = (() => {
   'use strict';
 
+  // Shell i18n with English fallback — host-rendered dialogs (file picker,
+  // developer-mode confirmation, default-app chooser, alarm editor) localise
+  // through this. The engine loads after this module but dialogs render at
+  // runtime, and tests run without it, so every call keeps an English value.
+  function t(key, vars) {
+    if (typeof window === 'undefined' || typeof window._t !== 'function') return undefined;
+    try { return window._t(key, vars); } catch { return undefined; }
+  }
+
   // Module state
 
   // Active sandboxes keyed by sandboxId. Each value holds the webview element,
@@ -2009,19 +2018,26 @@ const AppSandbox = (() => {
 
     const title = document.createElement('h3');
     title.style.cssText = 'color: #e6edf3; margin: 0 0 4px; font-size: 16px; font-weight: 700;';
-    title.textContent = mode === 'open' ? '📂 Open File' : '💾 Save File';
+    title.textContent = (mode === 'open'
+      ? t('shell.filePicker.titleOpen') || '📂 Open File'
+      : t('shell.filePicker.titleSave') || '💾 Save File');
     dialog.appendChild(title);
 
     const subtitle = document.createElement('p');
     subtitle.style.cssText = 'color: #8b949e; margin: 0 0 12px; font-size: 12px;';
-    subtitle.textContent = payload.title || `Select a ${mode === 'open' ? 'file to open' : 'location to save'}`;
+    subtitle.textContent = payload.title
+      || (mode === 'open'
+        ? t('shell.filePicker.subtitleOpen') || 'Select a file to open'
+        : t('shell.filePicker.subtitleSave') || 'Select a location to save');
     dialog.appendChild(subtitle);
 
     const filter = payload.filter || payload.accept || null;
     if (filter) {
       const filterEl = document.createElement('p');
       filterEl.style.cssText = 'color: #d29922; margin: 0 0 12px; font-size: 11px;';
-      filterEl.textContent = `Filter: ${Array.isArray(filter) ? filter.join(', ') : filter}`;
+      filterEl.textContent = t('shell.filePicker.filterLabel',
+        { filter: Array.isArray(filter) ? filter.join(', ') : filter })
+        || `Filter: ${Array.isArray(filter) ? filter.join(', ') : filter}`;
       dialog.appendChild(filterEl);
     }
 
@@ -2059,7 +2075,7 @@ const AppSandbox = (() => {
       if (children.length === 0) {
         const empty = document.createElement('div');
         empty.style.cssText = 'padding: 24px; text-align: center; color: #8b949e; font-size: 13px;';
-        empty.textContent = '(empty folder)';
+        empty.textContent = t('shell.filePicker.emptyFolder') || '(empty folder)';
         fileList.appendChild(empty);
       }
 
@@ -2164,12 +2180,12 @@ const AppSandbox = (() => {
 
       const label = document.createElement('label');
       label.style.cssText = 'color: #8b949e; font-size: 12px; white-space: nowrap;';
-      label.textContent = 'Filename:';
+      label.textContent = t('shell.filePicker.filenameLabel') || 'Filename:';
 
       filenameInput = document.createElement('input');
       filenameInput.type = 'text';
       filenameInput.value = payload.suggestedName || '';
-      filenameInput.placeholder = 'Enter filename...';
+      filenameInput.placeholder = t('shell.filePicker.filenamePlaceholder') || 'Enter filename...';
       filenameInput.style.cssText = 'flex: 1; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e6edf3; font-size: 13px;';
       filenameInput.addEventListener('input', () => {
         selectedFile = null;
@@ -2189,7 +2205,7 @@ const AppSandbox = (() => {
     btnContainer.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end;';
 
     const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'Cancel';
+    cancelBtn.textContent = t('common.cancel') || 'Cancel';
     cancelBtn.style.cssText = 'padding: 8px 18px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; background: transparent; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s;';
     cancelBtn.addEventListener('mouseenter', () => { cancelBtn.style.background = 'rgba(255,255,255,0.05)'; });
     cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.background = 'transparent'; });
@@ -2199,7 +2215,9 @@ const AppSandbox = (() => {
     });
 
     const confirmBtn = document.createElement('button');
-    confirmBtn.textContent = mode === 'open' ? 'Open' : 'Save';
+    confirmBtn.textContent = mode === 'open'
+      ? (t('common.open') || 'Open')
+      : (t('common.save') || 'Save');
     confirmBtn.style.cssText = 'padding: 8px 18px; border: none; border-radius: 6px; background: #58a6ff; color: white; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.15s;';
     confirmBtn.addEventListener('mouseenter', () => { confirmBtn.style.background = '#3a8be6'; });
     confirmBtn.addEventListener('mouseleave', () => { confirmBtn.style.background = '#58a6ff'; });
@@ -4419,31 +4437,45 @@ const AppSandbox = (() => {
       time.type = 'time';
       time.className = 'input clock-native-alarm-time';
       time.value = /^\d{2}:\d{2}$/.test(src.time || '') ? src.time : '07:00';
-      time.setAttribute('aria-label', 'Alarm time');
+      time.setAttribute('aria-label', t('shell.alarmDialog.timeAria') || 'Alarm time');
 
       const label = document.createElement('input');
       label.type = 'text';
       label.className = 'input';
       label.maxLength = 64;
       label.value = typeof src.label === 'string' ? src.label : '';
-      label.placeholder = 'Label (optional)';
-      label.setAttribute('aria-label', 'Alarm label');
+      label.placeholder = t('shell.alarmDialog.labelPlaceholder') || 'Label (optional)';
+      label.setAttribute('aria-label', t('shell.alarmDialog.labelAria') || 'Alarm label');
 
       const repeat = document.createElement('div');
       repeat.className = 'clock-native-alarm-repeat-title';
-      repeat.textContent = 'Repeat';
+      repeat.textContent = t('shell.alarmDialog.repeat') || 'Repeat';
 
       const daysWrap = document.createElement('div');
       daysWrap.className = 'clock-native-alarm-days';
-      const days = ['S','M','T','W','T','F','S'];
-      const fullDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      // Localised weekday names/abbreviations via the platform Intl engine —
+      // native-quality in every shipped language with zero catalogue cost.
+      // Jan 7 2024 is a Sunday; index i maps S,M,T,W,T,F,S like the old
+      // hardcoded English arrays, falling back to them if Intl is missing.
+      const alarmLocale = (typeof window !== 'undefined' && window.NovaI18n?.getLanguage?.()) || 'en';
+      const dayNames = [], fullDays = [];
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(2024, 0, 7 + i);
+        let shortName, fullName;
+        try {
+          shortName = new Intl.DateTimeFormat(alarmLocale, { weekday: 'short' }).format(date);
+          fullName = new Intl.DateTimeFormat(alarmLocale, { weekday: 'long' }).format(date);
+        } catch (_) { shortName = fullName = null; }
+        dayNames.push(shortName || ['S','M','T','W','T','F','S'][i]);
+        fullDays.push(fullName || ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][i]);
+      }
       const selected = Array.isArray(src.days) ? src.days.map(Number) : [];
       for (let i = 0; i < 7; i++) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'clock-native-alarm-day';
         b.title = fullDays[i];
-        b.textContent = days[i];
+        b.textContent = dayNames[i];
         b.dataset.clockDay = String(i);
         b.dataset.clockSelected = selected.includes(i) ? 'true' : 'false';
         const paint = () => {
@@ -4463,9 +4495,9 @@ const AppSandbox = (() => {
       body.append(time, label, repeat, daysWrap);
 
       const actions = [];
-      if (payload?.editing) actions.push({ label: 'Delete', danger: true, value: '__CLOCK_DELETE__' });
-      actions.push({ label: 'Cancel', value: '__CLOCK_CANCEL__' });
-      actions.push({ label: 'Save', primary: true, value: '__MODAL_SUBMIT_CUSTOM__' });
+      if (payload?.editing) actions.push({ label: t('common.remove') || 'Delete', danger: true, value: '__CLOCK_DELETE__' });
+      actions.push({ label: t('common.cancel') || 'Cancel', value: '__CLOCK_CANCEL__' });
+      actions.push({ label: t('common.save') || 'Save', primary: true, value: '__MODAL_SUBMIT_CUSTOM__' });
 
       const result = await ModalService.show(
         payload?.editing ? 'Edit Alarm' : 'Add Alarm',
@@ -5011,25 +5043,22 @@ const AppSandbox = (() => {
       warningIcon.textContent = '\u26A0\uFE0F';
       warningIcon.style.cssText = 'font-size:22px;line-height:1;';
       const warningTitle = document.createElement('div');
-      warningTitle.textContent = 'Developer Mode — Security Warning';
+      warningTitle.textContent = t('settings.system.devWarningTitle') || 'Developer Mode — Security Warning';
       warningTitle.style.cssText = 'font-size:17px;font-weight:700;color:var(--text-danger,#f85149);letter-spacing:0.2px;';
       header.append(warningIcon, warningTitle);
       body.appendChild(header);
       const warningText = document.createElement('div');
       warningText.style.cssText = 'white-space:pre-line;max-height:340px;overflow-y:auto;padding-right:4px;';
       body.appendChild(warningText);
-      warningText.textContent =
-        'WARNING: Developer Mode enables development and diagnostic tools that can expose or change sensitive system state.\n\n' +
-        'Developer Mode does not by itself disable the app sandbox or grant every app unrestricted filesystem, network, or system access. Tools and actions remain subject to their own permission checks. Use these capabilities only on a device you trust.\n\n' +
-        'Developer Mode also makes it possible to enable Root Access in Settings. Root Access is a separate device-wide switch, and each app still needs its own explicit grant. A root-approved app runs directly inside the OS page without a sandbox and can read or change system data and UI. Only grant it to apps you fully trust.\n\n' +
-        'Developer Mode is intended for development, debugging, and system maintenance. Enable it only when needed, and leave it disabled during normal use.';
+      warningText.textContent = t('settings.system.devWarningBody')
+        || 'WARNING: Developer Mode enables development and diagnostic tools that can expose or change sensitive system state.\n\nDeveloper Mode does not by itself disable the app sandbox or grant every app unrestricted filesystem, network, or system access. Tools and actions remain subject to their own permission checks. Use these capabilities only on a device you trust.\n\nDeveloper Mode also makes it possible to enable Root Access in Settings. Root Access is a separate device-wide switch, and each app still needs its own explicit grant. A root-approved app runs directly inside the OS page without a sandbox and can read or change system data and UI. Only grant it to apps you fully trust.\n\nDeveloper Mode is intended for development, debugging, and system maintenance. Enable it only when needed, and leave it disabled during normal use.';
 
       const value = await dialogService(
         '',
         body,
         [
-          { label: 'Cancel', value: null },
-          { label: 'Turn On Anyway', danger: true, primary: true, value: 'confirm' }
+          { label: t('common.cancel') || 'Cancel', value: null },
+          { label: t('settings.system.turnOnAnyway') || 'Turn On Anyway', danger: true, primary: true, value: 'confirm' }
         ],
         null,
         '',
@@ -5343,7 +5372,7 @@ const AppSandbox = (() => {
 
       if (!apps.length) {
         const empty = document.createElement('div');
-        empty.textContent = 'No installed apps support this category yet.';
+        empty.textContent = t('shell.defaultApps.empty') || 'No installed apps support this category yet.';
         empty.style.cssText = 'padding:16px;text-align:center;color:var(--text-muted);font-size:12.5px;';
         body.appendChild(empty);
       }
@@ -5355,11 +5384,12 @@ const AppSandbox = (() => {
         return respondError(webview, 'nova:system:default-apps:choose', requestId, 'UNAVAILABLE', 'System dialog service not available');
       }
       const selected = await dialogService(
-        'Default ' + String(category.name || 'App'),
+        t('shell.defaultApps.title', { category: String(category.name || 'App') })
+          || ('Default ' + String(category.name || 'App')),
         body,
         [
-          { label: 'Cancel', value: null },
-          { label: 'Select', value: '__MODAL_SUBMIT_SELECTION__', primary: true }
+          { label: t('common.cancel') || 'Cancel', value: null },
+          { label: t('common.select') || 'Select', value: '__MODAL_SUBMIT_SELECTION__', primary: true }
         ]
       );
       return respond(webview, 'nova:system:default-apps:choose', requestId, { success: !!selected, appId: selected || null });

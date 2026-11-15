@@ -261,7 +261,9 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     expect(writes.keyboardLayout).toBe('gb');
     expect(writes.region).toBe('en-GB');
     expect(writes.timezone).toBe('Europe/London');
-    expect(writes.language).toBeUndefined();
+    // The wizard carries the language picked on the Welcome step (English
+    // default when the engine has no persisted choice) into the owner hive.
+    expect(writes.language).toBe('en');
     expect(writes.diagnostics).toBeUndefined();
     // The policies PUT must send the patch DIRECTLY as the JSON body
     // (the server's setPolicies contract) — a { policies: ... } envelope

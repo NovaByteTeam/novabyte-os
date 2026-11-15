@@ -149,7 +149,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (window.DebugOverlay?._copyDebugInfo) {
       window.DebugOverlay._copyDebugInfo();
-      Notify.show({ title: 'Debug Info Copied', body: 'Overlay text copied to clipboard', type: 'success' });
+      Notify.show({ title: _t('apps.systemEvents.debugCopiedTitle'), body: _t('apps.systemEvents.debugCopiedBody'), type: 'success' });
     }
   }
 });

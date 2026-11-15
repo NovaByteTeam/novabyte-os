@@ -103,13 +103,13 @@ const CalendarNotifier = {
       // Fire once the event enters the lead window, but not for events
       // that have already fully passed (e.g. app was closed for a day).
       if (msUntil <= CalendarNotifier._LEAD_MS && msUntil > -60 * 1000) {
-        const title = typeof ev.title === 'string' && ev.title.trim() ? ev.title.trim() : 'Untitled event';
+        const title = typeof ev.title === 'string' && ev.title.trim() ? ev.title.trim() : _t('apps.calendarNotifier.untitledEvent');
         const minutes = Math.max(0, Math.round(msUntil / 60000));
-        const body = minutes <= 1 ? 'Starting now' : `Starts in ${minutes} min`;
+        const body = minutes <= 1 ? _t('apps.calendarNotifier.startingNow') : _t('apps.calendarNotifier.startsIn', { minutes });
 
         if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
           Notify.show({
-            title: `Upcoming: ${title}`,
+            title: _t('apps.calendarNotifier.upcoming', { title }),
             body,
             type: 'info',
             appName: 'Calendar',

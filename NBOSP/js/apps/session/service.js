@@ -305,12 +305,12 @@
    * host presents from here on.
    */
   async function login({ uid, secret }) {
-    if (!enabled()) return { ok: false, code: 'MULTI_USER_DISABLED', message: 'Multi-user mode is off' };
+    if (!enabled()) return { ok: false, code: 'MULTI_USER_DISABLED', message: _t('apps.session.multiUserOff') };
     const { status, ok, json } = await authFetch('/api/auth/login', {
       method: 'POST', omit: true, body: { uid, secret },
     });
     if (!ok || !json?.success) {
-      return { ok: false, code: json?.code || `HTTP_${status}`, message: json?.message || 'Login failed', retryAfterMs: json?.retryAfterMs };
+      return { ok: false, code: json?.code || `HTTP_${status}`, message: json?.message || _t('apps.session.loginFailed'), retryAfterMs: json?.retryAfterMs };
     }
     applyLoginResult(json.data);
     suspendedSessions.delete(state.uid);
@@ -322,13 +322,13 @@
 
   /** WebAuthn login for a picked account (same session outcome as login). */
   async function webauthnLogin({ uid }) {
-    if (!enabled()) return { ok: false, code: 'MULTI_USER_DISABLED', message: 'Multi-user mode is off' };
+    if (!enabled()) return { ok: false, code: 'MULTI_USER_DISABLED', message: _t('apps.session.multiUserOff') };
     if (typeof navigator === 'undefined' || !navigator.credentials?.get) {
-      return { ok: false, code: 'UNAVAILABLE', message: 'WebAuthn is not available in this runtime' };
+      return { ok: false, code: 'UNAVAILABLE', message: _t('apps.session.webauthnUnavailable') };
     }
     const options = await authFetch('/api/auth/webauthn/login/options', { method: 'POST', omit: true, body: { uid } });
     if (!options.ok || !options.json?.success) {
-      return { ok: false, code: options.json?.code || 'WEBAUTHN_OPTIONS', message: options.json?.message || 'No authenticator options' };
+      return { ok: false, code: options.json?.code || 'WEBAUTHN_OPTIONS', message: options.json?.message || _t('apps.session.noAuthenticatorOptions') };
     }
     const data = options.json.data;
     const b64uToBytes = (text) => Uint8Array.from(
@@ -348,7 +348,7 @@
         },
       });
     } catch (err) {
-      return { ok: false, code: 'WEBAUTHN_CANCELLED', message: err?.message || 'Biometric unlock cancelled' };
+      return { ok: false, code: 'WEBAUTHN_CANCELLED', message: err?.message || _t('apps.session.biometricCancelled') };
     }
     const toB64u = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)))
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -363,7 +363,7 @@
       },
     });
     if (!finish.ok || !finish.json?.success) {
-      return { ok: false, code: finish.json?.code || 'WEBAUTHN_INVALID', message: finish.json?.message || 'Biometric verification failed' };
+      return { ok: false, code: finish.json?.code || 'WEBAUTHN_INVALID', message: finish.json?.message || _t('apps.session.biometricFailed') };
     }
     applyLoginResult(finish.json.data);
     suspendedSessions.delete(state.uid);
@@ -379,7 +379,7 @@
       method: 'POST', omit: true, body: { displayName, username, pin, passphrase, avatar },
     });
     if (!ok || !json?.success) {
-      return { ok: false, code: json?.code || `HTTP_${status}`, message: json?.message || 'Setup failed' };
+      return { ok: false, code: json?.code || `HTTP_${status}`, message: json?.message || _t('apps.session.setupFailed') };
     }
     if (typeof NovaUserScope !== 'undefined') {
       NovaUserScope.enable();
@@ -456,14 +456,14 @@
    * refuse it), the desktop stays mounted, and the lock screen gates it.
    */
   async function lock() {
-    if (state.status !== 'active') return { ok: false, code: 'NOT_ACTIVE', message: 'No active session' };
+    if (state.status !== 'active') return { ok: false, code: 'NOT_ACTIVE', message: _t('apps.session.noActiveSession') };
     const result = await authFetch('/api/auth/lock', { method: 'POST' });
     if (result.ok && result.json?.success) {
       state.status = 'locked';
       emit('session:locked', { uid: state.uid });
       return { ok: true };
     }
-    return { ok: false, code: result.json?.code || 'LOCK_FAILED', message: result.json?.message || 'Could not lock the session' };
+    return { ok: false, code: result.json?.code || 'LOCK_FAILED', message: result.json?.message || _t('apps.session.lockFailed') };
   }
 
   /**
@@ -474,10 +474,10 @@
    */
   async function unlock(secret, { bearer = null } = {}) {
     const effectiveBearer = bearer || { token: state.token, csrfToken: state.csrfToken };
-    if (!effectiveBearer.token) return { ok: false, code: 'NO_SESSION', message: 'No session to unlock' };
+    if (!effectiveBearer.token) return { ok: false, code: 'NO_SESSION', message: _t('apps.session.noSessionToUnlock') };
     const result = await authFetch('/api/auth/reverify', { method: 'POST', body: { secret }, bearer: effectiveBearer });
     if (!result.ok || !result.json?.success) {
-      return { ok: false, code: result.json?.code || 'REVERIFY_FAILED', message: result.json?.message || 'Verification failed', retryAfterMs: result.json?.retryAfterMs };
+      return { ok: false, code: result.json?.code || 'REVERIFY_FAILED', message: result.json?.message || _t('apps.session.verificationFailed'), retryAfterMs: result.json?.retryAfterMs };
     }
     // A suspended session resumed through reverify becomes active again.
     const wasSuspended = state.status === 'suspended' || suspendedSessions.has(result.json.data.user?.uid);
@@ -553,7 +553,7 @@
   /** Resume a parked session from the picker (re-verification required). */
   async function resumeUser(uid, secret) {
     const parked = suspendedSessions.get(uid);
-    if (!parked) return { ok: false, code: 'NOT_SUSPENDED', message: 'No suspended session for this account' };
+    if (!parked) return { ok: false, code: 'NOT_SUSPENDED', message: _t('apps.session.noSuspendedSession') };
     const result = await unlock(secret, { bearer: parked });
     if (!result.ok) return result;
     await mountUserScope({ uid, username: parked.uname, role: parked.role });
@@ -571,7 +571,7 @@
     if (result.ok && result.json?.success) state.mustChangePin = false;
     return result.ok && result.json?.success
       ? { ok: true }
-      : { ok: false, code: result.json?.code || 'CHANGE_PIN_FAILED', message: result.json?.message || 'PIN change failed' };
+      : { ok: false, code: result.json?.code || 'CHANGE_PIN_FAILED', message: result.json?.message || _t('apps.session.pinChangeFailed') };
   }
 
   async function changePassphrase(currentSecret, passphrase) {
@@ -581,14 +581,14 @@
     });
     return result.ok && result.json?.success
       ? { ok: true }
-      : { ok: false, code: result.json?.code || 'CHANGE_PHRASE_FAILED', message: result.json?.message || 'Passphrase change failed' };
+      : { ok: false, code: result.json?.code || 'CHANGE_PHRASE_FAILED', message: result.json?.message || _t('apps.session.passphraseChangeFailed') };
   }
 
   /** Enroll the platform authenticator for the current (or admin-picked) account. */
   async function enrollWebauthn({ uid = null, label = null } = {}) {
     const options = await authFetch('/api/auth/webauthn/register/options', { method: 'POST', body: { uid } });
     if (!options.ok || !options.json?.success) {
-      return { ok: false, code: options.json?.code || 'WEBAUTHN_OPTIONS', message: options.json?.message || 'Could not start enrollment' };
+      return { ok: false, code: options.json?.code || 'WEBAUTHN_OPTIONS', message: options.json?.message || _t('apps.session.enrollmentStartFailed') };
     }
     const data = options.json.data;
     const b64uToBytes = (text) => Uint8Array.from(
@@ -611,13 +611,13 @@
         },
       });
     } catch (err) {
-      return { ok: false, code: 'WEBAUTHN_CANCELLED', message: err?.message || 'Enrollment cancelled' };
+      return { ok: false, code: 'WEBAUTHN_CANCELLED', message: err?.message || _t('apps.session.enrollmentCancelled') };
     }
     const toB64u = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)))
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const coseKey = credential.response.getPublicKey?.();
     if (!coseKey) {
-      return { ok: false, code: 'WEBAUTHN_NO_KEY', message: 'This authenticator does not expose a usable public key' };
+      return { ok: false, code: 'WEBAUTHN_NO_KEY', message: _t('apps.session.noUsablePublicKey') };
     }
     const finish = await authFetch('/api/auth/webauthn/register/finish', {
       method: 'POST',
@@ -631,7 +631,7 @@
     });
     return finish.ok && finish.json?.success
       ? { ok: true }
-      : { ok: false, code: finish.json?.code || 'WEBAUTHN_ERROR', message: finish.json?.message || 'Enrollment failed' };
+      : { ok: false, code: finish.json?.code || 'WEBAUTHN_ERROR', message: finish.json?.message || _t('apps.session.enrollmentFailed') };
   }
 
   // ── Introspection helpers ────────────────────────────────────────────
