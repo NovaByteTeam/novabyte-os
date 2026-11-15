@@ -550,6 +550,46 @@ const AppPackage = (() => {
 
   // ─── Install / uninstall ─────────────────────────────────────────────────────
 
+  /**
+   * Shut every running instance of one app down BEFORE its install is
+   * replaced: open windows (forceKill — a system:background:live grant must
+   * not turn this into an orphaned webview running the old code against a
+   * half-replaced install) and backgrounded sandboxes. Same shape as
+   * AppRegistry.unregisterApp()'s shutdown block and App Manager's
+   * replace-flow helper; kept here so every force-replace funnelled through
+   * installPackage() (Packages tool "Force overwrite", MyAppsManager
+   * forced installs, the boot reconciler and the system-bundle watcher —
+   * both no-ops at their call time) gets the ordering for free. Defensive
+   * typeof guards throughout: this module also runs in bare test VMs where
+   * WM/AppSandbox/Notify/OS don't exist, and on hosts where nothing is
+   * running yet (boot) — in both cases it silently does nothing.
+   * Returns whether any window was open (callers may relaunch after swap).
+   */
+  async function closeRunningAppInstances(appId) {
+    let hadWindows = false;
+    try {
+      if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+        const openWindowIds = [];
+        for (const [wid, wstate] of OS.windows) {
+          if (wstate && wstate.appId === appId) openWindowIds.push(wid);
+        }
+        hadWindows = openWindowIds.length > 0;
+        await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid, { forceKill: true })));
+      }
+    } catch (_) { /* best-effort shutdown */ }
+    try {
+      if (typeof AppSandbox !== 'undefined' && AppSandbox.getAllSandboxes) {
+        for (const sandbox of AppSandbox.getAllSandboxes()) {
+          if (sandbox && sandbox.appId === appId && sandbox.backgrounded) {
+            AppSandbox.terminateBackground(sandbox.sandboxId);
+            if (typeof Notify !== 'undefined' && Notify.unpin) Notify.unpin(`pin_bg_${appId}`);
+          }
+        }
+      }
+    } catch (_) { /* best-effort shutdown */ }
+    return hadWindows;
+  }
+
   async function installPackage(pkg, options = {}) {
     let verified = false;
     let signer = null;
@@ -646,6 +686,20 @@ const AppPackage = (() => {
           EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: msg, data: { appId: pkg.manifest.id, reason: 'duplicate' } });
       }
       throw new Error(msg);
+    }
+
+    // Close-first (2026-11-16): reaching here with an `existing` install
+    // means this install REPLACES it. Every running instance of the old
+    // app — open windows and backgrounded sandboxes — must be shut down
+    // BEFORE the registry entry below and the package-store record are
+    // swapped underneath it; otherwise the live window keeps executing the
+    // old code against a half-replaced install. App Manager's dialog flow
+    // closes on its own before calling its store writes; this covers every
+    // other force-replace surface (Packages tool, MyAppsManager, future
+    // callers). At boot-reconcile time nothing is running, and the
+    // system-bundle watcher closes before it gets here, so both are no-ops.
+    if (existing) {
+      await closeRunningAppInstances(pkg.manifest.id);
     }
 
     // A package may declare itself as a system app, but that declaration
@@ -1041,6 +1095,7 @@ const AppPackage = (() => {
     verifyAgainstTrustStore, generateSigningKeyPair,
     installPackage, uninstallPackage, extractPackage, inspectPackage,
     computeIntegrity, verifyIntegrity,
+    closeRunningAppInstances,
     getSigningMethod, getIntegrityMethod,
     listSigningMethods, listIntegrityMethods,
     SIGNING_METHODS, INTEGRITY_METHODS,
