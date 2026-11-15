@@ -132,6 +132,19 @@
 
   function setDeveloperMode(enabled) {
     if (typeof enabled !== 'boolean') throw new TypeError('Developer Mode must be a boolean');
+    // 2026-11-16: host-side enforcement for the admin-only Developer Mode.
+    // The Settings UI gates the toggle behind an administrator account; this
+    // guard keeps any other caller (unrestricted app entry, imported prefs
+    // replay, a compromised sandbox bridge) from arming the debugging tier
+    // for a standard account. Turning an inherited dev mode back OFF stays
+    // allowed for anyone. Single-user (legacy) machines stay ungated —
+    // NovaUserScope.isActiveAdmin() returns true there.
+    if (enabled
+        && typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()
+        && typeof NovaUserScope.isActiveAdmin === 'function'
+        && !NovaUserScope.isActiveAdmin()) {
+      throw new Error('Developer Mode is only available to administrator accounts');
+    }
     storedSettings.set('devMode', enabled);
     if (window.DebugOverlay) {
       enabled ? window.DebugOverlay.enable() : window.DebugOverlay.disable();
@@ -141,6 +154,15 @@
 
   function setRootAccess(enabled) {
     if (typeof enabled !== 'boolean') throw new TypeError('Root Access must be a boolean');
+    // 2026-11-16: same host-side admin gate as Developer Mode — enabling the
+    // Root tier must never be possible for a standard account through any
+    // caller; revoking stays open to anyone.
+    if (enabled
+        && typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()
+        && typeof NovaUserScope.isActiveAdmin === 'function'
+        && !NovaUserScope.isActiveAdmin()) {
+      throw new Error('Root Access is only available to administrator accounts');
+    }
     if (enabled && storedSettings.get('devMode') !== true) {
       throw new Error('Developer Mode must be enabled before Root Access');
     }

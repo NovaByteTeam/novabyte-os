@@ -72,13 +72,17 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     { uid: 'u-sam-002', displayName: 'Sam', username: 'sam', role: 'standard', roleLabel: 'Standard', status: 'active', locked: false, pinLength: 4, hasPassphrase: false, hasBiometric: false, mustChangePin: false },
   ];
 
-  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }, changePinResult = null, webauthnResult = null } = {}) {
+  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }, changePinResult = null, webauthnResult = null, status = 'loggedout' } = {}) {
     const loginCalls = [];
     const changePinCalls = [];
     const webauthnCalls = [];
+    const suspendCalls = [];
     const workerCalls = [];
+    // Mirrors the real SessionManager: suspendForSwitch() flips the local
+    // status to 'suspended' even when the server call fails.
+    const stateBox = { status };
     const manager = {
-      state: () => ({ status: 'loggedout', uid: null, uname: null, displayName: null, role: null }),
+      state: () => ({ status: stateBox.status, uid: stateBox.status === 'loggedout' ? null : 'u-ada-001', uname: stateBox.status === 'loggedout' ? null : 'ada', displayName: stateBox.status === 'loggedout' ? null : 'Ada', role: stateBox.status === 'loggedout' ? null : 'owner' }),
       active: () => false,
       isActive: () => false,
       isAdmin: () => false,
@@ -87,7 +91,7 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
       login: async (args) => { loginCalls.push(args); return loginResult; },
       unlock: async (secret) => ({ ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }),
       resumeUser: async () => ({ ok: false }),
-      suspendForSwitch: async () => ({ ok: true }),
+      suspendForSwitch: async () => { suspendCalls.push(1); stateBox.status = 'suspended'; return { ok: true }; },
       guestLogin: async () => ({ ok: true, guest: true }),
       changePin: changePinResult
         ? async (currentSecret, newPin) => { changePinCalls.push([currentSecret, newPin]); return changePinResult; }
@@ -127,7 +131,7 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     });
     dom = loaded.dom;
     loaded.document.body.innerHTML = LOCK_SCREEN_MARKUP;
-    return { ...loaded, manager, loginCalls, changePinCalls, webauthnCalls, wmCalls, workerCalls, scope };
+    return { ...loaded, manager, loginCalls, changePinCalls, webauthnCalls, suspendCalls, wmCalls, workerCalls, scope };
   }
 
   async function loadFirstBoot({
@@ -280,6 +284,29 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     expect(document.getElementById('lock-screen').className).toContain('active');
   });
 
+  it('switchUser() suspends the active session first, then shows the picker (dead-button fix)', async () => {
+    // Regression: Settings' "Switch user" / Users' "Sign in" used to call
+    // showLoginPicker() directly, which bails while a session is locally
+    // active (M10 guard) — the buttons did nothing. switchUser() must do the
+    // suspend-then-picker dance the lock screen's own button does.
+    const { window, document, suspendCalls } = await loadMultiUser({ status: 'active' });
+    expect(window.SessionManager.state().status).toBe('active');
+
+    // direct picker call is still correctly refused for an active session
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    expect(suspendCalls).toEqual([]);
+    expect(document.querySelector('.lock-picker')).toBeNull();
+
+    // the switch verb suspends first — then the picker opens
+    await window.LockScreenService.switchUser();
+    await settle();
+    expect(suspendCalls).toEqual([1]);
+    expect(window.LockScreenService.state()).toBe('picker');
+    expect(document.querySelector('.lock-picker')).toBeTruthy();
+    expect([...document.querySelectorAll('.lp-tile')]).toHaveLength(3);
+  });
+
   it('selecting an account shows the adaptive sheet — 6 dots for a 6-digit PIN account', async () => {
     const { window, document } = await loadMultiUser();
     await window.LockScreenService.showLoginPicker();
@@ -408,9 +435,10 @@ describe('LockScreenService service (js/apps/lock-screen)', () => {
     const svc = dom.window.LockScreenService;
     expect(svc).toBeTruthy();
     expect(Object.isFrozen(svc)).toBe(true);
-    expect(Object.keys(svc)).toEqual(['lockScreen', 'showLoginPicker', 'lockForUser', 'state']);
+    expect(Object.keys(svc)).toEqual(['lockScreen', 'showLoginPicker', 'switchUser', 'lockForUser', 'state']);
     expect(typeof svc.lockScreen).toBe('function');
     expect(typeof svc.showLoginPicker).toBe('function');
+    expect(typeof svc.switchUser).toBe('function');
     expect(typeof svc.lockForUser).toBe('function');
   });
 

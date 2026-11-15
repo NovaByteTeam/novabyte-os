@@ -1,4 +1,8 @@
+// tests/apps/shell-ui.test.js
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
+import * as fsSync from 'node:fs';
 import { resetTestStorage } from '../setup.js';
 import { loadServiceApp, settle } from '../helpers/app-harness.js';
 
@@ -1353,7 +1357,7 @@ describe('Modal service (js/apps/shell-ui/modals.js)', () => {
 });
 
 describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
-  async function bootDesktop({ settings = {}, withNovaByteSystem = true, fs } = {}) {
+  async function bootDesktop({ settings = {}, withNovaByteSystem = true, fs, extra = {} } = {}) {
     const os = {
       apps: {},
       username: 'user',
@@ -1372,7 +1376,7 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
     const notify = { calls: [], show: (n) => notify.calls.push(n) };
     const created = [];
     const wm = { createWindow: (appId, opts) => { created.push({ appId, opts }); return { id: `win-${created.length}` }; } };
-    const stubs = { extra: { OS: os, Notify: notify, WM: wm, FS: fs ?? _makeShellFS() } };
+    const stubs = { extra: { OS: os, Notify: notify, WM: wm, FS: fs ?? _makeShellFS(), ...extra } };
     if (withNovaByteSystem) stubs.extra.NovaByteSystem = novaByteSystem;
     const { window } = await loadServiceApp('shell-ui', { scripts: ['desktop.js'], stubs });
     return { window, os, notify, created, AppDirs: window.AppDirs, systemSettings: novaByteSystem.settings };
@@ -1468,6 +1472,58 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
     // ensure is kicked off and null is returned for now
     expect(AppDirs.getAppDataPath('terminal', 'files')).toBeNull();
     expect(AppDirs.getAppDataPath('com.nbosp.unknown-app', 'files')).toBeNull();
+  });
+
+  // Regression for the critical "notifications don't reappear after logging
+  // in" bug: localStorage.removeItem is patched to unlink the per-user
+  // backing file, so syncAllToUser's old write-then-remove order deleted the
+  // stratum it had just flushed — the account's notifications.json (and every
+  // other LS_MAP stratum) was destroyed at every logout/suspend/switch, and
+  // the sign-in remount found nothing to restore. The flush must drop the
+  // localStorage key FIRST and write the file AFTER.
+  it('syncAllToUser() flushes to per-user files that survive the flush, and syncAllFromUser() restores them', async () => {
+    if (process.platform !== 'linux' && process.platform !== 'darwin' && process.platform !== 'win32') {
+      throw new Error('unexpected platform');
+    }
+    // The module only takes the per-user file path on the Linux runtime —
+    // emulate it inside the JSDOM sandbox with an injected process + require.
+    const nodeRequire = (m) => ({ fs: fsSync, path, os })[m];
+    const { window, AppDirs } = await bootDesktop({
+      extra: { process: { platform: 'linux', pid: process.pid }, require: nodeRequire },
+    });
+
+    const tmp = fsSync.mkdtempSync(path.join(os.tmpdir(), 'nbosp-appdirs-'));
+    AppDirs._linuxAppPath = () => tmp;                 // strata land in the sandbox dir
+    AppDirs._persistBrowserState = () => {};           // never touch the real home dump
+    const ls = window.localStorage;
+    const origSetItem = ls.setItem, origRemoveItem = ls.removeItem, origClear = ls.clear;
+    try {
+      AppDirs._installNativeBrowserStatePersistence(); // patches setItem/removeItem/clear
+
+      ls.setItem('novaOS_notifications', JSON.stringify([
+        { id: 'n1', title: 'Timer Done', body: 'Your timer has finished.', read: false },
+        { id: 'n2', title: 'Alarm', read: true },
+      ]));
+
+      AppDirs.syncAllToUser();
+
+      // localStorage was flushed (no personal data between accounts) ...
+      expect(ls.getItem('novaOS_notifications')).toBeNull();
+      // ... but the backing file SURVIVED the flush (the old write-then-remove
+      // order unlinked it through the patched removeItem).
+      const file = path.join(tmp, 'notifications.json');
+      expect(fsSync.existsSync(file)).toBe(true);
+      expect(JSON.parse(fsSync.readFileSync(file, 'utf8'))).toHaveLength(2);
+
+      // and a later sign-in remount restores the account's feed from it
+      AppDirs.syncAllFromUser();
+      const restored = JSON.parse(ls.getItem('novaOS_notifications'));
+      expect(restored).toHaveLength(2);
+      expect(restored[0].id).toBe('n1');
+    } finally {
+      ls.setItem = origSetItem; ls.removeItem = origRemoveItem; ls.clear = origClear;
+      fsSync.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('bootstrap() mirrors the data tree into the virtual FS and syncs localStorage', async () => {

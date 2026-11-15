@@ -1711,10 +1711,19 @@ const AppDirs = {
     for (const lsKey of Object.keys(this.LS_MAP)) {
       const raw = localStorage.getItem(lsKey);
       if (raw === null) continue;
+      // Order matters: drop the localStorage key FIRST, then write the
+      // per-user file. localStorage.removeItem is patched (see
+      // _installNativeBrowserStatePersistence) to unlink the backing file,
+      // so a write-then-remove order would delete the stratum we just
+      // flushed — the account's notifications (and every other LS_MAP
+      // stratum) were being destroyed at every logout/suspend/switch, so
+      // nothing could be restored on the next sign-in.
+      try {
+        localStorage.removeItem(lsKey);
+      } catch { /* silent */ }
       try {
         this._writeNativeStorageKey(lsKey, raw);
       } catch { /* silent */ }
-      localStorage.removeItem(lsKey);
     }
   },
 

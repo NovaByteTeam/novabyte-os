@@ -204,7 +204,8 @@ describe('Users app list refresh resilience', () => {
 
   it('a 401 session expiry keeps the list and offers sign-in through the lock-screen picker', async () => {
     let expired = false;
-    let pickerShown = 0;
+    let switchUserCalled = 0;
+    let directPickerShown = 0;
     const base = okFetch(USERS);
     const { window, host } = await mountUsersApp(USERS, {
       authFetch: async (path, options) => {
@@ -215,7 +216,13 @@ describe('Users app list refresh resilience', () => {
       },
     });
     try {
-      window.LockScreenService = { showLoginPicker: () => { pickerShown += 1; } };
+      // The banner button must go through the canonical switch verb:
+      // showLoginPicker() alone bails while the (locally still active)
+      // session stands — that is the dead-button bug.
+      window.LockScreenService = {
+        switchUser: async () => { switchUserCalled += 1; },
+        showLoginPicker: () => { directPickerShown += 1; },
+      };
       expired = true;
       host.querySelector('.nbusers-tab').click();
       await new Promise(resolve => window.setTimeout(resolve, 0));
@@ -226,8 +233,10 @@ describe('Users app list refresh resilience', () => {
       expect(banner.textContent).toContain('Your session expired');
       const action = banner.querySelector('button');
       expect(action.textContent).toBe('Sign in'); // shell.lock.signIn from the shipped catalogue
-      action.click();
-      expect(pickerShown).toBe(1);
+      await action.click();
+      await new Promise(resolve => window.setTimeout(resolve, 0));
+      expect(switchUserCalled).toBe(1);
+      expect(directPickerShown).toBe(0); // the M10 guard would have eaten it
     } finally {
       window.close();
     }

@@ -307,9 +307,14 @@ describe("'Settings' app (js/apps/settings)", () => {
   });
 
   it('locks admin-only sections behind an administrator account (2026-11-15)', async () => {
-    const { content } = await loadSettings({
+    let switchUserCalled = 0;
+    const { content, window } = await loadSettings({
       extra: {
         SessionManager: { isAdmin: () => false }, // standard account
+        LockScreenService: {
+          switchUser: async () => { switchUserCalled += 1; },
+          showLoginPicker: () => { throw new Error('must not be called directly'); },
+        },
       },
     });
 
@@ -318,9 +323,21 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(content.textContent).toContain('Administrator required');
     expect(content.textContent).toContain('Sign in with an administrator account');
 
-    // System section: the recovery-boot toggle is replaced by the lock panel.
+    // The lock panel's Switch user button must run the canonical
+    // switch verb (suspend-then-picker); the old direct
+    // showLoginPicker() call silently did nothing (M10 guard).
+    const switchBtn = [...content.querySelectorAll('button')]
+      .find((b) => b.textContent === 'Switch user');
+    expect(switchBtn).toBeTruthy();
+    await switchBtn.click();
+    await settle();
+    expect(switchUserCalled).toBe(1);
+
+    // System section: the recovery-boot toggle is replaced by the lock panel,
+    // and the Developer Mode toggle (2026-11-16) is admin-only as well.
     sidebarBtn(content, 'System').click();
     expect([...content.querySelectorAll('button')].some((b) => b.textContent === 'Boot to Recovery')).toBe(false);
+    expect(content.querySelector('[aria-label="Toggle developer mode"]')).toBeNull();
     expect(content.textContent).toContain('Administrator required');
 
     // Privacy section: the admin-mode toggle is hidden; the rest renders.

@@ -1020,6 +1020,13 @@ try {
           OS.notifUnread = OS.notifications.filter(n => !n.read).length;
           Notify.updateBadge();
           if (typeof updateNotificationBadge === 'function') updateNotificationBadge();
+          // Re-render the notification center so the restored feed is what
+          // the user actually sees after signing back in — without this the
+          // panel kept showing the previous (or empty) list until it was
+          // opened. Also re-arm the one-shot boot guard so a later
+          // loadPersisted() would re-read this account's feed, not skip.
+          Notify._loaded = true;
+          Notify.renderPanel();
         } catch (_) { /* best-effort reload */ }
       }, 0);
     });

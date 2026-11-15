@@ -265,7 +265,16 @@ registerApp({
       if (listProblem.kind === 'session') {
         action.textContent = _t('shell.lock.signIn');
         action.setAttribute('aria-label', _t('shell.lock.signIn'));
-        action.addEventListener('click', () => { window.LockScreenService?.showLoginPicker?.(); }, { signal });
+        // The server session is dead (401) but the local one is still
+        // 'active', so showLoginPicker() alone silently bails (M10 guard) —
+        // switchUser() suspends/tears the dead session down first and then
+        // presents the picker.
+        action.addEventListener('click', async () => {
+          try { await window.LockScreenService?.switchUser?.(); }
+          catch (_) {
+            try { await window.LockScreenService?.showLoginPicker?.(); } catch (_) { /* unavailable */ }
+          }
+        }, { signal });
       } else {
         action.textContent = _t('apps.users.retry');
         action.setAttribute('aria-label', _t('apps.users.retry'));

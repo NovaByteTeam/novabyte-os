@@ -973,37 +973,46 @@ registerApp({
       }
 
       // Developer Mode
-      const devGroup = createEl('div', { className: 'nook-group' });
-      devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.developer') }));
-      const devRow = createEl('div', { className: 'nook-toggle-row' });
-      devRow.appendChild(createEl('span', { textContent: _t('settings.system.developerMode') }));
-      const devOn = !!systemSettings.get('devMode');
-      const devToggle = createEl('button', {
-        className: 'toggle' + (devOn ? ' active' : ''),
-        role: 'switch',
-        'aria-checked': String(devOn),
-        'aria-label': _t('settings.system.toggleDevModeAria')
-      });
-      devToggle.addEventListener('click', async () => {
-        const next = !systemSettings.get('devMode');
-        if (next) {
-          const confirmed = await showDevModeWarning();
-          if (!isAlive()) return;
-          if (confirmed !== 'confirm') return;
-        }
-        window.NovaByteSystem.developer.setMode(next);
-        devToggle.classList.toggle('active', next);
-        devToggle.setAttribute('aria-checked', String(next));
-        Notify.show({
-          title: next ? _t('settings.system.devModeEnabled') : _t('settings.system.devModeDisabled'),
-          body: next ? _t('settings.system.devModeOverlayHint') : undefined,
-          type: 'info',
-          appName: 'Settings'
+      // 2026-11-16: Developer Mode is an administrator-only surface — it
+      // unlocks devOnly system apps (devconsole, packages, sysaccess, perf,
+      // novareg, permissions), the Modules app and the root-access gate, so
+      // leaving it ungated handed every standard account the keys to the
+      // debugging tier. Standard accounts get the admin lock panel instead.
+      if (isAdminUser()) {
+        const devGroup = createEl('div', { className: 'nook-group' });
+        devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.developer') }));
+        const devRow = createEl('div', { className: 'nook-toggle-row' });
+        devRow.appendChild(createEl('span', { textContent: _t('settings.system.developerMode') }));
+        const devOn = !!systemSettings.get('devMode');
+        const devToggle = createEl('button', {
+          className: 'toggle' + (devOn ? ' active' : ''),
+          role: 'switch',
+          'aria-checked': String(devOn),
+          'aria-label': _t('settings.system.toggleDevModeAria')
         });
-      }, { signal: lifecycle.signal });
-      devRow.appendChild(devToggle);
-      devGroup.appendChild(devRow);
-      mainContent.appendChild(devGroup);
+        devToggle.addEventListener('click', async () => {
+          const next = !systemSettings.get('devMode');
+          if (next) {
+            const confirmed = await showDevModeWarning();
+            if (!isAlive()) return;
+            if (confirmed !== 'confirm') return;
+          }
+          window.NovaByteSystem.developer.setMode(next);
+          devToggle.classList.toggle('active', next);
+          devToggle.setAttribute('aria-checked', String(next));
+          Notify.show({
+            title: next ? _t('settings.system.devModeEnabled') : _t('settings.system.devModeDisabled'),
+            body: next ? _t('settings.system.devModeOverlayHint') : undefined,
+            type: 'info',
+            appName: 'Settings'
+          });
+        }, { signal: lifecycle.signal });
+        devRow.appendChild(devToggle);
+        devGroup.appendChild(devRow);
+        mainContent.appendChild(devGroup);
+      } else {
+        mainContent.appendChild(adminLockPanel());
+      }
     }
 
     // Developer mode confirmation dialog — built with DOM nodes, tracked
@@ -3132,8 +3141,15 @@ registerApp({
       panel.appendChild(createEl('div', { style: { fontSize: '14px', fontWeight: '600' }, textContent: _t('settings.adminLock.title') }));
       panel.appendChild(createEl('div', { style: { fontSize: '12.5px', color: 'var(--text-secondary, #8b949e)', maxWidth: '440px', lineHeight: '1.5' }, textContent: _t('settings.adminLock.body') }));
       const signIn = createEl('button', { className: 'btn btn-sm', style: { marginTop: '6px' }, textContent: _t('settings.adminLock.switchUser') });
-      signIn.addEventListener('click', () => {
-        try { window.LockScreenService?.showLoginPicker?.(); } catch (_) { /* lock screen unavailable in this context */ }
+      signIn.addEventListener('click', async () => {
+        // LockScreenService.switchUser() suspends the current session before
+        // showing the picker — showLoginPicker() alone silently bails while
+        // a session is locally active (M10 guard), which is why this button
+        // used to do nothing.
+        try { await window.LockScreenService?.switchUser?.(); }
+        catch (_) {
+          try { await window.LockScreenService?.showLoginPicker?.(); } catch (_) { /* lock screen unavailable in this context */ }
+        }
       }, { signal: lifecycle.signal });
       panel.appendChild(signIn);
       return panel;

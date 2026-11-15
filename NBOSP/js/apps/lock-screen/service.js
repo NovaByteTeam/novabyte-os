@@ -567,6 +567,28 @@ async function lockForUser(uid) {
 
 // ── Login picker ─────────────────────────────────────────────────────
 
+/**
+ * Canonical user-switch entry point for shell surfaces (the Settings app's
+ * admin lock panel and the Users app's expired-session banner): suspend the
+ * current session first, then show the login picker. Calling
+ * showLoginPicker() directly from those buttons did nothing — it bails while
+ * a session is locally active/guest (the M10 re-activation guard), so the
+ * suspend must happen first, exactly like the lock screen's own
+ * "Switch user" button does.
+ */
+async function switchUser() {
+  const manager = sessionManager();
+  if (manager?.suspendForSwitch) {
+    try {
+      await manager.suspendForSwitch();
+    } catch (_) {
+      // authFetch never throws, but if anything above failed mid-teardown
+      // the picker is still the right next surface.
+    }
+  }
+  await showLoginPicker();
+}
+
 async function showLoginPicker() {
   if (!multiUserEnabled()) { await lockScreen(); return; }
   const manager = sessionManager();
@@ -1178,4 +1200,4 @@ try {
   typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', handleLockScreenLanguageChanged);
 } catch (_) { /* event bus unavailable (service unit tests) */ }
 
-window.LockScreenService = Object.freeze({ lockScreen, showLoginPicker, lockForUser, state: () => surface });
+window.LockScreenService = Object.freeze({ lockScreen, showLoginPicker, switchUser, lockForUser, state: () => surface });
