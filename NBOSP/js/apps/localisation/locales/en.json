@@ -3284,7 +3284,10 @@
       "createFolderFailed": "Could not create the folder: {{message}}",
       "createFileFailed": "Could not create the file: {{message}}",
       "fileType": "File type",
-      "allTypes": "All types (*.*)"
+      "allTypes": "All types (*.*)",
+      "search": "Search this folder",
+      "searchAria": "Search this folder",
+      "noMatches": "(no matches)"
     }
   }
 }

@@ -1969,6 +1969,38 @@
     color: var(--text-muted);
     pointer-events: none;
   }
+  .system-file-dialog-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 0 1 200px;
+    min-width: 120px;
+  }
+  .system-file-dialog-search {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 7px 10px 7px 34px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    outline: none;
+    background: var(--bg-sunken);
+    color: var(--text-primary);
+    font: 12px var(--font-ui, sans-serif);
+  }
+  .system-file-dialog-search:focus-visible {
+    border-color: var(--accent, currentColor);
+  }
+  .system-file-dialog-search-icon {
+    position: absolute;
+    left: 11px;
+    display: flex;
+    align-items: center;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
   .system-file-dialog-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));

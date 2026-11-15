@@ -2585,8 +2585,38 @@ registerApp({
             // ── Handle replacement of existing install ──
             const idx = installedApps.findIndex(a => a.id === pkg.manifest.id);
             const previousInstall = idx > -1 ? installedApps[idx] : null;
-            if (previousInstall?.builtin) {
-              throw new Error(_t('apps.appmanager.errorCannotReplaceSystem'));
+            const replacingSystemApp = !!previousInstall &&
+              (previousInstall.system === true || previousInstall.source === 'system-bundle' || previousInstall.builtin);
+            if (replacingSystemApp) {
+              // A system app only stays a system app (trusted launch, survives
+              // reboot) if the package is first-party signed, intact, and
+              // physically swapped into the bundled apps folder. Anything
+              // weaker would install as a 'file' source and get overwritten by
+              // boot reconcile, so refuse it instead of half-replacing.
+              const firstParty = verified === true && signer === 'NovaByte System'
+                && pkg.manifest?.system === true && !integrityFailed && integrityStatus === 'ok';
+              const watcher = window.NovaPackageWatcher;
+              if (!firstParty || typeof watcher?.replaceBundle !== 'function') {
+                throw new Error(_t('apps.appmanager.errorCannotReplaceSystem'));
+              }
+              const confirmSystem = await showModal(
+                _t('apps.appmanager.alreadyInstalledTitle'),
+                _t('apps.appmanager.alreadyInstalledBody', { name: pkg.manifest.name, current: previousInstall.version, next: pkg.manifest.version }),
+                [{ label: _t('common.cancel') }, { label: _t('apps.appmanager.replaceLabel'), value: 'confirm', primary: true }]
+              );
+              if (confirmSystem !== 'confirm') return;
+              const swap = await watcher.replaceBundle(pkg.manifest.id, raw);
+              if (!swap.ok) throw new Error(_t('apps.appmanager.errorCannotReplaceSystem'));
+              lastInstalledSignature = null;
+              await syncInstalledApps();
+              selectedPkgId = pkg.manifest.id;
+              renderList();
+              renderDetail();
+              if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+              if (!quietSuccess) {
+                Notify.show({ title: _t('apps.appmanager.appInstalledTitle'), body: _t('apps.appmanager.appInstalledBody', { app: pkg.manifest.name, version: pkg.manifest.version }), type: 'success', appName: 'App Manager' });
+              }
+              return 'installed';
             }
             if (idx > -1) {
               const replaceResult = await showModal(

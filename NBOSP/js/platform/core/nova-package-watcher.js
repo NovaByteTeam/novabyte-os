@@ -36,6 +36,8 @@
   'use strict';
 
   const DEBOUNCE_MS = 600;
+  const SELF_WRITE_WINDOW_MS = DEBOUNCE_MS * 4;
+  const selfWrites = new Map();
   const MANIFEST_URL = 'js/apps/novaapp-manifest.json';
 
   function log(...args) { try { console.info('[NovaPackageWatcher]', ...args); } catch (_) { /* stripped host */ } }
@@ -102,6 +104,7 @@
         if (!name.endsWith('.novaapp')) return;            // manifest/cache writes are none of ours
         const bundle = byFile.get(name);
         if (!bundle || bundle.systemService === true) return; // services are pre-boot injected
+        if ((selfWrites.get(name) || 0) > Date.now()) return;  // replaceBundle() reloads it itself
         // Debounce per file: editors that rewrite in place fire rename+change.
         if (timers.has(name)) clearTimeout(timers.get(name));
         timers.set(name, setTimeout(() => {
@@ -126,6 +129,56 @@
 
     stop() {
       this._handle?.stop?.();
+      selfWrites.clear();
+    },
+
+    /**
+     * Physically replace a bundled system .novaapp with `rawText`, then run
+     * the normal verify/reinstall pipeline on it. The file on disk is what
+     * boot reconcile trusts, so writing it is the only way a replacement
+     * survives a restart. If the pipeline rejects the package the original
+     * bytes are put back, so disk and live state never disagree.
+     * Resolves to { ok, reason }.
+     */
+    async replaceBundle(appId, rawText, deps = {}) {
+      const fs = deps.fs ?? (typeof require === 'function' ? safeRequire('fs') : null);
+      const path = deps.path ?? (typeof require === 'function' ? safeRequire('path') : null);
+      if (!fs?.writeFileSync || !path?.join) return { ok: false, reason: 'no-fs' };
+      const appDir = deps.appDir ?? this._handle?.appDir ?? resolveBundledAppsDir(fs, path);
+      if (!appDir) return { ok: false, reason: 'no-app-dir' };
+
+      const bundles = deps.bundles ?? await fetchBundles(deps.fetchImpl);
+      const bundle = Array.isArray(bundles)
+        ? bundles.find(b => b && b.id === appId && typeof b.file === 'string' && b.systemService !== true)
+        : null;
+      if (!bundle) return { ok: false, reason: 'not-a-bundled-app' };
+
+      const name = bundle.file.split('/').pop();
+      const target = path.join(appDir, name);
+      const tmp = path.join(appDir, `.${name}.tmp`);
+      let previous = null;
+      try { previous = fs.readFileSync(target); } catch (_) { /* first write */ }
+
+      selfWrites.set(name.toLowerCase(), Date.now() + SELF_WRITE_WINDOW_MS);
+      try {
+        fs.writeFileSync(tmp, rawText);
+        fs.renameSync(tmp, target);
+      } catch (err) {
+        try { fs.unlinkSync(tmp); } catch (_) { /* nothing to clean */ }
+        warn('could not write', target, err?.message || err);
+        return { ok: false, reason: 'write-failed' };
+      }
+
+      try { await window.AppLoaderOptimizer?.evict?.(bundle.file); } catch (_) { /* best-effort */ }
+      const ok = await reloadBundle(bundle, deps);
+      if (!ok) {
+        if (previous) {
+          try { fs.writeFileSync(target, previous); } catch (err) { warn('rollback of', target, 'failed:', err?.message || err); }
+        }
+        try { await window.AppLoaderOptimizer?.evict?.(bundle.file); } catch (_) { /* best-effort */ }
+        return { ok: false, reason: 'rejected' };
+      }
+      return { ok: true };
     },
   };
 
@@ -169,7 +222,7 @@
     const fetchFn = deps.fetchImpl ?? (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
     if (!AppPackage?.installPackage || !store?.loadRegistry || !fetchFn) {
       warn('package pipeline unavailable — skipping reload of', bundle.id);
-      return;
+      return false;
     }
 
     // 1) Re-read the physical file, bypassing every cache.
@@ -180,7 +233,7 @@
       pkg = await response.json();
     } catch (err) {
       warn('re-fetch of', bundle.file, 'failed:', err?.message || err);
-      return;
+      return false;
     }
 
     // 2) Shape validation — same rules the boot reconciler applies.
@@ -188,7 +241,7 @@
       warn('replaced package for', bundle.id, 'failed bundle validation — old code stays live');
       notify(_tw('apps.appmanager.errorCannotReplaceSystem', 'Cannot replace a system app'),
         `${bundle.id}: invalid package shape`, 'error');
-      return;
+      return false;
     }
 
     // 3) Trust + integrity FIRST (fail closed — the old code keeps running).
@@ -208,7 +261,7 @@
       warn('verification failed for the replaced', bundle.id, '— refusing to hot-swap:', err?.message || err);
       notify(_tw('apps.appmanager.errorCannotReplaceSystem', 'Cannot replace a system app'),
         `${bundle.id}: ${err?.message || 'verification failed'}`, 'error');
-      return;
+      return false;
     }
 
     // 4) Close-before-update: every open window and backgrounded sandbox of
@@ -245,7 +298,7 @@
       warn('reinstall of', bundle.id, 'failed:', err?.message || err);
       notify(_tw('apps.appmanager.installFailedTitle', 'Installation failed'),
         `${bundle.id}: ${err?.message || err}`, 'error');
-      return;
+      return false;
     }
 
     try { await window.AppLoaderOptimizer?.evict?.(bundle.file); } catch (_) { /* best-effort eviction */ }
@@ -263,6 +316,7 @@
     notify(_tw('apps.appmanager.appInstalledTitle', 'App Installed'),
       `${pkg.manifest.name} v${pkg.manifest.version}`, 'success');
     log('hot-reloaded', bundle.id, pkg.manifest.version);
+    return true;
   }
 
   /** Close every window + backgrounded sandbox for one app id. Returns whether any window was open. */

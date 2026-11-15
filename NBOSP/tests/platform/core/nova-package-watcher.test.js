@@ -184,6 +184,61 @@ describe('NovaPackageWatcher (js/platform/core/nova-package-watcher.js)', () => 
     handle.stop();
   });
 
+  describe('replaceBundle (App Manager replace of a system app)', () => {
+    function makeDisk() {
+      const files = new Map([[`${APP_DIR}/com.test.app.novaapp`, 'ORIGINAL']]);
+      return {
+        files,
+        fs: {
+          readFileSync: (f) => { if (!files.has(f)) throw new Error('ENOENT'); return files.get(f); },
+          writeFileSync: (f, data) => { files.set(f, data); },
+          renameSync: (from, to) => { files.set(to, files.get(from)); files.delete(from); },
+          unlinkSync: (f) => { files.delete(f); },
+        },
+      };
+    }
+
+    it('writes the package over the bundled file and reinstalls it as system-bundle exactly once', async () => {
+      const watchers = [];
+      const ctx = makeDeps({ watchers });
+      const disk = makeDisk();
+      const handle = await watcher.start({ ...ctx.deps, fs: { ...ctx.deps.fs, ...disk.fs } });
+
+      const result = await watcher.replaceBundle(BUNDLE.id, 'NEW-BYTES', { ...ctx.deps, fs: { ...ctx.deps.fs, ...disk.fs } });
+      // the write we just did also trips fs.watch; it must not trigger a second reload
+      watchers[0].cb('rename', 'com.test.app.novaapp');
+      await vi.advanceTimersByTimeAsync(900);
+
+      expect(result).toEqual({ ok: true });
+      expect(disk.files.get(`${APP_DIR}/com.test.app.novaapp`)).toBe('NEW-BYTES');
+      expect(ctx.installCalls).toHaveLength(1);
+      expect(ctx.installCalls[0][1]).toMatchObject({ force: true, source: 'system-bundle' });
+      handle.stop();
+    });
+
+    it('restores the original file when the package fails verification', async () => {
+      const ctx = makeDeps({ verify: async () => false });
+      const disk = makeDisk();
+      const deps = { ...ctx.deps, fs: disk.fs };
+
+      const result = await watcher.replaceBundle(BUNDLE.id, 'TAMPERED', deps);
+
+      expect(result).toEqual({ ok: false, reason: 'rejected' });
+      expect(disk.files.get(`${APP_DIR}/com.test.app.novaapp`)).toBe('ORIGINAL');
+      expect(ctx.installCalls).toHaveLength(0);
+    });
+
+    it('refuses ids that are not bundled GUI apps', async () => {
+      const ctx = makeDeps();
+      const disk = makeDisk();
+      const deps = { ...ctx.deps, fs: disk.fs };
+
+      expect(await watcher.replaceBundle('com.test.service', 'X', deps)).toEqual({ ok: false, reason: 'not-a-bundled-app' });
+      expect(await watcher.replaceBundle('com.unknown', 'X', deps)).toEqual({ ok: false, reason: 'not-a-bundled-app' });
+      expect(disk.files.get(`${APP_DIR}/com.test.app.novaapp`)).toBe('ORIGINAL');
+    });
+  });
+
   it('start() is a no-op on hosts without native fs.watch', async () => {
     const handle = await watcher.start({ fs: {}, path: fakePath, bundles: [BUNDLE] });
     expect(handle).toBeNull();
