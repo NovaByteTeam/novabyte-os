@@ -305,6 +305,11 @@
   <script src="/js/platform/security/app-permissions-bootstrap.js" defer></script>
   <script src="/js/platform/security/app-scheduler.js" defer></script>
   <script src="js/core/core/boot.js" defer></script>
+  <!-- Runtime hot-reload of physically replaced system .novaapp bundles
+       (verify → close → reinstall → evict → background relaunch). Loaded
+       after boot.js so it can register on Boot.hooks.after at eval time;
+       all its package-pipeline dependencies are resolved at start() time. -->
+  <script src="js/platform/core/nova-package-watcher.js" defer></script>
   <!-- Shell popup coordinator: one-flyout-at-a-time registry shared by the
        tray flyouts (volume/wifi/calendar/power), the notification panel and
        the taskbar window preview. Deliberately NOT part of the

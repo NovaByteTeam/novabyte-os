@@ -142,6 +142,29 @@ const AppLoaderOptimizer = Object.freeze({
     prefetchFinishedAt = null;
     prefetchCount = 0;
   },
+
+  /**
+   * Drop every cached copy of one bundled package (in-flight promises AND
+   * the persistent IndexedDB record). The runtime package watcher calls this
+   * when a system .novaapp is physically replaced on disk: the manifest's
+   * cacheKey never changes for a manual swap, so a stale record would keep
+   * serving the OLD package at the next boot reconcile.
+   */
+  async evict(file) {
+    if (typeof file !== 'string' || !file) throw new TypeError('A bundled package path is required');
+    const prefix = `${file}\n`;
+    for (const key of [...packagePromises.keys()]) {
+      if (key.startsWith(prefix)) packagePromises.delete(key);
+    }
+    const db = await openPackageCache();
+    if (!db) return true;
+    return new Promise((resolve) => {
+      const request = db.transaction(PACKAGE_CACHE_STORE, 'readwrite')
+        .objectStore(PACKAGE_CACHE_STORE).delete(file);
+      request.onsuccess = () => resolve(true);
+      request.onerror = () => resolve(false); // best-effort — refetch on miss
+    });
+  },
 });
 
 window.AppLoaderOptimizer = AppLoaderOptimizer;

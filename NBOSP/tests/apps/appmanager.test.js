@@ -17,8 +17,8 @@ function makeOS() {
 
 // Full host environment appmanager's init expects (registry, Notify, WM, …).
 // setInterval is stubbed because init() installs a 2s registry-poll timer.
-async function loadAppManager({ seedApps = [], systemDialogs = { open: vi.fn(async () => null) } } = {}) {
-  const showModal = vi.fn(() => Promise.resolve(undefined));
+async function loadAppManager({ seedApps = [], systemDialogs = { open: vi.fn(async () => null) }, modalResult } = {}) {
+  const showModal = vi.fn(() => Promise.resolve(modalResult));
   const loaded = await loadWindowApp('appmanager', {
     stubs: {
       extra: {
@@ -36,7 +36,7 @@ async function loadAppManager({ seedApps = [], systemDialogs = { open: vi.fn(asy
   if (seedApps.length) window.localStorage.setItem(APPS_KEY, JSON.stringify(seedApps));
   const content = initApp(app, { window });
   await settle(); // init() is async: the UI is built after `await getStoredApps()`
-  return { ...loaded, Notify: window.Notify, WM: window.WM, showModal, content };
+  return { ...loaded, Notify: window.Notify, WM: window.WM, showModal, content, os: window.OS };
 }
 
 function listRows(content) {
@@ -209,6 +209,36 @@ describe('App Manager app (js/apps/appmanager)', () => {
       expect.stringContaining('Console'),
       expect.anything(),
     );
+  });
+
+  it('closing the running app happens before the replace mutates the registry (close-before-update)', async () => {
+    const { content, window, document, WM, os } = await loadAppManager({
+      seedApps: [{ id: 'com.test.app', name: 'Test App', version: '1.0.0', source: 'file' }],
+      modalResult: 'confirm', // the "Replace?" dialog confirms
+    });
+    // the app under replacement is running: one open window
+    os.windows.set('win-7', { appId: 'com.test.app' });
+
+    const pkg = {
+      novabyte_app: true,
+      manifest: { id: 'com.test.app', name: 'Test App', version: '2.0.0' },
+      files: {},
+    };
+    const file = new window.File([JSON.stringify(pkg)], 'test.novaapp', { type: 'application/json' });
+
+    const pending = content._novaAppProcessFile(file);
+    await settle();
+    // unsigned package → untrusted dialog; take the documented override path
+    document.querySelector('#nb-untrusted-more-btn').click();
+    document.querySelector('#nb-untrusted-launch-btn').click();
+    const result = await pending;
+    expect(result).toBe('installed');
+
+    // the open window was closed with forceKill BEFORE the registry/store swap
+    expect(WM.closeWindow).toHaveBeenCalledWith('win-7', { forceKill: true });
+    // and the new install landed with the replaced version
+    const stored = JSON.parse(window.localStorage.getItem(APPS_KEY));
+    expect(stored.find(a => a.id === 'com.test.app')?.version).toBe('2.0.0');
   });
 
   it('installs an unsigned .novaapp after the untrusted-dialog override', async () => {

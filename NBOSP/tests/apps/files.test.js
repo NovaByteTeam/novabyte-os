@@ -219,6 +219,86 @@ describe('Files app (js/apps/files)', () => {
     expect(content.querySelector('#file-browser-path-input').value).toBe('/');
   });
 
+  it('renders the sysdialog-style quick-access sidebar and navigates/highlights from it', async () => {
+    const fs = makeFS();
+    await fs.createFolder(fs.rootId, 'Documents');
+    await fs.createFolder(fs.rootId, 'Downloads');
+    const { content } = await loadFiles({ fs });
+    await settle();
+
+    const sidebar = content.querySelector('.system-file-dialog-sidebar');
+    expect(sidebar).toBeTruthy();
+    expect(sidebar.getAttribute('aria-label')).toBe('Quick access');
+    expect(content.querySelector('.system-file-dialog-side-header').textContent).toBe('Quick access');
+
+    const sideItems = [...content.querySelectorAll('.system-file-dialog-side-item')];
+    const labels = sideItems.map((el) => el.getAttribute('aria-label'));
+    // Home + every special folder the FS exposes (the fake registers only
+    // desktop; plain folders are not quick-access entries).
+    expect(labels).toEqual(['Home', 'desktop']);
+
+    // Home is the active location at startup
+    const homeBtn = sideItems.find((el) => el.getAttribute('aria-label') === 'Home');
+    expect(homeBtn.getAttribute('aria-current')).toBe('true');
+    expect(homeBtn.className).toContain('active');
+
+    // clicking a sidebar entry navigates and moves the highlight
+    const desktopPath = fs.getPath(fs.specialFolders.desktop);
+    sideItems.find((el) => el.getAttribute('aria-label') === 'desktop').click();
+    await settle();
+    expect(content.querySelector('#file-browser-path-input').value).toBe(desktopPath);
+    expect(homeBtn.getAttribute('aria-current')).toBe('false');
+    const desktopBtn = [...content.querySelectorAll('.system-file-dialog-side-item')]
+      .find((el) => el.getAttribute('aria-label') === 'desktop');
+    expect(desktopBtn.getAttribute('aria-current')).toBe('true');
+    expect(desktopBtn.className).toContain('active');
+  });
+
+  it('Linux backend renders the quick-access sidebar with Home and existing common folders', async () => {
+    const userHome = '/home/nbosp/users/sam';
+    const existing = new Set(['/home/nbosp/users/sam/Desktop', '/home/nbosp/users/sam/Documents']);
+    const fsStub = {
+      promises: {
+        readdir: vi.fn(async () => []),
+        lstat: vi.fn(),
+        stat: vi.fn(async () => ({ isDirectory: () => true })),
+      },
+      constants: {},
+      statSync: vi.fn((p) => {
+        if (!existing.has(p)) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
+        return { isDirectory: () => true };
+      }),
+    };
+    const loaded = await loadWindowApp('files', {
+      stubs: {
+        extra: {
+          process: { platform: 'linux' },
+          FS: { rootId: userHome },
+          require: (name) => {
+            if (name === 'fs') return fsStub;
+            if (name === 'path') return linuxPath;
+            if (name === 'os') return { homedir: () => '/home/nbosp' };
+            if (name === 'child_process') return {};
+            throw new Error(`Unexpected module: ${name}`);
+          },
+        },
+      },
+    });
+    const content = initApp(loaded.app, { window: loaded.window, state: { cleanups: [] } });
+    await settle();
+
+    const sidebar = content.querySelector('.system-file-dialog-sidebar');
+    expect(sidebar).toBeTruthy();
+    expect(sidebar.getAttribute('aria-label')).toBe('Quick access');
+    const labels = [...content.querySelectorAll('.system-file-dialog-side-item')]
+      .map((el) => el.getAttribute('aria-label'));
+    // Home + the folders that exist under the account root; Downloads etc.
+    // are hidden because statSync reports them missing.
+    expect(labels).toEqual(['Home', 'Desktop', 'Documents']);
+    const homeBtn = content.querySelector('.system-file-dialog-side-item');
+    expect(homeBtn.getAttribute('aria-current')).toBe('true');
+  });
+
   it('navigates into folders by double-click, then Back/Up return to the root', async () => {
     const fs = makeFS();
     const docs = await fs.createFolder(fs.rootId, 'Documents');

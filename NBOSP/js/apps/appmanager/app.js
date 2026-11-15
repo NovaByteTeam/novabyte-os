@@ -2377,6 +2377,38 @@ registerApp({
         detail.appendChild(bodyEl);
       }
 
+      /**
+       * Shut every running instance of one app down: open windows (forceKill —
+       * a background-live grant must not turn this into an orphaned webview)
+       * and backgrounded sandboxes. Used by the replace flow so an update
+       * never swaps files under a live process; returns whether any window
+       * was open (the caller may relaunch the app after the swap).
+       */
+      async function closeRunningAppInstances(appId) {
+        let hadWindows = false;
+        try {
+          if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+            const openWindowIds = [];
+            for (const [wid, wstate] of OS.windows) {
+              if (wstate.appId === appId) openWindowIds.push(wid);
+            }
+            hadWindows = openWindowIds.length > 0;
+            await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid, { forceKill: true })));
+          }
+        } catch (_) { /* best-effort shutdown */ }
+        try {
+          if (typeof AppSandbox !== 'undefined' && AppSandbox.getAllSandboxes) {
+            for (const sandbox of AppSandbox.getAllSandboxes()) {
+              if (sandbox.appId === appId && sandbox.backgrounded) {
+                AppSandbox.terminateBackground(sandbox.sandboxId);
+                if (typeof Notify !== 'undefined' && Notify.unpin) Notify.unpin(`pin_bg_${appId}`);
+              }
+            }
+          }
+        } catch (_) { /* best-effort shutdown */ }
+        return hadWindows;
+      }
+
       async function processFile(file, { quietSuccess = false } = {}) {
         if (!file.name.endsWith('.novaapp')) {
           Notify.show({ title: _t('apps.appmanager.invalidFileTitle'), body: _t('apps.appmanager.invalidFileBody'), type: 'error', appName: 'App Manager' });
@@ -2563,6 +2595,12 @@ registerApp({
                 [{ label: _t('common.cancel') }, { label: _t('apps.appmanager.replaceLabel'), value: 'confirm', primary: true }]
               );
               if (replaceResult !== 'confirm') return;
+              // Close-first (2026-11-16): the running app must be shut down
+              // BEFORE its registry entry, package files and store record are
+              // swapped — otherwise the open window keeps executing the old
+              // code against a half-replaced install, and backgrounded
+              // sandboxes survive the registry delete entirely.
+              await closeRunningAppInstances(pkg.manifest.id);
               delete OS.apps[pkg.manifest.id];
               const ri = APP_REGISTRY.findIndex(a => a.id === pkg.manifest.id);
               if (ri > -1) APP_REGISTRY.splice(ri, 1);

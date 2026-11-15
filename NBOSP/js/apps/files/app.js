@@ -392,11 +392,74 @@
       this.listView.append(listHeader, this.listBody);
 
       filesWrap.append(this.filesGrid, this.listView);
-      root.appendChild(filesWrap);
+
+      // Windows-Explorer body row: quick-access sidebar (same design as the
+      // system file dialog) + the file area. The sidebar is host-global
+      // chrome — the dialog's class set is reused verbatim so both surfaces
+      // stay visually identical.
+      this.sidebar = createEl('nav', {
+        className: 'system-file-dialog-sidebar',
+        'aria-label': _t('apps.sysdialog.quickAccess'),
+        style: 'flex:0 0 auto;min-height:0;',
+      });
+      const bodyRow = createEl('div', { style: 'flex:1;min-height:0;display:flex;align-items:stretch;overflow:hidden;' });
+      bodyRow.append(this.sidebar, filesWrap);
+      root.appendChild(bodyRow);
 
       // Status bar — implicit aria-live polite via role="status".
       this.statusBar = createEl('div', { className: 'vault-statusbar', role: 'status' });
       root.appendChild(this.statusBar);
+
+      this.buildQuickAccess();
+    }
+
+    // Quick-access sidebar (Windows Explorer / sysdialog design): Home plus
+    // the account's special folders in Windows order, with the active
+    // location highlighted. Labels are the folders' real VFS names so the
+    // sidebar never disagrees with what the grid shows.
+    buildQuickAccess() {
+      this.sidebar.replaceChildren();
+      this.sideTargets = [];
+      const header = createEl('div', { className: 'system-file-dialog-side-header', textContent: _t('apps.sysdialog.quickAccess') });
+      this.sidebar.appendChild(header);
+      const push = (label, folderId, icon) => {
+        if (!folderId) return;
+        const btn = createEl('button', {
+          type: 'button',
+          className: 'system-file-dialog-side-item',
+          'aria-label': label,
+          'aria-current': 'false',
+        });
+        const iconWrap = createEl('span', { className: 'system-file-dialog-side-icon' });
+        iconWrap.innerHTML = svgIcon(icon, 16);
+        const nameEl = createEl('span', { className: 'system-file-dialog-side-name', textContent: label });
+        btn.append(iconWrap, nameEl);
+        btn.addEventListener('click', () => {
+          if (this.nav.cwd !== folderId) this.navigateTo(folderId);
+        }, { signal: this.signal });
+        this.sidebar.appendChild(btn);
+        this.sideTargets.push({ el: btn, id: folderId });
+      };
+      const SPECIAL_ICONS = {
+        desktop: 'monitor', documents: 'file-text', downloads: 'download',
+        pictures: 'image', music: 'music', videos: 'play',
+      };
+      push(_t('apps.sysdialog.home'), FS.rootId, 'folder-open');
+      const namesById = new Map((FS.listDir(FS.rootId) || []).map(n => [n.id, n.name]));
+      for (const key of ['desktop', 'documents', 'downloads', 'pictures', 'music', 'videos']) {
+        const folderId = FS.specialFolders?.[key];
+        if (!folderId) continue;
+        push(namesById.get(folderId) || key, folderId, SPECIAL_ICONS[key] || 'folder');
+      }
+      this.updateSidebarActive();
+    }
+
+    updateSidebarActive() {
+      for (const { el, id } of this.sideTargets || []) {
+        const on = id === this.nav.cwd;
+        el.classList.toggle('active', on);
+        el.setAttribute('aria-current', on ? 'true' : 'false');
+      }
     }
 
     // Targeted re-label pass for the toolbar/list-header chrome that
@@ -414,6 +477,9 @@
       this.emptyTrashBtn.title = _t('apps.files.toolbar.emptyTrash');
       this.emptyTrashBtn.setAttribute('aria-label', _t('apps.files.toolbar.emptyTrash'));
       this.filesGrid.setAttribute('aria-label', _t('shell.files.filesAria'));
+      // The sidebar carries localized chrome (Quick access header, Home) —
+      // a full rebuild re-reads them through the live catalogue.
+      try { if (this.sidebar) this.buildQuickAccess(); } catch (_) { /* cosmetic */ }
       const listHeader = this.listView.firstElementChild;
       if (listHeader) {
         [...listHeader.children].forEach((th, i) => {
@@ -465,6 +531,12 @@
         return;
       }
       this.nav.cwd = folderId;
+      // Reaching the account root is also the sidebar refresh point: the
+      // special folders live there, and ensureDefaultSystemFolders() may
+      // have created missing ones since the sidebar was last built.
+      if (folderId === FS.rootId) {
+        try { this.buildQuickAccess(); } catch (_) { /* sidebar is cosmetic */ }
+      }
       // Drop any forward history when navigating to a new location.
       if (this.nav.historyIdx < this.nav.history.length - 1) {
         this.nav.history = this.nav.history.slice(0, this.nav.historyIdx + 1);
@@ -834,6 +906,7 @@
     // search query changes.
     renderFiles(searchQuery) {
       this.updatePathBar();
+      this.updateSidebarActive();
       let files = FS.listDir(this.nav.cwd);
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -1415,6 +1488,7 @@
       const root = createEl('div', {
         style: 'height:100%;display:flex;flex-direction:column;min-height:0;color:var(--text-primary);'
       });
+      this.root = root;
       const toolbar = createEl('div', {
         style: 'display:flex;gap:6px;align-items:center;padding:8px;border-bottom:1px solid var(--border-subtle);'
       });
@@ -1468,8 +1542,18 @@
         role: 'status',
         style: 'padding:5px 10px;border-top:1px solid var(--border-subtle);color:var(--text-muted);font-size:11px;'
       });
-      root.append(toolbar, this.list, this.status);
+      // Windows-Explorer body row: quick-access sidebar (the system file
+      // dialog's class set, reused verbatim) + the file listing.
+      this.sidebar = createEl('nav', {
+        className: 'system-file-dialog-sidebar',
+        'aria-label': _t('apps.sysdialog.quickAccess'),
+        style: 'flex:0 0 auto;min-height:0;',
+      });
+      const bodyRow = createEl('div', { style: 'flex:1;min-height:0;display:flex;align-items:stretch;overflow:hidden;' });
+      bodyRow.append(this.sidebar, this.list);
+      root.append(toolbar, bodyRow, this.status);
       this.content.appendChild(root);
+      this.buildQuickAccess();
 
       this.list.addEventListener('contextmenu', event => {
         const row = event.target.closest('[data-path]');
@@ -1564,6 +1648,7 @@
     async render() {
       const version = ++this.renderVersion;
       this.pathInput.value = this.currentPath;
+      this.updateSidebarActive();
       this.list.replaceChildren(createEl('div', {
         textContent: _t('apps.files.linux.loading'),
         style: 'padding:12px;color:var(--text-muted);'
@@ -1648,6 +1733,58 @@
       this.searchInput.placeholder = _t('apps.files.linux.searchThisFolder');
       this.searchInput.setAttribute('aria-label', _t('apps.files.toolbar.searchAria'));
       this.list.setAttribute('aria-label', _t('apps.files.linux.listAria'));
+      // The sidebar carries localized chrome (Quick access header, Home) —
+      // a rebuild re-reads them through the live catalogue.
+      try { if (this.sidebar) this.buildQuickAccess(); } catch (_) { /* cosmetic */ }
+    }
+
+    // Quick-access sidebar (Windows Explorer / sysdialog design): Home plus
+    // the common folders that exist under the account root, with the active
+    // location highlighted. Folder names stay literal — they are the on-disk
+    // artifact names, matching the system dialog's convention.
+    buildQuickAccess() {
+      const fsSync = require('fs');
+      this.sidebar.replaceChildren();
+      this.sideTargets = [];
+      const header = createEl('div', { className: 'system-file-dialog-side-header', textContent: _t('apps.sysdialog.quickAccess') });
+      this.sidebar.appendChild(header);
+      const push = (label, target, icon) => {
+        const btn = createEl('button', {
+          type: 'button',
+          className: 'system-file-dialog-side-item',
+          'aria-label': label,
+          'aria-current': 'false',
+        });
+        const iconWrap = createEl('span', { className: 'system-file-dialog-side-icon' });
+        iconWrap.innerHTML = svgIcon(icon, 16);
+        const nameEl = createEl('span', { className: 'system-file-dialog-side-name', textContent: label });
+        btn.append(iconWrap, nameEl);
+        btn.addEventListener('click', () => {
+          if (this.path.resolve(target) === this.path.resolve(this.currentPath)) return;
+          this.navigate(target);
+        }, { signal: this.controller.signal });
+        this.sidebar.appendChild(btn);
+        this.sideTargets.push({ el: btn, target: this.path.resolve(target) });
+      };
+      push(_t('apps.sysdialog.home'), this.homePath, 'folder-open');
+      const QUICK = [['Desktop', 'monitor'], ['Documents', 'file-text'], ['Downloads', 'download'], ['Pictures', 'image'], ['Music', 'music']];
+      for (const [folder, icon] of QUICK) {
+        const target = this.path.join(this.homePath, folder);
+        try {
+          if (!fsSync.statSync(target).isDirectory()) continue;
+        } catch (_) { continue; }
+        push(folder, target, icon);
+      }
+      this.updateSidebarActive();
+    }
+
+    updateSidebarActive() {
+      const current = this.path.resolve(this.currentPath);
+      for (const { el, target } of this.sideTargets || []) {
+        const on = target === current;
+        el.classList.toggle('active', on);
+        el.setAttribute('aria-current', on ? 'true' : 'false');
+      }
     }
 
     // Live re-localisation — rebuild this window's UI when the OS language
