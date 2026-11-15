@@ -207,6 +207,9 @@ const SystemDialogs = (() => {
   function pencilIcon() {
     return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>`;
   }
+  function searchIcon() {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
+  }
   function folderPlusIcon() {
     return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L10.414 6.5A1 1 0 0 0 11.121 6.793H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>`;
   }
@@ -304,13 +307,16 @@ const SystemDialogs = (() => {
     // accept rule until then (extension rules already went into activeType).
     let typeRelaxed = false;
 
-    // Effective visibility rule. The caller's custom filter fn always
-    // applies (a hard contract — "All types" must not bypass it); the
-    // extension side is what the type dropdown controls: a selected
-    // extension overrides the accept rule, the relaxed "All types" entry
-    // drops it, and the untouched default keeps the legacy accept filtering.
+    // Effective visibility rule. A selected extension overrides the accept
+    // rule, the relaxed "All types" entry drops it, and the untouched default
+    // keeps the legacy accept filtering.
+    // Callers like the app manager pass both accept and a filter fn for the
+    // same extension. If the fn survived "All types" the dropdown would do
+    // nothing, so picking it relaxes the fn too, but only when there's a real
+    // type to switch away from. A filter-only dialog keeps its filter.
     const currentFilter = (name, isDir) => {
-      if (customFilter && !customFilter(name, isDir)) return false;
+      const dropdownOverridesFilter = typeRelaxed && typeExts.length > 0;
+      if (customFilter && !dropdownOverridesFilter && !customFilter(name, isDir)) return false;
       if (activeType) return isDir || name.toLowerCase().endsWith(activeType);
       if (typeRelaxed) return true;
       if (acceptRule && !acceptRule(name, isDir)) return false;
@@ -442,7 +448,25 @@ const SystemDialogs = (() => {
         newFileBtn.append(newFileIcon, newFileLabel);
       }
 
-      toolbar.append(backBtn, upBtn, pathBarWrap, newFolderBtn);
+      // Narrows the current folder as you type. Not recursive, and it resets
+      // when you move to another folder (same as Explorer).
+      const searchWrap = document.createElement('div');
+      searchWrap.className = 'system-file-dialog-search-wrap';
+      const searchIconEl = document.createElement('span');
+      searchIconEl.className = 'system-file-dialog-search-icon';
+      searchIconEl.innerHTML = searchIcon();
+      const searchInput = document.createElement('input');
+      searchInput.className = 'system-file-dialog-search';
+      searchInput.type = 'text';
+      searchInput.spellcheck = false;
+      searchInput.autocomplete = 'off';
+      searchInput.placeholder = _t('apps.sysdialog.search');
+      searchInput.setAttribute('role', 'searchbox');
+      searchInput.setAttribute('aria-label', _t('apps.sysdialog.searchAria'));
+      searchWrap.append(searchIconEl, searchInput);
+      let searchQuery = '';
+
+      toolbar.append(backBtn, upBtn, pathBarWrap, searchWrap, newFolderBtn);
       if (newFileBtn) toolbar.appendChild(newFileBtn);
 
       // ── Dialog body: sidebar + file grid ─────────────────────────────
@@ -606,6 +630,8 @@ const SystemDialogs = (() => {
         }
         cwd = nextPath;
         if (record) pushHistory(dirPath);
+        searchQuery = '';
+        searchInput.value = '';
         selectedName = null;
         selectedSet.clear();
         if (!isSave) {
@@ -733,6 +759,26 @@ const SystemDialogs = (() => {
         }
       });
 
+      searchInput.addEventListener('input', () => {
+        searchQuery = searchInput.value.trim().toLowerCase();
+        // Drop any selection so a file the search just hid can't still be confirmed.
+        selectedName = null;
+        selectedSet.clear();
+        clearSelection();
+        if (!isSave) { nameInput.value = ''; confirmBtn.disabled = !pickDir; }
+        renderGrid();
+      });
+      searchInput.addEventListener('keydown', event => {
+        // First Escape clears the box; with nothing typed it falls through
+        // and closes the dialog like it does everywhere else.
+        if (event.key === 'Escape' && searchInput.value) {
+          event.stopPropagation();
+          event.preventDefault();
+          searchInput.value = '';
+          searchInput.dispatchEvent(new Event('input'));
+        }
+      });
+
       // ── In-dialog creation (Windows killer feature) ──────────────────
       function selectEntry(name, isDirEntry) {
         const item = [...grid.querySelectorAll('.system-file-dialog-item')]
@@ -813,14 +859,17 @@ const SystemDialogs = (() => {
           }
           return;
         }
-        const visible = pickDir
+        const typeVisible = pickDir
           ? entries.filter(e => e.isDir)
           : entries.filter(e => e.isDir || currentFilter(e.name, false));
+        const visible = searchQuery
+          ? typeVisible.filter(e => e.name.toLowerCase().includes(searchQuery))
+          : typeVisible;
 
         if (visible.length === 0) {
           const empty = document.createElement('div');
           empty.style.cssText = 'grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted);font-size:12px;';
-          empty.textContent = _t('shell.files.emptyFolder');
+          empty.textContent = searchQuery ? _t('apps.sysdialog.noMatches') : _t('shell.files.emptyFolder');
           grid.appendChild(empty);
           return;
         }

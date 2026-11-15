@@ -173,6 +173,63 @@ describe('SystemDialogs service (js/apps/system-dialogs)', () => {
     await p;
   });
 
+  it('"All types" also relaxes a caller filter fn that was passed alongside accept (app manager case)', async () => {
+    const { window, document } = await loadDialogs();
+    const p = window.SystemDialogs.open({
+      startPath: tmpRoot,
+      accept: '.txt',
+      filter: (name, isDir) => isDir || name.endsWith('.txt'),
+    });
+    await settle(80);
+    expect(items(document).map((el) => el.getAttribute('aria-label'))).toEqual(['sub', 'alpha.txt']);
+
+    const select = document.querySelector('.system-file-dialog-type');
+    select.value = '';
+    select.dispatchEvent(new window.Event('change'));
+    await settle(80);
+    expect(items(document).map((el) => el.getAttribute('aria-label'))).toEqual(['sub', 'alpha.txt', 'beta.md']);
+    cancelBtn(document).click();
+    await p;
+  });
+
+  it('a filter-only dialog (no accept) keeps its filter', async () => {
+    const { window, document } = await loadDialogs();
+    const p = window.SystemDialogs.open({ startPath: tmpRoot, filter: (name, isDir) => isDir || name.startsWith('a') });
+    await settle(80);
+    expect(items(document).map((el) => el.getAttribute('aria-label'))).toEqual(['sub', 'alpha.txt']);
+    cancelBtn(document).click();
+    await p;
+  });
+
+  it('search box narrows the current folder as you type and Escape clears it before closing', async () => {
+    const { window, document } = await loadDialogs();
+    const p = window.SystemDialogs.open({ startPath: tmpRoot });
+    await settle(80);
+    const search = document.querySelector('.system-file-dialog-search');
+    expect(search).toBeTruthy();
+    expect(search.placeholder).toBe('Search this folder');
+
+    search.value = 'BET'; // case-insensitive
+    search.dispatchEvent(new window.Event('input'));
+    await settle(80);
+    expect(items(document).map((el) => el.getAttribute('aria-label'))).toEqual(['beta.md']);
+
+    search.value = 'zzz';
+    search.dispatchEvent(new window.Event('input'));
+    await settle(80);
+    expect(items(document)).toEqual([]);
+    expect(document.querySelector('.system-file-dialog-grid').textContent).toContain('(no matches)');
+
+    // Escape with text in the box clears it and leaves the dialog open
+    search.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle(80);
+    expect(search.value).toBe('');
+    expect(items(document).length).toBe(3);
+    expect(document.querySelector('.system-file-dialog-grid')).toBeTruthy();
+    cancelBtn(document).click();
+    await p;
+  });
+
   it('save mode derives the type from the suggested name and appends it to extension-less names', async () => {
     // no accept list — the type comes from the export's suggested name
     const { window, document } = await loadDialogs();
