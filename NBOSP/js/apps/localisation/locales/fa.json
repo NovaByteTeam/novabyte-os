@@ -3270,7 +3270,9 @@
       "newFile": "فایل جدید",
       "createFailed": "ایجاد ناموفق بود",
       "createFolderFailed": "ایجاد پوشه ناموفق بود: {{message}}",
-      "createFileFailed": "ایجاد فایل ناموفق بود: {{message}}"
+      "createFileFailed": "ایجاد فایل ناموفق بود: {{message}}",
+      "fileType": "نوع فایل",
+      "allTypes": "همه انواع (*.*)"
     }
   }
 }

@@ -3270,7 +3270,9 @@
       "newFile": "새 파일",
       "createFailed": "만들기 실패",
       "createFolderFailed": "폴더를 만들 수 없습니다: {{message}}",
-      "createFileFailed": "파일을 만들 수 없습니다: {{message}}"
+      "createFileFailed": "파일을 만들 수 없습니다: {{message}}",
+      "fileType": "파일 형식",
+      "allTypes": "모든 파일 (*.*)"
     }
   }
 }

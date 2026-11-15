@@ -2137,6 +2137,39 @@
   .system-file-dialog-footer > .btn {
     flex: 0 0 auto;
   }
+  /* Type/extension dropdown — the Windows "Save as type" row. */
+  .system-file-dialog-type {
+    flex: 0 1 auto;
+    min-width: 168px;
+    max-width: 260px;
+    height: 30px;
+    padding: 0 26px 0 10px;
+    border: 1px solid var(--border-subtle, #30363d);
+    border-radius: 6px;
+    background-color: var(--bg-elevated, #1c2128);
+    color: var(--text-primary, #e6edf3);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    text-overflow: ellipsis;
+  }
+  .system-file-dialog-type:hover {
+    border-color: var(--border-normal, #8b949e);
+  }
+  .system-file-dialog-type:focus-visible {
+    outline: 2px solid var(--accent, #58a6ff);
+    outline-offset: -2px;
+    border-color: transparent;
+  }
+  .system-file-dialog-type option {
+    background: var(--bg-elevated, #1c2128);
+    color: var(--text-primary, #e6edf3);
+  }
 
   /* ── Windows-Explorer layout: quick-access sidebar + main column ───── */
   .system-file-dialog-body {

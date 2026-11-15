@@ -2965,6 +2965,7 @@ registerApp({
           const picked = await SystemDialogs.open({
             title: _t('settings.privacy.importData'),
             startPath: (typeof os !== 'undefined' ? os.homedir() : null) || '/home/nbosp',
+            accept: '.json',
             filter: (name, isDir) => isDir || name.endsWith('.json'),
           });
           if (!picked) return;

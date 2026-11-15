@@ -280,8 +280,42 @@ const SystemDialogs = (() => {
     // accept: an <input accept> style list, combined with filter if both are given.
     const customFilter = typeof opts.filter === 'function' ? opts.filter : null;
     const acceptRule   = acceptFilter(opts.accept);
-    const filter    = (name, isDir) =>
-      (!customFilter || customFilter(name, isDir)) && (!acceptRule || acceptRule(name, isDir));
+
+    // ── Type / extension dropdown (Windows "Save as type" row) ──────────
+    // The extension(s) the calling app asked for come first and are
+    // pre-selected; "All types (*.*)" is always the escape hatch. Only
+    // extension rules can drive the dropdown — MIME rules keep the legacy
+    // silent filtering. Save mode falls back to the suggested name's
+    // extension so an export still pre-selects its type.
+    const typeExts = (() => {
+      const rules = String(opts.accept || '').split(',').map(r => r.trim().toLowerCase())
+        .filter(r => /^\.[\w+-]+$/.test(r));
+      const unique = [...new Set(rules)];
+      if (unique.length) return unique;
+      if (isSave && typeof opts.suggestedName === 'string') {
+        const match = opts.suggestedName.trim().match(/\.[\w+-]+$/);
+        if (match) return [match[0].toLowerCase()];
+      }
+      return [];
+    })();
+    let activeType = typeExts.length ? typeExts[0] : '';
+    // "All types" is only the RELAXED state once the user picks it from the
+    // dropdown — a dialog opened with a MIME-only accept list keeps its
+    // accept rule until then (extension rules already went into activeType).
+    let typeRelaxed = false;
+
+    // Effective visibility rule. The caller's custom filter fn always
+    // applies (a hard contract — "All types" must not bypass it); the
+    // extension side is what the type dropdown controls: a selected
+    // extension overrides the accept rule, the relaxed "All types" entry
+    // drops it, and the untouched default keeps the legacy accept filtering.
+    const currentFilter = (name, isDir) => {
+      if (customFilter && !customFilter(name, isDir)) return false;
+      if (activeType) return isDir || name.toLowerCase().endsWith(activeType);
+      if (typeRelaxed) return true;
+      if (acceptRule && !acceptRule(name, isDir)) return false;
+      return true;
+    };
     // Start folder: an explicit startPath always wins; otherwise the folder
     // this user last visited (validated to still exist), else the account root.
     let   cwd       = opts.startPath || readLastDir() || getDefaultStartPath();
@@ -488,12 +522,46 @@ const SystemDialogs = (() => {
       cancelBtn.className = 'btn btn-sm';
       cancelBtn.textContent = _t('common.cancel');
 
+      // Type/extension dropdown — the Windows "Save as type" row: the
+      // extension the calling app asked for comes first (pre-selected), and
+      // "All types (*.*)" is always available to switch the grid loose.
+      // Not shown for folder pickers (nothing to filter).
+      let typeSelect = null;
+      if (!pickDir) {
+        typeSelect = document.createElement('select');
+        typeSelect.className = 'system-file-dialog-type';
+        typeSelect.setAttribute('aria-label', _t('apps.sysdialog.fileType'));
+        for (const ext of typeExts) {
+          const option = document.createElement('option');
+          option.value = ext;
+          option.textContent = `*${ext}`;
+          typeSelect.appendChild(option);
+        }
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = _t('apps.sysdialog.allTypes');
+        typeSelect.appendChild(allOption);
+        typeSelect.value = activeType;
+        typeSelect.addEventListener('change', () => {
+          activeType = typeSelect.value;
+          typeRelaxed = activeType === '';
+          selectedName = null;
+          selectedSet.clear();
+          clearSelection();
+          if (!isSave) { nameInput.value = ''; confirmBtn.disabled = !pickDir; }
+          setStatus('');
+          renderGrid();
+        });
+      }
+
       const confirmBtn = document.createElement('button');
       confirmBtn.className = 'btn btn-sm btn-primary';
       confirmBtn.textContent = isSave ? _t('common.save') : pickDir ? _t('common.select') : _t('common.open');
       confirmBtn.disabled = pickDir ? false : (!isSave || !nameInput.value.trim());
 
-      footer.append(statusEl, nameInput, cancelBtn, confirmBtn);
+      footer.append(statusEl, nameInput);
+      if (typeSelect) footer.appendChild(typeSelect);
+      footer.append(cancelBtn, confirmBtn);
       dialog.append(header, toolbar, body, footer);
       overlay.appendChild(dialog);
 
@@ -703,7 +771,9 @@ const SystemDialogs = (() => {
 
       async function createNewFile() {
         try {
-          const ext = impliedExtension(opts);
+          // The dropdown's active type wins; the legacy derivation covers
+          // MIME-only accept lists and no-accept save flows.
+          const ext = activeType || impliedExtension(opts);
           const name = firstFreeName(cwd, NEW_FILE_BASE, ext);
           await fs.promises.writeFile(path.join(cwd, name), '');
           setStatus('');
@@ -745,7 +815,7 @@ const SystemDialogs = (() => {
         }
         const visible = pickDir
           ? entries.filter(e => e.isDir)
-          : entries.filter(e => e.isDir || filter(e.name, false));
+          : entries.filter(e => e.isDir || currentFilter(e.name, false));
 
         if (visible.length === 0) {
           const empty = document.createElement('div');
@@ -864,7 +934,7 @@ const SystemDialogs = (() => {
           finish(results);
           return;
         }
-        const name = nameInput.value.trim();
+        let name = nameInput.value.trim();
         if (!name) return;
         if (isSave && (name === '.' || name === '..' || name.includes('\0') ||
             path.basename(name) !== name)) {
@@ -872,6 +942,12 @@ const SystemDialogs = (() => {
             Notify.show({ title: _t('shell.files.invalidFileName'), body: _t('shell.files.enterFileName'), type: 'error' });
           }
           return;
+        }
+        // Windows behaviour for the type dropdown: the selected type's
+        // extension is appended when the typed name carries none (a name
+        // with a different extension is an explicit user override).
+        if (isSave && activeType && !/\.[\w+-]+$/.test(name)) {
+          name += activeType;
         }
         const fullPath = path.join(cwd, name);
 

@@ -3270,7 +3270,9 @@
       "newFile": "نئی فائل",
       "createFailed": "بنانے میں ناکام",
       "createFolderFailed": "فولڈر نہیں بن سکا: {{message}}",
-      "createFileFailed": "فائل نہیں بن سکی: {{message}}"
+      "createFileFailed": "فائل نہیں بن سکی: {{message}}",
+      "fileType": "فائل کی قسم",
+      "allTypes": "تمام اقسام (*.*)"
     }
   }
 }

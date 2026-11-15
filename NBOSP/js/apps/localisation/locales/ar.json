@@ -3270,7 +3270,9 @@
       "newFile": "ملف جديد",
       "createFailed": "فشل الإنشاء",
       "createFolderFailed": "تعذر إنشاء المجلد: {{message}}",
-      "createFileFailed": "تعذر إنشاء الملف: {{message}}"
+      "createFileFailed": "تعذر إنشاء الملف: {{message}}",
+      "fileType": "نوع الملف",
+      "allTypes": "كل الأنواع (*.*)"
     }
   }
 }

@@ -1625,6 +1625,7 @@ registerApp({
           title: _t('apps.appmanager.installDialogTitle'),
           multiple: true,
           pathOnly: true,
+          accept: '.novaapp',
           filter: (name, isDir) => isDir || name.endsWith('.novaapp'),
         });
         if (!picked?.length) return;

@@ -3270,7 +3270,9 @@
       "newFile": "Yeni Dosya",
       "createFailed": "Oluşturulamadı",
       "createFolderFailed": "Klasör oluşturulamadı: {{message}}",
-      "createFileFailed": "Dosya oluşturulamadı: {{message}}"
+      "createFileFailed": "Dosya oluşturulamadı: {{message}}",
+      "fileType": "Dosya türü",
+      "allTypes": "Tüm dosyalar (*.*)"
     }
   }
 }

@@ -9223,6 +9223,14 @@ const AppSandbox = (() => {
     if (typeof window.SystemDialogs === 'undefined') {
       return respondError(webview, 'nova:sysdialog:save', requestId, 'UNAVAILABLE', 'SystemDialogs not loaded');
     }
+    // accept: same contract as nova:sysdialog:open (normalizePickerAcceptList).
+    // Forwarded so a sandboxed export flow can pre-select its file type in
+    // the dialog's new type dropdown (extension rules only drive the UI).
+    const accept = normalizePickerAcceptList(payload?.accept);
+    if (accept === null) {
+      return respondError(webview, 'nova:sysdialog:save', requestId, 'INVALID_ARGS',
+        'accept must be a string or an array of at most 20 MIME types and/or file extensions (e.g. ".json")');
+    }
     try {
       const picked = await window.SystemDialogs.save({
         title: typeof payload?.title === 'string' ? payload.title.slice(0, 100) : undefined,
@@ -9232,6 +9240,7 @@ const AppSandbox = (() => {
         startPath: typeof payload?.startPath === 'string' && payload.startPath.length <= 4096
           ? payload.startPath
           : undefined,
+        accept: accept || undefined,
       });
       if (!picked) return respond(webview, 'nova:sysdialog:save', requestId, { cancelled: true });
       if (typeof picked.path !== 'string') {

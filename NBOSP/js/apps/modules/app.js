@@ -224,6 +224,7 @@ registerApp({
     importBtn.addEventListener('click', async () => {
       const file = await SystemDialogs.open({
         title: _t('apps.modules.io.importDialogTitle'),
+        accept: '.json',
         filter: (name, isDir) => isDir || name.toLowerCase().endsWith('.json'),
       });
       if (!file) return;

@@ -3270,7 +3270,9 @@
       "newFile": "Neue Datei",
       "createFailed": "Erstellen fehlgeschlagen",
       "createFolderFailed": "Der Ordner konnte nicht erstellt werden: {{message}}",
-      "createFileFailed": "Die Datei konnte nicht erstellt werden: {{message}}"
+      "createFileFailed": "Die Datei konnte nicht erstellt werden: {{message}}",
+      "fileType": "Dateityp",
+      "allTypes": "Alle Dateien (*.*)"
     }
   }
 }

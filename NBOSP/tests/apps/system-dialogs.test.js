@@ -151,6 +151,81 @@ describe('SystemDialogs service (js/apps/system-dialogs)', () => {
     await p2;
   });
 
+  it('type dropdown pre-selects the caller extension; "All types" unlocks the grid', async () => {
+    const { window, document } = await loadDialogs();
+    const p = window.SystemDialogs.open({ startPath: tmpRoot, accept: '.txt' });
+    await settle(80);
+
+    const select = document.querySelector('.system-file-dialog-type');
+    expect(select).toBeTruthy();
+    expect(select.getAttribute('aria-label')).toBe('File type');
+    expect([...select.options].map((o) => o.textContent)).toEqual(['*.txt', 'All types (*.*)']);
+    expect(select.value).toBe('.txt'); // the app's extension is pre-selected
+    // grid filtered to the pre-selected type (folders always visible)
+    expect(items(document).map((el) => el.getAttribute('aria-label'))).toEqual(['sub', 'alpha.txt']);
+
+    // switching to "All types" re-renders the grid without the extension rule
+    select.value = '';
+    select.dispatchEvent(new window.Event('change'));
+    await settle(80);
+    expect(items(document).map((el) => el.getAttribute('aria-label'))).toEqual(['sub', 'alpha.txt', 'beta.md']);
+    cancelBtn(document).click();
+    await p;
+  });
+
+  it('save mode derives the type from the suggested name and appends it to extension-less names', async () => {
+    // no accept list — the type comes from the export's suggested name
+    const { window, document } = await loadDialogs();
+    const p = window.SystemDialogs.save({ startPath: tmpRoot, suggestedName: 'novabyte-export.json' });
+    await settle(80);
+    const select = document.querySelector('.system-file-dialog-type');
+    expect([...select.options].map((o) => o.textContent)).toEqual(['*.json', 'All types (*.*)']);
+    expect(select.value).toBe('.json');
+    expect(nameInput(document).value).toBe('novabyte-export.json');
+    cancelBtn(document).click();
+    await p;
+
+    // a typed name without extension gets the selected type appended
+    const { window: w2, document: d2 } = await loadDialogs();
+    const p2 = w2.SystemDialogs.save({ startPath: tmpRoot, accept: '.json' });
+    await settle(80);
+    const ni = nameInput(d2);
+    ni.value = 'myexport';
+    ni.dispatchEvent(new w2.Event('input', { bubbles: true }));
+    confirmBtn(d2).click();
+    await expect(p2).resolves.toEqual({ path: nodePath.join(tmpRoot, 'myexport.json'), name: 'myexport.json' });
+
+    // a name carrying its own (different) extension is an explicit override
+    const { window: w3, document: d3 } = await loadDialogs();
+    const p3 = w3.SystemDialogs.save({ startPath: tmpRoot, accept: '.json' });
+    await settle(80);
+    const ni3 = nameInput(d3);
+    ni3.value = 'custom.md';
+    ni3.dispatchEvent(new w3.Event('input', { bubbles: true }));
+    confirmBtn(d3).click();
+    await expect(p3).resolves.toEqual({ path: nodePath.join(tmpRoot, 'custom.md'), name: 'custom.md' });
+    nodeFs.rmSync(nodePath.join(tmpRoot, 'custom.md'), { force: true });
+    nodeFs.rmSync(nodePath.join(tmpRoot, 'myexport.json'), { force: true });
+  });
+
+  it('dialogs without any derivable type offer only "All types"; folder pickers hide the dropdown', async () => {
+    const { window, document } = await loadDialogs();
+    const p = window.SystemDialogs.open({ startPath: tmpRoot });
+    await settle(80);
+    const select = document.querySelector('.system-file-dialog-type');
+    expect([...select.options].map((o) => o.textContent)).toEqual(['All types (*.*)']);
+    expect(select.value).toBe('');
+    cancelBtn(document).click();
+    await p;
+
+    const { window: w2, document: d2 } = await loadDialogs();
+    const p2 = w2.SystemDialogs.open({ startPath: tmpRoot, directory: true });
+    await settle(80);
+    expect(d2.querySelector('.system-file-dialog-type')).toBeNull();
+    cancelBtn(d2).click();
+    await p2;
+  });
+
   it('directory mode: selecting a folder resolves { path, name } (falls back to cwd)', async () => {
     const { window, document } = await loadDialogs();
     const p = window.SystemDialogs.open({ title: 'Choose Folder', directory: true, startPath: tmpRoot });

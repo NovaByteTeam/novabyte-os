@@ -3270,7 +3270,9 @@
       "newFile": "Faili Mpya",
       "createFailed": "Imeshindwa kuunda",
       "createFolderFailed": "Imeshindwa kuunda folda: {{message}}",
-      "createFileFailed": "Imeshindwa kuunda faili: {{message}}"
+      "createFileFailed": "Imeshindwa kuunda faili: {{message}}",
+      "fileType": "Aina ya faili",
+      "allTypes": "Aina zote (*.*)"
     }
   }
 }

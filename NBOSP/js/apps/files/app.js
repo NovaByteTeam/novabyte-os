@@ -1800,12 +1800,17 @@
         // App Manager only accepts a lowercase ".novaapp" suffix.
         const name = this.path.basename(filePath).replace(/\.novaapp$/i, '.novaapp');
         const file = new File([data], name, { type: 'application/octet-stream' });
-        // Bugfix: right-click Install on a .novaapp failed with "ENOENT: open ''".
-        // NW.js DOM File objects carry a non-standard `.path`, but files built via
-        // the `new File(...)` constructor get path '' — App Manager then calls
-        // fs.readFile('') and dies. Re-attach the real absolute path we read from
-        // (a plain property on NW.js File objects) so the native fast-path works.
-        file.path = filePath;
+        // Bugfix: right-click Install on a .novaapp failed with
+        // "ENOENT: open ''" — files built via `new File(...)` get path ''.
+        // Re-attaching the absolute path used to be a plain assignment, but
+        // NW.js ≥0.120 makes File#path a getter-only accessor, so that throws
+        // ("Cannot set property path of #<File> which has only a getter") and
+        // the whole install dies. Shadow the accessor with an own data
+        // property instead; if shadowing is ever refused, the synthetic File
+        // still carries the bytes and App Manager falls back to file.text().
+        try {
+          Object.defineProperty(file, 'path', { value: filePath, configurable: true });
+        } catch (_) { /* rely on the file.text() fallback in processFile */ }
 
         // Same gate the window manager applies to a dropped file.
         if (window.Scanner) {
@@ -2080,7 +2085,11 @@
     minSize: [480, 340],
     init(content, state, options) {
       if (typeof process !== 'undefined' && process.platform === 'linux') {
-        new LinuxFilesApp(content, state, options).mount();
+        const app = new LinuxFilesApp(content, state, options);
+        // Test/hook affordance for the Linux backend (mirrors App Manager's
+        // content._novaAppProcessFile hook) — no other consumer.
+        content._linuxFilesApp = app;
+        app.mount();
         return;
       }
       const app = new FilesApp(content, state, options);

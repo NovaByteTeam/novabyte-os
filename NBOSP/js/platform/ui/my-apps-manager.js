@@ -372,6 +372,7 @@ const MyAppsManager = (() => {
     fileBtn.addEventListener('click', async () => {
       const picked = await SystemDialogs.open({
         title: t('apps.myApps.chooseNovaapp', 'Choose .novaapp'),
+        accept: '.novaapp,.json',
         filter: (name, isDir) => isDir || /\.(novaapp|json)$/i.test(name),
       });
       if (!picked) return;

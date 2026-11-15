@@ -3270,7 +3270,9 @@
       "newFile": "Новый файл",
       "createFailed": "Не удалось создать",
       "createFolderFailed": "Не удалось создать папку: {{message}}",
-      "createFileFailed": "Не удалось создать файл: {{message}}"
+      "createFileFailed": "Не удалось создать файл: {{message}}",
+      "fileType": "Тип файлов",
+      "allTypes": "Все типы (*.*)"
     }
   }
 }

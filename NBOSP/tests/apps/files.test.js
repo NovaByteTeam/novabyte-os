@@ -136,6 +136,63 @@ describe('Files app (js/apps/files)', () => {
     state.cleanups.forEach(cleanup => cleanup());
   });
 
+  it('installing a .novaapp survives getter-only File#path and hands App Manager a usable File', async () => {
+    // Regression for "Cannot install package / Cannot set property path of
+    // #<File> which has only a getter": NW.js ≥0.120 defines File#path as a
+    // getter-only accessor, so the old plain assignment threw and the whole
+    // install died before reaching App Manager.
+    const notifyCalls = [];
+    const handedOff = [];
+    const managerWindow = {
+      appId: 'com.nbosp.appmanager',
+      content: { _novaAppProcessFile: async (file) => { handedOff.push(file); return { ok: true }; } },
+    };
+    const fsPromises = {
+      readdir: vi.fn(async () => []),
+      lstat: vi.fn(),
+      stat: vi.fn(async () => ({ isFile: () => true, isDirectory: () => false, size: 2048 })),
+      readFile: vi.fn(async () => new Uint8Array([1, 2, 3, 4])),
+    };
+    const loaded = await loadWindowApp('files', {
+      stubs: {
+        extra: {
+          process: { platform: 'linux' },
+          FS: { rootId: '/home/nbosp' },
+          Notify: { show: (n) => notifyCalls.push(n) },
+          OS: { windows: new Map() },
+          WM: { createWindow: () => managerWindow },
+          require: (name) => {
+            if (name === 'fs') return { promises: fsPromises, constants: {} };
+            if (name === 'path') return linuxPath;
+            if (name === 'os') return { homedir: () => '/home/nbosp' };
+            if (name === 'child_process') return {};
+            throw new Error(`Unexpected module: ${name}`);
+          },
+        },
+      },
+    });
+    // Emulate NW.js ≥0.120: File#path becomes a getter-only prototype accessor.
+    Object.defineProperty(loaded.window.File.prototype, 'path', {
+      get() { return ''; },
+      configurable: true,
+    });
+
+    const content = initApp(loaded.app, { window: loaded.window, state: { cleanups: [] } });
+    await settle();
+
+    const linuxApp = content._linuxFilesApp;
+    expect(linuxApp).toBeTruthy();
+    await linuxApp.installPackage('/home/nbosp/Downloads/MyApp.NovaApp');
+
+    // no failure notification — the old code died with the TypeError here
+    expect(notifyCalls.filter((n) => n.title === 'Cannot install package')).toEqual([]);
+    // and App Manager received a synthetic File with a usable path + name
+    expect(handedOff).toHaveLength(1);
+    expect(handedOff[0].name).toBe('MyApp.novaapp');
+    expect(handedOff[0].path).toBe('/home/nbosp/Downloads/MyApp.NovaApp');
+    expect(handedOff[0] instanceof loaded.window.File).toBe(true);
+  });
+
   it('renders the toolbar, default system folders and seeded files in the grid', async () => {
     const fs = makeFS();
     await fs.createFile(fs.rootId, 'readme.txt', 'hello', 'text/plain');

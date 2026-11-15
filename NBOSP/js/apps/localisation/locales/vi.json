@@ -3270,7 +3270,9 @@
       "newFile": "Tệp mới",
       "createFailed": "Tạo thất bại",
       "createFolderFailed": "Không thể tạo thư mục: {{message}}",
-      "createFileFailed": "Không thể tạo tệp: {{message}}"
+      "createFileFailed": "Không thể tạo tệp: {{message}}",
+      "fileType": "Loại tệp",
+      "allTypes": "Tất cả các loại (*.*)"
     }
   }
 }

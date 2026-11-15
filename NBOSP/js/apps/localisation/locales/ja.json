@@ -3270,7 +3270,9 @@
       "newFile": "新しいファイル",
       "createFailed": "作成に失敗しました",
       "createFolderFailed": "フォルダーを作成できませんでした: {{message}}",
-      "createFileFailed": "ファイルを作成できませんでした: {{message}}"
+      "createFileFailed": "ファイルを作成できませんでした: {{message}}",
+      "fileType": "ファイルの種類",
+      "allTypes": "すべてのファイル (*.*)"
     }
   }
 }

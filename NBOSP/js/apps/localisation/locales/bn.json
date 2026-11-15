@@ -3270,7 +3270,9 @@
       "newFile": "নতুন ফাইল",
       "createFailed": "তৈরি করতে ব্যর্থ",
       "createFolderFailed": "ফোল্ডার তৈরি করা যায়নি: {{message}}",
-      "createFileFailed": "ফাইল তৈরি করা যায়নি: {{message}}"
+      "createFileFailed": "ফাইল তৈরি করা যায়নি: {{message}}",
+      "fileType": "ফাইলের ধরন",
+      "allTypes": "সব ধরন (*.*)"
     }
   }
 }

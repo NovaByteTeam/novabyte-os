@@ -3270,7 +3270,9 @@
       "newFile": "New file",
       "createFailed": "Create failed",
       "createFolderFailed": "Could not create the folder: {{message}}",
-      "createFileFailed": "Could not create the file: {{message}}"
+      "createFileFailed": "Could not create the file: {{message}}",
+      "fileType": "File type",
+      "allTypes": "All types (*.*)"
     }
   }
 }

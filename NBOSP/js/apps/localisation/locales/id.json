@@ -3270,7 +3270,9 @@
       "newFile": "Berkas Baru",
       "createFailed": "Gagal membuat",
       "createFolderFailed": "Tidak dapat membuat folder: {{message}}",
-      "createFileFailed": "Tidak dapat membuat berkas: {{message}}"
+      "createFileFailed": "Tidak dapat membuat berkas: {{message}}",
+      "fileType": "Jenis berkas",
+      "allTypes": "Semua jenis (*.*)"
     }
   }
 }

@@ -3270,7 +3270,9 @@
       "newFile": "新建文件",
       "createFailed": "创建失败",
       "createFolderFailed": "无法创建文件夹：{{message}}",
-      "createFileFailed": "无法创建文件：{{message}}"
+      "createFileFailed": "无法创建文件：{{message}}",
+      "fileType": "文件类型",
+      "allTypes": "所有类型 (*.*)"
     }
   }
 }

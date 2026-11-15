@@ -3270,7 +3270,9 @@
       "newFile": "नई फ़ाइल",
       "createFailed": "बनाने में विफल",
       "createFolderFailed": "फ़ोल्डर नहीं बनाया जा सका: {{message}}",
-      "createFileFailed": "फ़ाइल नहीं बनाई जा सकी: {{message}}"
+      "createFileFailed": "फ़ाइल नहीं बनाई जा सकी: {{message}}",
+      "fileType": "फ़ाइल प्रकार",
+      "allTypes": "सभी प्रकार (*.*)"
     }
   }
 }
