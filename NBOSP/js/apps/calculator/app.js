@@ -223,7 +223,7 @@
     fragment.appendChild(createEl('button', {
       textContent: '=',
       'data-key':  '=',
-      style: 'height:42px;border:1px solid var(--accent);border-radius:12px;background:var(--accent);color:#fff;font-size:16px;font-weight:700;cursor:pointer;grid-column:1/-1;transition:transform 0.05s ease;'
+      style: 'height:42px;border:1px solid var(--accent);border-radius:12px;background:var(--accent);color:var(--text-on-accent);font-size:16px;font-weight:700;cursor:pointer;grid-column:1/-1;transition:transform 0.05s ease;'
     }));
 
     buttons.appendChild(fragment);

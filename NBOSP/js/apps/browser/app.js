@@ -363,7 +363,7 @@ registerApp({
         });
         const submit = createEl('button', {
           type: 'submit', textContent: submitLabel,
-          style: 'padding:8px 14px;border:0;border-radius:7px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;'
+          style: 'padding:8px 14px;border:0;border-radius:7px;background:var(--accent);color:var(--text-on-accent);font-weight:600;cursor:pointer;'
         });
         actions.append(cancel, submit);
         dialog.appendChild(actions);
@@ -4340,7 +4340,7 @@ registerApp({
           const lbl = createEl('span', { textContent: info.label, style: 'flex:1;font-size:13px;' });
           const hint = createEl('span', { textContent: info.url.replace('https://', '').split('/')[0], style: 'font-size:11px;color:var(--text-muted);' });
           row.append(radio, lbl, hint);
-          if (key === eng) row.appendChild(createEl('span', { textContent: _t('apps.browser.settings.defaultEngineBadge'), style: 'font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;' }));
+          if (key === eng) row.appendChild(createEl('span', { textContent: _t('apps.browser.settings.defaultEngineBadge'), style: 'font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:var(--text-on-accent);' }));
           radio.addEventListener('change', () => { if (radio.checked) { saveSetting('searchEngine', key); renderSettingsPage('search'); } });
           seList.appendChild(row);
         }

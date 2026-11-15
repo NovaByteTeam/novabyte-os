@@ -61,6 +61,18 @@ describe('Calendar app (js/apps/calendar)', () => {
     expect(miniToday).toBeTruthy();
   });
 
+  it('uses readable foreground text for colored event labels', async () => {
+    const { app, window } = await loadWindowApp('calendar');
+    window.localStorage.setItem(STORE_KEY, JSON.stringify([
+      { id: 'evt-contrast', title: 'Contrast check', date: todayStr(), color: '#d29922' },
+    ]));
+    const content = initApp(app, { window });
+    const eventLabel = [...content.querySelectorAll('div')].find((el) =>
+      el.textContent === 'Contrast check' && el.style.fontSize === '10px');
+    expect(eventLabel).toBeTruthy();
+    expect(eventLabel.style.color).toBe('rgb(0, 0, 0)');
+  });
+
   it('creates an event through the modal and persists it to localStorage', async () => {
     const { app, window, document } = await loadWindowApp('calendar', { stubs: { extra: { Notify: { show: () => {} } } } });
     const content = initApp(app, { window });

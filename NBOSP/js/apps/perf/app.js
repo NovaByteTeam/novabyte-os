@@ -690,7 +690,7 @@ registerApp({
       renderLongTaskLog();
     }, { signal: ac.signal });
 
-    exportBtn.addEventListener('click', () => {
+    exportBtn.addEventListener('click', async () => {
       const payload = {
         exportedAt: new Date().toISOString(),
         current: {
@@ -709,16 +709,16 @@ registerApp({
         perWindowDomNodes: (typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [])
           .map(w => ({ appId: w.appId, id: w.id, domNodes: w.content ? w.content.querySelectorAll('*').length : null })),
       };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = createEl('a', { href: url, download: 'nbosp-perf-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // Same delayed-revoke reasoning as console.js's export: some browsers
-      // cancel the download if the blob URL is revoked before the click's
-      // download actually starts.
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      try {
+        await SystemDialogs.saveContent({
+          title: _t('apps.perf.export'),
+          suggestedName: 'nbosp-perf-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json',
+          accept: '.json',
+        }, JSON.stringify(payload, null, 2));
+      } catch (error) {
+        console.error('[Perf] Export failed:', error);
+        Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error', appName: 'Performance Monitor' });
+      }
     }, { signal: ac.signal });
 
     renderPerWindow();

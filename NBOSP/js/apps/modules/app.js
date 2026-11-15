@@ -190,17 +190,15 @@ registerApp({
     const addRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:12px;flex-shrink:0;' });
     const idInput = createEl('input', { placeholder: _t('apps.modules.form.idPlaceholder'), style: 'width:140px;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
     const pathInput = createEl('input', { placeholder: _t('apps.modules.form.pathPlaceholder'), style: 'flex:1;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
-    const addBtn = createEl('button', { textContent: _t('apps.modules.form.add'), style: 'padding:6px 14px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+    const addBtn = createEl('button', { textContent: _t('apps.modules.form.add'), style: 'padding:6px 14px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
     addRow.appendChild(idInput);
     addRow.appendChild(pathInput);
     addRow.appendChild(addBtn);
     content.appendChild(addRow);
 
-    // Export/import the module list ({id, path}[] only — not safety
+    // Export/import only the module list ({id, path}[]) — not safety
     // overrides or reload history, which are per-installation debugging
-    // state, not something you'd want to carry between machines/sessions
-    // along with a shared list). Matches the JSON export pattern used by
-    // console.js/perf.js/sysaccess.js.
+    // state. Both directions use the in-OS file dialogs.
     const ioRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:8px;flex-shrink:0;' });
     const exportBtn = createEl('button', { textContent: _t('apps.modules.io.exportList'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
     const importBtn = createEl('button', { textContent: _t('apps.modules.io.importList'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
@@ -208,17 +206,19 @@ registerApp({
     ioRow.appendChild(importBtn);
     content.appendChild(ioRow);
 
-    exportBtn.addEventListener('click', () => {
-      const blob = new Blob([JSON.stringify(modules, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = createEl('a', { href: url, download: 'nbosp-modules-list-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // Same delayed-revoke pattern as other export buttons in this
-      // codebase (console.js/perf.js/sysaccess.js) — some browsers cancel
-      // the download if the blob URL is revoked before it actually starts.
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    exportBtn.addEventListener('click', async () => {
+      try {
+        const destination = await SystemDialogs.saveContent({
+          title: _t('apps.modules.io.exportList'),
+          suggestedName: 'nbosp-modules-list-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json',
+          accept: '.json',
+        }, JSON.stringify(modules, null, 2));
+        if (destination) reloadSummaryEl.textContent = destination.path;
+      } catch (error) {
+        console.error('[Modules] Export failed:', error);
+        reloadSummaryEl.textContent = error.message;
+        reloadSummaryEl.style.color = 'var(--text-danger)';
+      }
     }, { signal: ac.signal });
 
     importBtn.addEventListener('click', async () => {
@@ -375,7 +375,7 @@ registerApp({
       const saveBtn = createEl('button', {
         textContent: _t('apps.modules.editor.save'),
         'aria-label': _t('apps.modules.editor.save'),
-        style: 'padding:6px 16px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:12px;',
+        style: 'padding:6px 16px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;',
       });
       saveBtn.dataset.role = 'save';
       saveBtn.addEventListener('click', async () => {
@@ -434,7 +434,7 @@ registerApp({
         }));
         const btnRow = createEl('div', { style: 'display:flex;gap:8px;justify-content:flex-end;' });
         const cancelBtn = createEl('button', { textContent: _t('common.cancel'), style: 'padding:6px 12px;background:transparent;color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;' });
-        const proceedBtn = createEl('button', { textContent: _t('apps.modules.confirm.reloadAnyway'), style: 'padding:6px 12px;background:var(--text-danger);color:#fff;border:none;border-radius:4px;cursor:pointer;' });
+        const proceedBtn = createEl('button', { textContent: _t('apps.modules.confirm.reloadAnyway'), style: 'padding:6px 12px;background:var(--text-danger);color:var(--bg-base);border:none;border-radius:4px;cursor:pointer;' });
         cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
         proceedBtn.addEventListener('click', () => { overlay.remove(); resolve(true); });
         btnRow.appendChild(cancelBtn);
@@ -621,7 +621,7 @@ registerApp({
         topLine.appendChild(info);
 
         const btns = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
-        const btn = createEl('button', { textContent: _t('apps.modules.row.reload'), style: 'padding:4px 12px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+        const btn = createEl('button', { textContent: _t('apps.modules.row.reload'), style: 'padding:4px 12px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
         btn.dataset.role = 'reload';
         btn.addEventListener('click', () => reloadOne(mod, btn), { signal: ac.signal });
         btns.appendChild(btn);

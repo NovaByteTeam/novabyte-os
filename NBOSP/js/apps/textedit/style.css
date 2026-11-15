@@ -10,7 +10,7 @@
 
     display: flex;
     align-items: center;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     overflow-x: auto;
     flex-shrink: 0;
@@ -65,7 +65,7 @@
     left: 0;
     width: var(--quill-gutter-width, 58px);
     flex-shrink: 0;
-    background: #030508;
+    background: var(--bg-sunken);
     border-right: 1px solid var(--border-subtle);
     overflow: hidden;
     font-family: var(--font-mono);
@@ -222,7 +222,7 @@
     border-top: 1px solid var(--border-subtle);
     font-size: 11px;
     color: var(--text-muted);
-    background: rgba(0, 0, 0, 0.15);
+    background: var(--bg-elevated);
   
 }
 

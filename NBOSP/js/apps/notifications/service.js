@@ -281,11 +281,11 @@ function handleNotificationActionClick(notif, actionDef) {
 
 // Shared inline styles for the two "action" buttons (toast + panel row).
 // Was duplicated as two near-identical cssText strings before.
-const ACTION_BUTTON_STYLE = 'padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;background:rgba(88,166,255,0.2);color:#58a6ff;border:1px solid rgba(88,166,255,0.4);cursor:pointer;transition:all 0.15s;';
+const ACTION_BUTTON_STYLE = 'padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;background:var(--accent-muted);color:var(--text-link);border:1px solid var(--border-default);cursor:pointer;transition:all 0.15s;';
 
 function wireActionButtonHover(btn) {
-  btn.addEventListener('pointerenter', () => { btn.style.background = 'rgba(88,166,255,0.35)'; });
-  btn.addEventListener('pointerleave', () => { btn.style.background = 'rgba(88,166,255,0.2)'; });
+  btn.addEventListener('pointerenter', () => { btn.style.background = 'var(--bg-hover)'; });
+  btn.addEventListener('pointerleave', () => { btn.style.background = 'var(--accent-muted)'; });
 }
 
 // Epoch-ms timestamp -> short "time ago" / "running for" string. Kept as a

@@ -47,7 +47,7 @@ registerApp({
       .em-toolbar{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--border);background:var(--bg-elevated);flex-shrink:0;}
       .em-tb-btn{background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:5px 8px;border-radius:6px;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;transition:background .12s,color .12s;}
       .em-tb-btn:hover{background:var(--bg-elevated-2,rgba(255,255,255,.06));color:var(--text-primary);}
-      .em-tb-btn.em-primary{background:var(--accent);color:#fff;}
+      .em-tb-btn.em-primary{background:var(--accent);color:var(--text-on-accent);}
       .em-tb-btn.em-primary:hover{opacity:.88;}
       .em-tb-sep{flex:1;}
       .em-main{display:flex;flex:1;overflow:hidden;}
@@ -58,7 +58,7 @@ registerApp({
       .em-sb-row{display:flex;align-items:center;gap:7px;padding:7px 14px;font-size:13px;cursor:pointer;color:var(--text-secondary);white-space:nowrap;transition:background .1s;}
       .em-sb-row:hover{background:rgba(255,255,255,.05);}
       .em-sb-row.active{background:rgba(99,102,241,.15);color:var(--accent);}
-      .em-sb-badge{margin-left:auto;background:var(--accent);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;}
+      .em-sb-badge{margin-left:auto;background:var(--accent);color:var(--text-on-accent);border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;}
       /* List column */
       .em-list-col{width:280px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
       .em-list-tb{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0;}
@@ -72,7 +72,7 @@ registerApp({
       .em-msg-row.unread .em-msg-from{font-weight:700;color:var(--text-primary);}
       .em-msg-row.unread .em-msg-subj{font-weight:600;color:var(--text-secondary);}
       .em-msg-check{width:14px;height:14px;flex-shrink:0;accent-color:var(--accent);cursor:pointer;margin-top:3px;}
-      .em-avatar{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;}
+      .em-avatar{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--text-on-accent);}
       .em-msg-meta{flex:1;min-width:0;}
       .em-msg-from{font-size:12px;font-weight:500;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
       .em-msg-subj{font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;}
@@ -98,7 +98,7 @@ registerApp({
       .em-btn{background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-secondary);padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer;transition:background .1s;}
       .em-btn:hover{background:var(--bg-elevated-2,rgba(255,255,255,.08));color:var(--text-primary);}
       .em-btn:disabled{opacity:.4;cursor:default;}
-      .em-btn.danger{color:#e55;border-color:rgba(229,85,85,.4);}
+      .em-btn.danger{color:var(--text-danger);border-color:color-mix(in srgb,var(--text-danger) 40%,transparent);}
       .em-btn.danger:hover{background:rgba(229,85,85,.1);}
       /* Setup */
       .em-setup{flex:1;padding:24px;overflow-y:auto;}
@@ -109,7 +109,7 @@ registerApp({
       .em-input:focus{border-color:var(--accent);}
       .em-proto-row{display:flex;gap:6px;}
       .em-proto-btn{flex:1;padding:7px 0;border:1px solid var(--border);border-radius:7px;background:var(--bg-elevated);color:var(--text-secondary);cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;}
-      .em-proto-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+      .em-proto-btn.active{background:var(--accent);color:var(--text-on-accent);border-color:var(--accent);}
       .em-row2{display:flex;gap:8px;}
       .em-row2>*{flex:1;}
       /* Compose */
@@ -798,7 +798,7 @@ registerApp({
       });
       sigW.appendChild(sigTa);
 
-      const errEl = createEl('div', { style: 'color:#e55;font-size:12px;min-height:14px;' });
+      const errEl = createEl('div', { style: 'color:var(--text-danger);font-size:12px;min-height:14px;' });
       const footRow = createEl('div', { style: 'display:flex;gap:8px;' });
       const cancelBtn = createEl('button', {
         className: 'em-btn',
@@ -807,7 +807,7 @@ registerApp({
       });
       const saveBtn = createEl('button', {
         textContent: existing ? _t('common.save') : _t('apps.email.setup.addAccount'),
-        style: 'flex:1;padding:9px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;',
+        style: 'flex:1;padding:9px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;',
       });
 
       if (existing) {
@@ -1252,7 +1252,7 @@ registerApp({
         readerMode = 'error';
         readerMsgCtx = null;
         readerEl.replaceChildren();
-        const w = createEl('div', { className: 'em-empty', style: 'color:#e55;' });
+        const w = createEl('div', { className: 'em-empty', style: 'color:var(--text-danger);' });
         w.textContent = e.message;
         readerEl.appendChild(w);
       }
@@ -1558,14 +1558,14 @@ registerApp({
       const foot = createEl('div', { className: 'em-compose-foot' });
       const sendBtn = createEl('button', {
         textContent: _t('apps.email.compose.send'),
-        style: 'background:var(--accent);color:#fff;border:none;border-radius:7px;padding:6px 16px;font-size:13px;font-weight:600;cursor:pointer;',
+        style: 'background:var(--accent);color:var(--text-on-accent);border:none;border-radius:7px;padding:6px 16px;font-size:13px;font-weight:600;cursor:pointer;',
       });
       const attachBtn = createEl('button', {
         className: 'em-btn',
         innerHTML: '&#128206;',
         title: _t('apps.email.compose.attachFileTitle'),
       });
-      const errSpan = createEl('span', { style: 'font-size:11px;color:#e55;flex:1;' });
+      const errSpan = createEl('span', { style: 'font-size:11px;color:var(--text-danger);flex:1;' });
       attachBtn.addEventListener('click', pickAttachments, { signal: appSignal });
 
       sendBtn.addEventListener('click', async () => {

@@ -47,9 +47,13 @@ function makeOS(devMode) {
   return { settings: { get: (key) => (key === 'devMode' ? devMode : undefined) }, events: { on: vi.fn() } };
 }
 
-async function loadEditor({ devMode = true, registry = makeRegistryStub() } = {}) {
+async function loadEditor({
+  devMode = true,
+  registry = makeRegistryStub(),
+  systemDialogs = { open: vi.fn(async () => null) },
+} = {}) {
   const loaded = await loadWindowApp('novareg', {
-    stubs: { extra: { OS: makeOS(devMode), NovaRegistry: registry } },
+    stubs: { extra: { OS: makeOS(devMode), NovaRegistry: registry, SystemDialogs: systemDialogs } },
   });
   const { window } = loaded;
   const state = { cleanups: [] };
@@ -90,6 +94,21 @@ describe('NovaReg app (js/apps/novareg)', () => {
 
     const gated = await loadEditor({ devMode: false });
     expect(gated.content.textContent).toContain('Enable Developer Mode');
+  });
+
+  it('uses SystemDialogs rather than a native file input for registry imports', async () => {
+    const systemDialogs = { open: vi.fn(async () => null) };
+    const { content, window } = await loadEditor({ systemDialogs });
+    const importButton = [...content.querySelectorAll('button')].find(button => button.textContent === 'Import');
+
+    click(window, importButton);
+    await settle();
+
+    expect(systemDialogs.open).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Import Registry Data',
+      accept: '.json,.nvreg,application/json,text/plain',
+    }));
+    expect(content.querySelector('input[type="file"]')).toBeNull();
   });
 
   it('shows a friendly name for the selected key at boot and after navigation', async () => {

@@ -183,7 +183,7 @@ registerApp({
         // impossible for the id to go stale regardless of how often/when
         // render() re-runs relative to when the click actually fires.
         const btns = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
-        const focusBtn = createEl('button', { textContent: _t('apps.inspector.focus'), style: 'padding:3px 10px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
+        const focusBtn = createEl('button', { textContent: _t('apps.inspector.focus'), style: 'padding:3px 10px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
         focusBtn.dataset.windowId = win.id;
         focusBtn.addEventListener('click', (e) => {
           e.stopPropagation(); // don't also toggle the detail panel
@@ -258,7 +258,7 @@ registerApp({
     // local to render() and would otherwise require hoisting state out or
     // risking a stale closure if render() ran again (e.g. via a live
     // event) between the last paint and the click actually firing.
-    exportBtn.addEventListener('click', () => {
+    exportBtn.addEventListener('click', async () => {
       const apps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
       const wins = typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [];
       const q = filterInput.value.trim().toLowerCase();
@@ -278,16 +278,16 @@ registerApp({
           minimized: !!w.minimized, maximized: !!w.maximized, focused: OS.focusedWindowId === w.id,
         })),
       };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = createEl('a', { href: url, download: 'nbosp-inspector-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // Same delayed-revoke pattern as the export buttons in the other
-      // apps in this codebase — some browsers cancel the download if the
-      // blob URL is revoked before the click's download actually starts.
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      try {
+        await SystemDialogs.saveContent({
+          title: _t('apps.inspector.export'),
+          suggestedName: 'nbosp-inspector-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json',
+          accept: '.json',
+        }, JSON.stringify(payload, null, 2));
+      } catch (error) {
+        console.error('[Inspector] Export failed:', error);
+        Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error', appName: 'Inspector' });
+      }
     }, { signal: ac.signal });
 
     // Live updates: OS.events fires 'app:opened' / 'app:closed' / 'app:focused'

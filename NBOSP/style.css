@@ -24,8 +24,8 @@
     --bg-elevated: rgba(14, 18, 28, 0.22);
     --bg-overlay: rgba(20, 26, 40, 0.14);
     --bg-sunken: rgba(3, 5, 8, 0.35);
-    --bg-hover: rgba(255, 255, 255, 0.06);
-    --bg-sidebar: rgba(4, 6, 12, 0.20);
+    --bg-hover: color-mix(in srgb, var(--text-primary) 8%, var(--bg-base));
+    --bg-sidebar: var(--bg-sunken);
 
     /* Text colours — primary, secondary, muted, semantic */
     --text-primary: #e6edf3;
@@ -35,6 +35,7 @@
     --text-danger: #f85149;
     --text-success: #3fb950;
     --text-warning: #d29922;
+    --text-on-accent: #07090f;
 
     /* Accent — used everywhere for focus, highlights, brand */
     --accent: #58a6ff;
@@ -59,7 +60,7 @@
     --taskbar-height: 48px;
 
     /* Border scale — subtle / default / strong */
-    --border: rgba(255, 255, 255, 0.12);
+    --border: var(--border-default);
     --border-subtle: rgba(255, 255, 255, 0.06);
     --border-default: rgba(255, 255, 255, 0.12);
     --border-strong: rgba(255, 255, 255, 0.25);
@@ -100,6 +101,7 @@
     --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono',
                  'Consolas', monospace;
     --font-size: 14px;
+    --color-scheme: dark;
 
     /* Glassmorphism — legacy and "liquid glass" material variants */
     --glass-bg: rgba(10, 14, 22, 0.38);
@@ -153,6 +155,7 @@
     font-size: var(--font-size);
     color: var(--text-primary);
     background: var(--bg-base);
+    color-scheme: var(--color-scheme, dark);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     user-select: none;
@@ -1649,6 +1652,7 @@
     width: 90%;
     animation: modalIn calc(200ms * var(--anim-speed)) ease-out;
   }
+  .modal-title {
     font-size: 16px;
     font-weight: 600;
     margin-bottom: 12px;
@@ -2347,6 +2351,8 @@
   .system-file-dialog-status:empty {
     display: none;
   }
+}
+
 /* utilities — tiny single-purpose classes. The highest-priority layer */
 /* before overrides, so a utility always wins over a component rule. */
 @layer utilities {
@@ -2406,13 +2412,13 @@
     -webkit-backdrop-filter: none !important;
   }
   .no-glass .window {
-    background: rgba(0, 0, 0, 0.50) !important;
+    background: var(--bg-base) !important;
   }
   .no-glass .context-menu {
-    background: var(--bg-elevated) !important;
+    background: var(--bg-base) !important;
   }
   .no-glass .notification-toast {
-    background: var(--bg-elevated) !important;
+    background: var(--bg-base) !important;
   }
 
   /* No-transparency mode — pushes every glass/translucent surface to */
@@ -2426,7 +2432,7 @@
     --window-bg:     var(--bg-base) !important;
     --taskbar-bg:    var(--bg-base) !important;
     --bg-sidebar:    var(--bg-base) !important;
-    --bg-hover:      var(--bg-overlay) !important;
+    --bg-hover:      color-mix(in srgb, var(--text-primary) 8%, var(--bg-base)) !important;
     --glass-bg:      var(--bg-base) !important;
     --lg-bg:         var(--bg-base) !important;
     --surface-overlay: var(--bg-base) !important;
@@ -2435,7 +2441,7 @@
     --surface-card: var(--bg-base) !important;
     --surface-card-hover: var(--bg-overlay) !important;
     --surface-card-read: var(--bg-base) !important;
-    --accent-muted:  var(--bg-overlay) !important;
+    --accent-muted:  color-mix(in srgb, var(--accent) 18%, var(--bg-base)) !important;
     --window-blur:   none !important;
     --lg-blur:       none !important;
   }

@@ -98,7 +98,7 @@ registerApp({
     }
 
     // Export controls for a produced/verified package — Copy (clipboard) and
-    // Download (blob URL + temporary <a download>). getPkg() is called at
+    // Download (SystemDialogs save). getPkg() is called at
     // click time (not once at build time) since the underlying package can
     // change after a re-sign or re-verify; returns null when there's
     // nothing to export yet, which both handlers treat as a no-op rather
@@ -123,27 +123,20 @@ registerApp({
         }
       }, { signal: ac.signal });
 
-      downloadBtn.addEventListener('click', () => {
+      downloadBtn.addEventListener('click', async () => {
         const pkg = getPkg();
         if (!pkg) return;
         const id = (pkg.manifest && pkg.manifest.id) || 'package';
-        const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        // Set href/download as direct properties rather than trusting
-        // createEl to forward arbitrary keys onto the element — every other
-        // createEl call in this file only ever passes
-        // style/textContent/value/placeholder/type/title, so its handling
-        // of unknown prop names isn't something to assume either way here.
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${filenamePrefix}-${id}${suffix}`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        // Revoke on a delay rather than synchronously — click() triggers
-        // the download asynchronously in some browsers, and revoking the
-        // URL before the download starts would fail it.
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        try {
+          await SystemDialogs.saveContent({
+            title: _t('apps.packages.downloadBtn'),
+            suggestedName: `${filenamePrefix}-${id}${suffix}`,
+            accept: '.json',
+          }, JSON.stringify(pkg, null, 2));
+        } catch (error) {
+          console.error('[Packages] Export failed:', error);
+          Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error', appName: 'Packages' });
+        }
       }, { signal: ac.signal });
 
       row.appendChild(copyBtn);
@@ -326,7 +319,7 @@ registerApp({
       fileBtnRow.appendChild(importBtn);
       panel.appendChild(fileBtnRow);
 
-      const signBtn = createEl('button', { textContent: _t('apps.packages.createSignBtn'), style: 'padding:7px 16px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+      const signBtn = createEl('button', { textContent: _t('apps.packages.createSignBtn'), style: 'padding:7px 16px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
       const box = resultBox();
 
       signBtn.addEventListener('click', async () => {
@@ -522,7 +515,7 @@ registerApp({
       methodRow.appendChild(methodSelect);
       panel.appendChild(methodRow);
 
-      const verifyBtn = createEl('button', { textContent: _t('apps.packages.validateVerifyBtn'), style: 'padding:7px 16px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px;' });
+      const verifyBtn = createEl('button', { textContent: _t('apps.packages.validateVerifyBtn'), style: 'padding:7px 16px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px;' });
       const box = resultBox();
 
       verifyBtn.addEventListener('click', async () => {
@@ -680,7 +673,7 @@ registerApp({
       optRow.appendChild(forceLabel);
       panel.appendChild(optRow);
 
-      const installBtn = createEl('button', { textContent: _t('apps.packages.installPackageBtn'), style: 'padding:7px 16px;background:var(--accent);color:var(--text-primary);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+      const installBtn = createEl('button', { textContent: _t('apps.packages.installPackageBtn'), style: 'padding:7px 16px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
       const box = resultBox();
 
       installBtn.addEventListener('click', async () => {

@@ -1386,7 +1386,9 @@
         "viewIcons": "보기: 아이콘",
         "viewList": "보기: 목록",
         "selectAll": "모두 선택",
-        "delete": "삭제"
+        "delete": "삭제",
+        "pinToQuickAccess": "빠른 액세스에 고정",
+        "unpinFromQuickAccess": "빠른 액세스에서 고정 해제"
       },
       "dialogs": {
         "chooseDestinationFolder": "대상 폴더 선택",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "차단된 파일",
         "invalidDrop": "잘못된 파일이 삭제되었습니다.",
         "failedToAdd": "파일을 추가하지 못했습니다.",
-        "couldNotVerify": "확인할 수 없습니다.\"{{file}}\" — 안전한 상태에 놓이고 건너뛰었습니다."
+        "couldNotVerify": "확인할 수 없습니다.\"{{file}}\" — 안전한 상태에 놓이고 건너뛰었습니다.",
+        "quickAccessFailed": "빠른 액세스를 업데이트하지 못했습니다",
+        "quickAccessNotSaved": "고정한 위치를 저장하지 못했습니다.",
+        "quickAccessNotFolder": "존재하는 폴더만 고정할 수 있습니다."
       },
       "linux": {
         "openParentFolder": "상위 폴더 열기",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "회로망",
-        "fs": "FS"
+        "fs": "파일 시스템"
       },
       "network": {
         "desc": "프록시 경로, SSRF 보호 상태 및 최근 네트워크 구성을 표시합니다.",
@@ -1719,7 +1724,8 @@
         "saved": "디스크에 저장되어 실행 중인 OS에 다시 로드되었습니다",
         "saveFailed": "저장 실패: {{message}}",
         "lines": "{{count}}줄",
-        "unsaved": "편집됨 — 아직 저장되지 않음"
+        "unsaved": "편집됨 — 아직 저장되지 않음",
+        "emptyRefused": "빈 모듈 저장을 거부했습니다"
       }
     },
     "install": {
@@ -1810,7 +1816,7 @@
       "memory": "메모리",
       "domNodesByWindow": "창별 DOM 노드",
       "noWindowsOpen": "창문이 열리지 않음",
-      "notAvailableShort": "해당사항 없음",
+      "notAvailableShort": "사용 불가",
       "longTaskLog": "긴 작업 로그",
       "longTaskUnsupported": "이 브라우저에서는 긴 작업 추적이 지원되지 않습니다",
       "noLongTasks": "아직 기록된 긴 작업이 없습니다",
@@ -1839,7 +1845,7 @@
       "memoryValue": "{{value}} MB",
       "longTasksValue": "{{count}} (>50ms)",
       "none": "없음",
-      "notAvailable": "해당 없음"
+      "notAvailable": "사용 불가"
     },
     "terminal": {
       "appDataMissing": "앱 데이터 디렉터리가 없습니다.",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "평가하려면 JS를 입력하거나 레지스트리 CLI에 대해 `reg query HKNS\\shell`을 입력하세요.\n실행하려면 Enter · 개행은 Shift+Enter · 기록은 ↑/↓",
       "run": "달리다",
       "readyMessage": "콘솔이 준비되었습니다. 위에 표현식을 입력하고 Enter 또는 Run을 누르세요.\n줄바꿈을 하려면 Shift+Enter를, 이전 명령을 불러오려면 ↑/↓를 누르세요.",
-      "noOutputMatches": "('과 일치하는 출력이 없습니다.{{query}}\")"
+      "noOutputMatches": "('과 일치하는 출력이 없습니다.{{query}}\")",
+      "exportDialogTitle": "콘솔 출력 내보내기",
+      "exportedTitle": "콘솔 출력을 내보냈습니다",
+      "exportedBody": "{{path}}에 저장했습니다",
+      "exportFailedTitle": "콘솔 내보내기에 실패했습니다"
     },
     "contacts": {
       "appDataMissing": "앱 데이터 디렉터리가 없습니다.",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "디버그 오버레이 위치",
         "devNovaReg": "NovaReg 편집기 상태",
         "devNovaRegDesc": "이 편집자의 즐겨찾기 및 점프 기록입니다."
-      }
+      },
+      "importDialogTitle": "레지스트리 데이터 가져오기"
     },
     "appmanager": {
       "fallbackPackageName": "이 패키지",
@@ -3046,7 +3057,7 @@
         "newest": "최신순",
         "oldest": "오래된 것부터",
         "severity": "심각성",
-        "az": "AZ"
+        "az": "가-힣"
       },
       "toolbar": {
         "saveView": "+ 보기 저장",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "폴더를 만들 수 없습니다: {{message}}",
       "createFileFailed": "파일을 만들 수 없습니다: {{message}}",
       "fileType": "파일 형식",
-      "allTypes": "모든 파일 (*.*)"
+      "allTypes": "모든 파일 (*.*)",
+      "pinned": "고정됨",
+      "mounts": "마운트된 드라이브",
+      "saveFailed": "파일을 저장하지 못했습니다",
+      "unavailable": "시스템 파일 대화상자를 사용할 수 없습니다",
+      "search": "이 폴더 검색",
+      "searchAria": "이 폴더 검색",
+      "noMatches": "(일치하는 항목 없음)"
     }
   }
 }

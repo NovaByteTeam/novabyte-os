@@ -298,7 +298,7 @@ registerApp({
           if (pendingPerms.length) {
             const grantAllBtn = createEl('button', {
               textContent: _t('apps.permissions.detail.grantAllPending', { count: pendingPerms.length }),
-              style: 'padding:4px 12px;background:var(--text-success);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;'
+              style: 'padding:4px 12px;background:var(--text-success);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:11px;'
             });
             grantAllBtn.addEventListener('click', async () => {
               grantAllBtn.disabled = true;
@@ -358,7 +358,7 @@ registerApp({
           // normal consent flow, so the button says so rather than reading
           // like an ordinary toggle.
           if (status !== 'granted') {
-            const grantBtn = createEl('button', { textContent: _t('apps.permissions.detail.grantNoPrompt'), style: 'padding:3px 10px;background:var(--text-success);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
+            const grantBtn = createEl('button', { textContent: _t('apps.permissions.detail.grantNoPrompt'), style: 'padding:3px 10px;background:var(--text-success);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
             grantBtn.addEventListener('click', async () => {
               grantBtn.disabled = true;
               await AppPermissionManager.grantPermission(permission, app.id, { reason: 'Granted via Permissions dev tool' });

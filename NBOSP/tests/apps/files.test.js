@@ -113,6 +113,9 @@ describe('Files app (js/apps/files)', () => {
         extra: {
           process: { platform: 'linux' },
           FS: { rootId: userHome },
+          SystemDialogs: {
+            getMountedVolumes: () => [{ label: 'Data Drive', path: '/mnt/data', icon: 'hard-drive' }],
+          },
           require: (name) => {
             if (name === 'fs') return { promises: fsPromises, constants: {} };
             if (name === 'path') return linuxPath;
@@ -129,6 +132,12 @@ describe('Files app (js/apps/files)', () => {
 
     const pathInput = content.querySelector('[aria-label="Linux filesystem path"]');
     expect(pathInput.value).toBe(userHome);
+    const mounted = content.querySelector('.system-file-dialog-side-item[aria-label="Data Drive"]');
+    expect(mounted).toBeTruthy();
+    expect(mounted.querySelector('.system-file-dialog-side-icon').innerHTML).not.toBe('');
+    mounted.click();
+    await settle();
+    expect(state._linuxPath).toBe('/mnt/data');
     content.querySelector('[aria-label="Open home folder"]').click();
     await settle();
     expect(state._linuxPath).toBe(userHome);
@@ -555,6 +564,35 @@ describe('Files app (js/apps/files)', () => {
     inst.persistViewState();
     expect(store.get('HKNU/shell/bags/files')).toEqual({ viewMode: 'icon', sortBy: 'size', sortAsc: true });
     expect(window.localStorage.getItem('nova_files_view')).toBeNull(); // no legacy shadow was ever created
+  });
+
+  it('pins folders to quick access and can unpin them from the sidebar context menu', async () => {
+    const fs = makeFS();
+    const folder = await fs.createFolder(fs.rootId, 'Pinned Folder');
+    const store = new Map();
+    const registry = {
+      get: (p) => (store.has(p) ? JSON.parse(JSON.stringify(store.get(p))) : undefined),
+      set: (p, v) => { store.set(p, JSON.parse(JSON.stringify(v))); return true; },
+    };
+    const { content, window, ContextMenu } = await loadFiles({ fs, registry });
+    const folderItem = fileItems(content).find(item => item.textContent.includes('Pinned Folder'));
+    folderItem.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+    const pin = ContextMenu.show.mock.calls.at(-1)[2]
+      .find(item => item.label === 'Pin to Quick access');
+    expect(pin).toBeTruthy();
+    pin.action();
+    expect(store.get('HKNU/shell/bags/files').pinnedFolderIds).toEqual([folder.id]);
+    expect(content.querySelector('.system-file-dialog-sidebar [aria-label="Pinned Folder"]')).toBeTruthy();
+
+    content.querySelector('.system-file-dialog-sidebar [aria-label="Pinned Folder"]')
+      .dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const unpin = ContextMenu.show.mock.calls.at(-1)[2]
+      .find(item => item.label === 'Unpin from Quick access');
+    expect(unpin).toBeTruthy();
+    unpin.action();
+    expect(store.get('HKNU/shell/bags/files').pinnedFolderIds).toEqual([]);
+    expect(content.querySelector('.system-file-dialog-sidebar [aria-label="Pinned Folder"]')).toBeNull();
   });
 
   it('falls back to defaults when the view bag is absent or malformed', async () => {

@@ -1386,7 +1386,9 @@
         "viewIcons": "ビュー: アイコン",
         "viewList": "表示: リスト",
         "selectAll": "すべて選択",
-        "delete": "消去"
+        "delete": "消去",
+        "pinToQuickAccess": "クイックアクセスにピン留め",
+        "unpinFromQuickAccess": "クイックアクセスからピン留めを解除"
       },
       "dialogs": {
         "chooseDestinationFolder": "宛先フォルダーの選択",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "ファイルがブロックされました",
         "invalidDrop": "無効なファイルがドロップされました。",
         "failedToAdd": "ファイルの追加に失敗しました。",
-        "couldNotVerify": "確認できませんでした」{{file}}\" — 安全な状態でドロップされ、スキップされました。"
+        "couldNotVerify": "確認できませんでした」{{file}}\" — 安全な状態でドロップされ、スキップされました。",
+        "quickAccessFailed": "クイックアクセスを更新できませんでした",
+        "quickAccessNotSaved": "ピン留めした場所を保存できませんでした。",
+        "quickAccessNotFolder": "存在するフォルダーのみピン留めできます。"
       },
       "linux": {
         "openParentFolder": "親フォルダーを開く",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "ネットワーク",
-        "fs": "FS"
+        "fs": "ファイルシステム"
       },
       "network": {
         "desc": "プロキシ ルート、SSRF ガード状態、および最近のネットワーク構成を表示します。",
@@ -1719,7 +1724,8 @@
         "saved": "ディスクに保存され、実行中のOSに再読み込みされました",
         "saveFailed": "保存に失敗しました: {{message}}",
         "lines": "{{count}} 行",
-        "unsaved": "編集済み — まだ未保存"
+        "unsaved": "編集済み — まだ未保存",
+        "emptyRefused": "空のモジュールの保存は拒否されました"
       }
     },
     "install": {
@@ -1810,7 +1816,7 @@
       "memory": "メモリ",
       "domNodesByWindow": "ウィンドウ別の DOM ノード",
       "noWindowsOpen": "窓は開いていません",
-      "notAvailableShort": "該当なし",
+      "notAvailableShort": "利用不可",
       "longTaskLog": "長いタスクログ",
       "longTaskUnsupported": "このブラウザでは長いタスクの追跡はサポートされていません",
       "noLongTasks": "長いタスクはまだ記録されていません",
@@ -1826,7 +1832,7 @@
       "noRequestsMatch": "現在のフィルターに一致するリクエストはありません",
       "noRequestsRecorded": "まだリクエストは記録されていません",
       "sourceBrowser": "ブラウザ・ {{label}}",
-      "sourceOs": "オス・ {{label}}",
+      "sourceOs": "オペレーティングシステム · {{label}}",
       "showBody": "▸ ボディ",
       "hideBody": "▾本体",
       "bodyNotCaptured": "遺体は捕らえられていない{{type}}",
@@ -1834,12 +1840,12 @@
       "unknownApp": "不明なアプリ",
       "networkError": "ネットワークエラー",
       "bodyTruncated": "{{text}}…(切り捨てられました)",
-      "durationMs": "{{value}}MS",
+      "durationMs": "{{value}}ミリ秒",
       "fpsValue": "{{value}} fps",
       "memoryValue": "{{value}} MB",
       "longTasksValue": "{{count}} (50ms以上)",
       "none": "なし",
-      "notAvailable": "該当なし"
+      "notAvailable": "利用不可"
     },
     "terminal": {
       "appDataMissing": "アプリデータディレクトリがありません。",
@@ -1982,13 +1988,13 @@
       "repeatOnce": "一度",
       "repeatEveryDay": "毎日",
       "repeatWeekdays": "平日",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
-      "dayInitialTue": "T",
-      "dayInitialWed": "W",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
-      "dayInitialSat": "S",
+      "dayInitialSun": "日",
+      "dayInitialMon": "月",
+      "dayInitialTue": "火",
+      "dayInitialWed": "水",
+      "dayInitialThu": "木",
+      "dayInitialFri": "金",
+      "dayInitialSat": "土",
       "daySun": "太陽",
       "dayMon": "月",
       "dayTue": "火",
@@ -2030,13 +2036,13 @@
       "dayThu": "木",
       "dayFri": "金",
       "daySat": "土",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
-      "miniDayTue": "T",
-      "miniDayWed": "W",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
-      "miniDaySat": "S",
+      "miniDaySun": "日",
+      "miniDayMon": "月",
+      "miniDayTue": "火",
+      "miniDayWed": "水",
+      "miniDayThu": "木",
+      "miniDayFri": "金",
+      "miniDaySat": "土",
       "upcoming": "今後の予定",
       "newEvent": "新しいイベント",
       "today": "今日",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "評価する JS を入力するか、レジストリ CLI の「reg query HKNS\\shell」を入力します。\nEnter で実行 · Shift+Enter で改行 · ↑/↓ で履歴",
       "run": "走る",
       "readyMessage": "コンソールの準備ができました。上に式を入力し、Enter または Run を押します。\nShift+Enter で改行、↑/↓ で前のコマンドを呼び出します。",
-      "noOutputMatches": "(一致する出力はありません \"{{query}}\")"
+      "noOutputMatches": "(一致する出力はありません \"{{query}}\")",
+      "exportDialogTitle": "コンソール出力をエクスポート",
+      "exportedTitle": "コンソール出力をエクスポートしました",
+      "exportedBody": "{{path}} に保存しました",
+      "exportFailedTitle": "コンソールのエクスポートに失敗しました"
     },
     "contacts": {
       "appDataMissing": "アプリデータディレクトリがありません。",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "デバッグオーバーレイの位置",
         "devNovaReg": "NovaReg エディターの状態",
         "devNovaRegDesc": "編集者のお気に入りとジャンプ履歴。"
-      }
+      },
+      "importDialogTitle": "レジストリデータをインポート"
     },
     "appmanager": {
       "fallbackPackageName": "このパッケージ",
@@ -3046,7 +3057,7 @@
         "newest": "新しい順",
         "oldest": "古い順",
         "severity": "重大度",
-        "az": "A-Z"
+        "az": "あ-ん"
       },
       "toolbar": {
         "saveView": "+ ビューを保存",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "フォルダーを作成できませんでした: {{message}}",
       "createFileFailed": "ファイルを作成できませんでした: {{message}}",
       "fileType": "ファイルの種類",
-      "allTypes": "すべてのファイル (*.*)"
+      "allTypes": "すべてのファイル (*.*)",
+      "pinned": "ピン留め済み",
+      "mounts": "マウント済みドライブ",
+      "saveFailed": "ファイルを保存できませんでした",
+      "unavailable": "システムファイルダイアログを利用できません",
+      "search": "このフォルダーを検索",
+      "searchAria": "このフォルダーを検索",
+      "noMatches": "(一致する項目はありません)"
     }
   }
 }

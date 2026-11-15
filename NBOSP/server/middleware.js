@@ -106,7 +106,7 @@ fs.mkdirSync(SESSION_DB_DIR, { recursive: true });
 // large payloads (e.g. bulk import), defaulting to something sane.
 const BODY_SIZE_LIMIT = process.env.BODY_SIZE_LIMIT || '10mb';
 
-let sessionDb = null;
+const sessionDbs = new Set();
 
 function setupMiddleware(app) {
     app.use((req, res, next) => {
@@ -362,7 +362,8 @@ function setupMiddleware(app) {
     });
 
     // Session middleware (required for CSRF protection)
-    sessionDb = new Database(SESSION_DB_PATH);
+    const sessionDb = new Database(SESSION_DB_PATH);
+    sessionDbs.add(sessionDb);
     // WAL mode lets reads and writes proceed without blocking each other —
     // matters once multiple requests touch the session table concurrently.
     sessionDb.pragma('journal_mode = WAL');
@@ -487,9 +488,10 @@ function setupMiddleware(app) {
 // library and isn't something this file can reach to fix — it's why
 // index.js's shutdown handler still needs its hard-exit timeout fallback.
 function closeSessionDb() {
-    if (!sessionDb) return;
-    try { sessionDb.close(); } catch (_) { /* already closed or never opened */ }
-    sessionDb = null;
+    for (const sessionDb of sessionDbs) {
+        try { sessionDb.close(); } catch (_) { /* already closed */ }
+    }
+    sessionDbs.clear();
 }
 
 module.exports = { setupMiddleware, closeSessionDb, shouldSkipGlobalApiRateLimit };

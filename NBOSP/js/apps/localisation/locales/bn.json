@@ -1386,7 +1386,9 @@
         "viewIcons": "ভিউ: আইকন",
         "viewList": "ভিউ: তালিকা",
         "selectAll": "সব নির্বাচন করুন",
-        "delete": "মুছে দিন"
+        "delete": "মুছে দিন",
+        "pinToQuickAccess": "দ্রুত অ্যাক্সেসে পিন করুন",
+        "unpinFromQuickAccess": "দ্রুত অ্যাক্সেস থেকে আনপিন করুন"
       },
       "dialogs": {
         "chooseDestinationFolder": "গন্তব্য ফোল্ডার বেছে নিন",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "ফাইল ব্লক করা হয়েছে",
         "invalidDrop": "একটি অবৈধ ফাইল ড্রপ করা হয়েছে।",
         "failedToAdd": "ফাইলটি যোগ করা যায়নি।",
-        "couldNotVerify": "\"{{file}}\" যাচাই করা যায়নি — নিরাপদ অবস্থায় রেখে এড়িয়ে যাওয়া হয়েছে।"
+        "couldNotVerify": "\"{{file}}\" যাচাই করা যায়নি — নিরাপদ অবস্থায় রেখে এড়িয়ে যাওয়া হয়েছে।",
+        "quickAccessFailed": "দ্রুত অ্যাক্সেস আপডেট করা যায়নি",
+        "quickAccessNotSaved": "পিন করা অবস্থানগুলো সংরক্ষণ করা যায়নি।",
+        "quickAccessNotFolder": "শুধু বিদ্যমান ফোল্ডার পিন করা যাবে।"
       },
       "linux": {
         "openParentFolder": "প্যারেন্ট ফোল্ডার খুলুন",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "নেটওয়ার্ক",
-        "fs": "FS"
+        "fs": "ফাইল সিস্টেম"
       },
       "network": {
         "desc": "প্রক্সি রুট, SSRF গার্ডের অবস্থা এবং সাম্প্রতিক নেটওয়ার্ক কনফিগারেশন দেখায়।",
@@ -1719,7 +1724,8 @@
         "saved": "ডিস্কে সেভ করা হয়েছে এবং চলমান OS-এ রিলোড করা হয়েছে",
         "saveFailed": "সেভ করতে ব্যর্থ: {{message}}",
         "lines": "{{count}} লাইন",
-        "unsaved": "সম্পাদিত — এখনও সেভ হয়নি"
+        "unsaved": "সম্পাদিত — এখনও সেভ হয়নি",
+        "emptyRefused": "খালি মডিউল সংরক্ষণ প্রত্যাখ্যান করা হয়েছে"
       }
     },
     "install": {
@@ -1810,7 +1816,7 @@
       "memory": "মেমরি",
       "domNodesByWindow": "উইন্ডো অনুযায়ী DOM নোড",
       "noWindowsOpen": "কোনো উইন্ডো খোলা নেই",
-      "notAvailableShort": "n/a",
+      "notAvailableShort": "অনুপলব্ধ",
       "longTaskLog": "লং টাস্ক লগ",
       "longTaskUnsupported": "এই ব্রাউজারে লং টাস্ক ট্র্যাকিং সমর্থিত নয়",
       "noLongTasks": "এখনও কোনো লং টাস্ক রেকর্ড হয়নি",
@@ -1826,20 +1832,20 @@
       "noRequestsMatch": "বর্তমান ফিল্টারের সাথে কোনো রিকোয়েস্ট মেলে না",
       "noRequestsRecorded": "এখনও কোনো রিকোয়েস্ট রেকর্ড হয়নি",
       "sourceBrowser": "ব্রাউজার · {{label}}",
-      "sourceOs": "OS · {{label}}",
+      "sourceOs": "অপারেটিং সিস্টেম · {{label}}",
       "showBody": "▸ বডি",
       "hideBody": "▾ বডি",
       "bodyNotCaptured": "বডি ক্যাপচার করা হয়নি{{type}}",
-      "statusError": "ERR",
+      "statusError": "ত্রুটি",
       "unknownApp": "অজানা অ্যাপ",
       "networkError": "নেটওয়ার্ক ত্রুটি",
       "bodyTruncated": "{{text}}\n…(ছাঁটা হয়েছে)",
-      "durationMs": "{{value}}ms",
+      "durationMs": "{{value}} মিলিসেকেন্ড",
       "fpsValue": "{{value}} fps",
       "memoryValue": "{{value}} MB",
       "longTasksValue": "{{count}}টি (>50ms)",
       "none": "কোনোটিই নয়",
-      "notAvailable": "N/A"
+      "notAvailable": "অনুপলব্ধ"
     },
     "terminal": {
       "appDataMissing": "অ্যাপ ডেটা ডিরেক্টরি অনুপস্থিত।",
@@ -1977,8 +1983,8 @@
       "alarms": "অ্যালার্ম",
       "add": "যোগ করুন",
       "noAlarms": "কোনো অ্যালার্ম সেট করা নেই। একটি তৈরি করতে \"+ যোগ করুন\"-এ ট্যাপ করুন।",
-      "am": "AM",
-      "pm": "PM",
+      "am": "পূর্বাহ্ণ",
+      "pm": "অপরাহ্ণ",
       "repeatOnce": "একবার",
       "repeatEveryDay": "প্রতিদিন",
       "repeatWeekdays": "সপ্তাহের দিনগুলোতে",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "মূল্যায়ন করতে JS লিখুন, অথবা Registry CLI-এর জন্য `reg query HKNS\\shell` লিখুন\nচালাতে Enter · নতুন লাইনের জন্য Shift+Enter · ইতিহাসের জন্য ↑/↓",
       "run": "চালান",
       "readyMessage": "কনসোল প্রস্তুত। উপরে একটি এক্সপ্রেশন লিখে Enter বা Run চাপুন।\nনতুন লাইনের জন্য Shift+Enter, আগের কমান্ডগুলো মনে রাখতে ↑/↓।",
-      "noOutputMatches": "(\"{{query}}\"-এর সাথে মেলে এমন কোনো আউটপুট নেই)"
+      "noOutputMatches": "(\"{{query}}\"-এর সাথে মেলে এমন কোনো আউটপুট নেই)",
+      "exportDialogTitle": "কনসোল আউটপুট রপ্তানি",
+      "exportedTitle": "কনসোল আউটপুট রপ্তানি হয়েছে",
+      "exportedBody": "{{path}}-এ সংরক্ষিত হয়েছে",
+      "exportFailedTitle": "কনসোল রপ্তানি ব্যর্থ হয়েছে"
     },
     "contacts": {
       "appDataMissing": "অ্যাপ ডেটা ডিরেক্টরি অনুপস্থিত।",
@@ -2478,7 +2488,7 @@
         "bootHomeLaunchDesc": "হ্যান্ডঅফ id; একটি পুরোনো id থাকলে ডিফল্ট হোম অ্যাপ রিসেট হয়।",
         "env": "এনভায়রনমেন্ট",
         "envDesc": "NovaByte যেখানে তার ডেটা রাখে।",
-        "envNovaRoot": "Nova root",
+        "envNovaRoot": "নোভা রুট",
         "settingsSystem": "সিস্টেম সেটিংস",
         "settingsSystemDesc": "মেশিন-স্কোপড সেটিংসের মিরর (সেটিংস শিম)।",
         "security": "সিকিউরিটি ও নীতি",
@@ -2550,9 +2560,9 @@
         "devEventsViews": "Events — সেভ করা ভিউ",
         "devEventsAlerts": "Events — অ্যালার্ট নিয়ম",
         "devEventsSessions": "Events — সেশনের ইতিহাস",
-        "devConsole": "Dev Console",
+        "devConsole": "ডেভ কনসোল",
         "devConsoleHistory": "কনসোলের কমান্ড ইতিহাস",
-        "devAppManager": "App Manager",
+        "devAppManager": "অ্যাপ ম্যানেজার",
         "devAppManagerLog": "অ্যাপ ইনস্টল লগ",
         "devConsentLogCutoff": "সম্মতি-লগের কাটঅফ",
         "devConsentLogCutoffDesc": "এই টাইমস্ট্যাম্পের আগের সম্মতি-লগ এন্ট্রিগুলো ক্লায়েন্ট-সাইডে লুকিয়ে রাখে।",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "ডিবাগ ওভারলের অবস্থান",
         "devNovaReg": "NovaReg এডিটরের স্টেট",
         "devNovaRegDesc": "এই এডিটরের প্রিয় তালিকা এবং জাম্প ইতিহাস।"
-      }
+      },
+      "importDialogTitle": "রেজিস্ট্রি ডেটা আমদানি"
     },
     "appmanager": {
       "fallbackPackageName": "এই প্যাকেজ",
@@ -2679,8 +2690,8 @@
       "permissionsNotResetTitle": "পারমিশন রিসেট হয়নি",
       "appInfoTitle": "অ্যাপের তথ্য",
       "notAvailable": "পাওয়া যায় না",
-      "sourceStore": "App Store",
-      "sourceAppManager": "App Manager",
+      "sourceStore": "অ্যাপ স্টোর",
+      "sourceAppManager": "অ্যাপ ম্যানেজার",
       "sourceSystem": "সিস্টেম",
       "infoAppName": "অ্যাপের নাম",
       "infoAppVersion": "অ্যাপের সংস্করণ",
@@ -2771,7 +2782,7 @@
       "addWebAppSub": "যেকোনো ওয়েবসাইটকে অ্যাপ হিসেবে পিন করুন।",
       "urlLabel": "URL *",
       "nameLabel": "নাম *",
-      "namePlaceholder": "My App",
+      "namePlaceholder": "আমার অ্যাপ",
       "iconOptionalLabel": "আইকন (ঐচ্ছিক)",
       "chooseImageBtn": "ছবি বেছে নিন…",
       "iconNotImageError": "অনুগ্রহ করে একটি ছবির ফাইল বেছে নিন।",
@@ -2801,7 +2812,7 @@
       "copyFailedBtn": "কপি ব্যর্থ হয়েছে",
       "appIdLabel": "অ্যাপের id (রিভার্স-ডোমেইন, যেমন com.test.app)",
       "appNameLabel": "অ্যাপের নাম",
-      "appNamePlaceholder": "Test App",
+      "appNamePlaceholder": "পরীক্ষামূলক অ্যাপ",
       "versionLabel": "সংস্করণ (x.y.z)",
       "entryFileLabel": "এন্ট্রি ফাইলের পাথ",
       "signingMethodLabel": "সাইনিং পদ্ধতি:",
@@ -3046,7 +3057,7 @@
         "newest": "নতুনগুলো আগে",
         "oldest": "পুরোনোগুলো আগে",
         "severity": "তীব্রতা",
-        "az": "A-Z"
+        "az": "বর্ণানুক্রমে"
       },
       "toolbar": {
         "saveView": "+ ভিউ সেভ করুন",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "ফোল্ডার তৈরি করা যায়নি: {{message}}",
       "createFileFailed": "ফাইল তৈরি করা যায়নি: {{message}}",
       "fileType": "ফাইলের ধরন",
-      "allTypes": "সব ধরন (*.*)"
+      "allTypes": "সব ধরন (*.*)",
+      "pinned": "পিন করা",
+      "mounts": "মাউন্ট করা ড্রাইভ",
+      "saveFailed": "ফাইল সংরক্ষণ করা যায়নি",
+      "unavailable": "সিস্টেম ফাইল ডায়ালগ উপলভ্য নয়",
+      "search": "এই ফোল্ডারে খুঁজুন",
+      "searchAria": "এই ফোল্ডারে খুঁজুন",
+      "noMatches": "(কোনো মিল নেই)"
     }
   }
 }

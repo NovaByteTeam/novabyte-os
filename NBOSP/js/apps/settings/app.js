@@ -2300,8 +2300,8 @@ registerApp({
           const grantedCount = dangerous.filter(p => mgr.isGranted(p, appId)).length;
           const deniedCount  = dangerous.filter(p => mgr.isDenied ? mgr.isDenied(p, appId) : false).length;
           const pendingCount = dangerous.length - grantedCount - deniedCount;
-          if (grantedCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeAllowed', { count: grantedCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(63,185,80,0.12);color:#3fb950;border:1px solid rgba(63,185,80,0.3);' }));
-          if (deniedCount  > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeDenied', { count: deniedCount }),  style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(248,81,73,0.12);color:#f85149;border:1px solid rgba(248,81,73,0.3);' }));
+          if (grantedCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeAllowed', { count: grantedCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:color-mix(in srgb,var(--text-success) 12%,transparent);color:var(--text-success);border:1px solid color-mix(in srgb,var(--text-success) 30%,transparent);' }));
+          if (deniedCount  > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeDenied', { count: deniedCount }),  style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:color-mix(in srgb,var(--text-danger) 12%,transparent);color:var(--text-danger);border:1px solid color-mix(in srgb,var(--text-danger) 30%,transparent);' }));
           if (pendingCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeNotAsked', { count: pendingCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
           if (dangerous.length === 0 && normal.length === 0)
             badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noPermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
@@ -2314,8 +2314,8 @@ registerApp({
           const metaRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:3px;align-items:center;flex-wrap:wrap;' });
           if (appVersion)        metaRow.appendChild(createEl('span', { textContent: 'v' + appVersion,  style: 'font-size:10px;color:var(--text-muted);font-family:monospace;' }));
           if (appAuthor)         metaRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.byAuthor', { author: appAuthor }), style: 'font-size:10px;color:var(--text-muted);' }));
-          if (appVerified === true)  metaRow.appendChild(createEl('span', { textContent: '\u2713 ' + _t('settings.appPermissions.verified'),   style: 'font-size:10px;color:#3fb950;' }));
-          if (appVerified === false) metaRow.appendChild(createEl('span', { textContent: '\u26A0 ' + _t('settings.appPermissions.unverified'), style: 'font-size:10px;color:#d29922;' }));
+          if (appVerified === true)  metaRow.appendChild(createEl('span', { textContent: '\u2713 ' + _t('settings.appPermissions.verified'),   style: 'font-size:10px;color:var(--text-success);' }));
+          if (appVerified === false) metaRow.appendChild(createEl('span', { textContent: '\u26A0 ' + _t('settings.appPermissions.unverified'), style: 'font-size:10px;color:var(--text-warning);' }));
           nameEl.appendChild(metaRow);
         }
         nameEl.appendChild(badgeRow);
@@ -2412,7 +2412,7 @@ registerApp({
           for (const perm of normal) {
             normList.appendChild(createEl('span', {
               textContent: permLabel(perm),
-              style: 'font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(63,185,80,0.08);color:#3fb950;border:1px solid rgba(63,185,80,0.2);'
+              style: 'font-size:11px;padding:2px 8px;border-radius:20px;background:color-mix(in srgb,var(--text-success) 8%,transparent);color:var(--text-success);border:1px solid color-mix(in srgb,var(--text-success) 20%,transparent);'
             }));
           }
           normSection.appendChild(normList);
@@ -2906,17 +2906,18 @@ registerApp({
             version:    OS.version,
             exportDate: new Date().toISOString()
           };
-          // 2026-11-15: pick the destination with the in-OS file dialog
-          // (the Windows-style one, which remembers the last directory per
-          // account) instead of the blob-anchor download — under NW.js a
-          // programmatic <a download> falls through to Chromium's NATIVE
-          // "Save As" picker, which is the platform call this flow was
-          // asked to stop using. Pure-web builds (no Node fs) keep the
-          // legacy blob download as the fallback.
           const json = JSON.stringify(data, null, 2);
           let delivered = false;
           let cancelled = false;
-          if (typeof SystemDialogs !== 'undefined' && typeof SystemDialogs.save === 'function') {
+          if (typeof SystemDialogs !== 'undefined' && typeof SystemDialogs.saveContent === 'function') {
+            const target = await SystemDialogs.saveContent({
+              title: _t('settings.privacy.exportTo'),
+              suggestedName: 'novabyte-export.json',
+              accept: '.json,application/json'
+            }, json);
+            if (!target) cancelled = true;
+            else delivered = true;
+          } else if (typeof SystemDialogs !== 'undefined' && typeof SystemDialogs.save === 'function') {
             const target = await SystemDialogs.save({
               title: _t('settings.privacy.exportTo'),
               suggestedName: 'novabyte-export.json',

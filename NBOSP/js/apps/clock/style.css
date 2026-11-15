@@ -195,7 +195,7 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: #fff;
+    background: var(--bg-elevated);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     transition: left 0.2s;
   
@@ -251,7 +251,7 @@
 
     background: var(--accent);
     border-color: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
   
 }
 
@@ -284,11 +284,11 @@
 }
 
 .nbc-lap-best {
- color: #3fb950; 
+ color: var(--text-success);
 }
 
 .nbc-lap-worst {
- color: #f85149; 
+ color: var(--text-danger);
 }
 
 /* ---- Native alarm modal (host-built) ---------------------------------- */

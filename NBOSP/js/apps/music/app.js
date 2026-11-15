@@ -325,7 +325,7 @@
       const prevBtn = ctrlBtn('arrow-left', 16, _t('apps.music.controls.previousTrack'));
       const playPauseBtn = createEl('button', {
         style:
-          'width:38px;height:38px;border-radius:50%;background:var(--accent);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform 0.1s,background 0.1s;',
+          'width:38px;height:38px;border-radius:50%;background:var(--accent);border:none;color:var(--text-on-accent);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform 0.1s,background 0.1s;',
         title: _t('apps.music.controls.playPause'),
       });
       playPauseBtn.setAttribute('aria-label', _t('apps.music.controls.play'));

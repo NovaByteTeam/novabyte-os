@@ -656,7 +656,7 @@
       "networkingUnavailable": "الشبكات غير متوفرة",
       "networkingState": "الشبكات: {{state}}",
       "wifiUnavailable": "Wi-Fi غير متوفر",
-      "wifiState": "Wi-Fi: {{state}}",
+      "wifiState": "واي فاي: {{state}}",
       "bluetoothUnavailable": "البلوتوث غير متوفر",
       "bluetoothState": "البلوتوث: {{state}}",
       "statusLineErrors": "الإنترنت: {{connectivity}} · {{errors}}",
@@ -1386,7 +1386,9 @@
         "viewIcons": "العرض: أيقونات",
         "viewList": "العرض: قائمة",
         "selectAll": "تحديد الكل",
-        "delete": "حذف"
+        "delete": "حذف",
+        "pinToQuickAccess": "تثبيت في الوصول السريع",
+        "unpinFromQuickAccess": "إزالة التثبيت من الوصول السريع"
       },
       "dialogs": {
         "chooseDestinationFolder": "اختيار مجلد الوجهة",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "تم حظر الملف",
         "invalidDrop": "أُفلت ملف غير صالح.",
         "failedToAdd": "فشلت إضافة الملف.",
-        "couldNotVerify": "تعذر التحقق من «{{file}}» — أُسقط في حالة آمنة وتم تخطيه."
+        "couldNotVerify": "تعذر التحقق من «{{file}}» — أُسقط في حالة آمنة وتم تخطيه.",
+        "quickAccessFailed": "تعذر تحديث الوصول السريع",
+        "quickAccessNotSaved": "تعذر حفظ المواقع المثبتة.",
+        "quickAccessNotFolder": "يمكن تثبيت المجلدات الموجودة فقط."
       },
       "linux": {
         "openParentFolder": "فتح المجلد الأصل",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "الشبكة",
-        "fs": "ن.م"
+        "fs": "نظام الملفات"
       },
       "network": {
         "desc": "يعرض مسارات الوكيل وحالة حارس SSRF وتهيئة الشبكة الحديثة.",
@@ -1719,7 +1724,8 @@
         "saved": "تم الحفظ على القرص وإعادة تحميله في نظام التشغيل الجاري",
         "saveFailed": "فشل الحفظ: {{message}}",
         "lines": "{{count}} سطرًا",
-        "unsaved": "مُحرَّر — لم يُحفظ بعد"
+        "unsaved": "مُحرَّر — لم يُحفظ بعد",
+        "emptyRefused": "رُفض حفظ وحدة فارغة"
       }
     },
     "install": {
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "أدخل تعبير JS لتقييمه، أو `reg query HKNS\\shell` لواجهة سطر أوامر السجل\nاضغط Enter للتشغيل · Shift+Enter لسطر جديد · ↑/↓ للسجل",
       "run": "تشغيل",
       "readyMessage": "وحدة التحكم جاهزة. اكتب تعبيرًا أعلاه ثم اضغط Enter أو «تشغيل».\nShift+Enter لسطر جديد، و↑/↓ لاستدعاء الأوامر السابقة.",
-      "noOutputMatches": "(لا توجد مخرجات تطابق «{{query}}»)"
+      "noOutputMatches": "(لا توجد مخرجات تطابق «{{query}}»)",
+      "exportDialogTitle": "تصدير مخرجات وحدة التحكم",
+      "exportedTitle": "تم تصدير مخرجات وحدة التحكم",
+      "exportedBody": "تم الحفظ في {{path}}",
+      "exportFailedTitle": "فشل تصدير وحدة التحكم"
     },
     "contacts": {
       "appDataMissing": "دليل بيانات التطبيق مفقود.",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "موضع طبقة تصحيح الأخطاء",
         "devNovaReg": "حالة محرر NovaReg",
         "devNovaRegDesc": "مفضلات هذا المحرر وسجل انتقالاته."
-      }
+      },
+      "importDialogTitle": "استيراد بيانات السجل"
     },
     "appmanager": {
       "fallbackPackageName": "هذه الحزمة",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "تعذر إنشاء المجلد: {{message}}",
       "createFileFailed": "تعذر إنشاء الملف: {{message}}",
       "fileType": "نوع الملف",
-      "allTypes": "كل الأنواع (*.*)"
+      "allTypes": "كل الأنواع (*.*)",
+      "pinned": "مثبّت",
+      "mounts": "وحدات التخزين المركّبة",
+      "saveFailed": "تعذر حفظ الملف",
+      "unavailable": "مربع حوار ملفات النظام غير متاح",
+      "search": "البحث في هذا المجلد",
+      "searchAria": "البحث في هذا المجلد",
+      "noMatches": "(لا توجد نتائج)"
     }
   }
 }

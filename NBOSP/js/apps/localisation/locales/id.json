@@ -80,7 +80,7 @@
       "systemName": "Sistem"
     },
     "launchpad": {
-      "desktopAria": "Desktop",
+      "desktopAria": "Ruang kerja",
       "taskbarAria": "Bilah tugas",
       "openLaunchpadAria": "Buka Landasan Peluncuran",
       "runningAppsAria": "Menjalankan aplikasi",
@@ -375,7 +375,7 @@
       "titleSave": "Simpan Berkas",
       "subtitleOpen": "Pilih file yang akan dibuka",
       "subtitleSave": "Pilih lokasi untuk disimpan",
-      "filterLabel": "Filter: {{filter}}",
+      "filterLabel": "Saring: {{filter}}",
       "emptyFolder": "(folder kosong)",
       "filenameLabel": "Nama file:",
       "filenamePlaceholder": "Masukkan nama file..."
@@ -541,7 +541,7 @@
     "sidebar": {
       "appearance": "Penampilan",
       "accessibility": "Aksesibilitas",
-      "desktop": "Desktop",
+      "desktop": "Ruang kerja",
       "system": "Sistem",
       "dateAndRegion": "Tanggal dan Wilayah",
       "connectivity": "Konektivitas",
@@ -737,7 +737,7 @@
       "toggleClockAria": "Alihkan jam di bilah tugas",
       "size": "Ukuran",
       "sizeCompact": "Kompak",
-      "sizeNormal": "Normal",
+      "sizeNormal": "Biasa",
       "sizeLarge": "Besar",
       "sizeXLarge": "X-Besar",
       "thirdPartyLauncherNotice": "{{app}} adalah peluncur pihak ketiga aktif Anda. Kontrol ini hanya berlaku untuk NovaByte Launcher."
@@ -1230,7 +1230,7 @@
         "privacySecurityDesc": "Kontrol cookie, kata sandi, lokasi, kamera/mikrofon, dan data penelusuran.",
         "content": "Isi",
         "contentDesc": "Kontrol bagaimana halaman web dimuat dan ditampilkan.",
-        "bandwidth": "Bandwidth",
+        "bandwidth": "Lebar pita",
         "bandwidthDesc": "Kelola berapa banyak data yang diunduh browser.",
         "accessibility": "Aksesibilitas",
         "accessibilityDesc": "Sesuaikan pengaturan tampilan dan interaksi.",
@@ -1386,7 +1386,9 @@
         "viewIcons": "Lihat: Ikon",
         "viewList": "Lihat: Daftar",
         "selectAll": "Pilih Semua",
-        "delete": "Menghapus"
+        "delete": "Menghapus",
+        "pinToQuickAccess": "Sematkan ke Akses cepat",
+        "unpinFromQuickAccess": "Lepas sematan dari Akses cepat"
       },
       "dialogs": {
         "chooseDestinationFolder": "Pilih Folder Tujuan",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "Berkas Diblokir",
         "invalidDrop": "File yang tidak valid terjatuh.",
         "failedToAdd": "Gagal menambahkan file.",
-        "couldNotVerify": "Tidak dapat memverifikasi \"{{file}}\" — dijatuhkan dalam keadaan aman dan dilewati."
+        "couldNotVerify": "Tidak dapat memverifikasi \"{{file}}\" — dijatuhkan dalam keadaan aman dan dilewati.",
+        "quickAccessFailed": "Akses cepat gagal diperbarui",
+        "quickAccessNotSaved": "Lokasi yang disematkan tidak dapat disimpan.",
+        "quickAccessNotFolder": "Hanya folder yang ada yang dapat disematkan."
       },
       "linux": {
         "openParentFolder": "Buka folder induk",
@@ -1538,7 +1543,7 @@
         "statusGranted": "Diberikan",
         "statusDenied": "Ditolak",
         "statusPending": "Tertunda",
-        "tierNormal": "normal",
+        "tierNormal": "Biasa",
         "tierDangerous": "berbahaya",
         "tierDeclared": "dideklarasikan"
       },
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "Jaringan",
-        "fs": "FS"
+        "fs": "Sistem berkas"
       },
       "network": {
         "desc": "Menampilkan rute proxy, status penjaga SSRF, dan konfigurasi jaringan terkini.",
@@ -1710,7 +1715,7 @@
         "total": "({{count}} total)"
       },
       "editor": {
-        "open": "Edit",
+        "open": "Ubah",
         "openTitle": "Edit kode modul ini secara langsung dan muat ulang seketika",
         "title": "Mengedit {{id}}",
         "save": "Simpan & muat ulang",
@@ -1719,7 +1724,8 @@
         "saved": "Tersimpan ke disk dan dimuat ulang ke OS yang berjalan",
         "saveFailed": "Gagal menyimpan: {{message}}",
         "lines": "{{count}} baris",
-        "unsaved": "Diedit — belum disimpan"
+        "unsaved": "Diedit — belum disimpan",
+        "emptyRefused": "Penyimpanan modul kosong ditolak"
       }
     },
     "install": {
@@ -1810,7 +1816,7 @@
       "memory": "Ingatan",
       "domNodesByWindow": "Node DOM berdasarkan Jendela",
       "noWindowsOpen": "Tidak ada jendela yang terbuka",
-      "notAvailableShort": "tidak ada",
+      "notAvailableShort": "Tidak tersedia",
       "longTaskLog": "Log Tugas Panjang",
       "longTaskUnsupported": "Pelacakan tugas yang panjang tidak didukung di browser ini",
       "noLongTasks": "Belum ada tugas panjang yang direkam",
@@ -1826,20 +1832,20 @@
       "noRequestsMatch": "Tidak ada permintaan yang cocok dengan filter saat ini",
       "noRequestsRecorded": "Belum ada permintaan yang dicatat",
       "sourceBrowser": "peramban · {{label}}",
-      "sourceOs": "os · {{label}}",
+      "sourceOs": "Sistem operasi · {{label}}",
       "showBody": "▸ tubuh",
       "hideBody": "▾ tubuh",
       "bodyNotCaptured": "tubuh tidak ditangkap{{type}}",
-      "statusError": "BERBUAT SALAH",
+      "statusError": "Kesalahan",
       "unknownApp": "aplikasi yang tidak dikenal",
       "networkError": "kesalahan jaringan",
       "bodyTruncated": "{{text}}…(dipotong)",
-      "durationMs": "{{value}}MS",
-      "fpsValue": "{{value}} fps",
+      "durationMs": "{{value}} ms",
+      "fpsValue": "{{value}} FPS",
       "memoryValue": "{{value}} MB",
       "longTasksValue": "{{count}} (>50 md)",
       "none": "Tidak ada",
-      "notAvailable": "T/A"
+      "notAvailable": "Tidak tersedia"
     },
     "terminal": {
       "appDataMissing": "Direktori data aplikasi hilang.",
@@ -1973,21 +1979,21 @@
       "tabAlarm": "Alarm",
       "tabClock": "Jam",
       "tabTimer": "pengatur waktu",
-      "tabStopwatch": "Stopwatch",
+      "tabStopwatch": "Jam henti",
       "alarms": "Alarm",
       "add": "Menambahkan",
       "noAlarms": "Tidak ada alarm yang disetel. Ketuk + Tambahkan untuk membuatnya.",
-      "am": "PAGI",
+      "am": "AM",
       "pm": "PM",
       "repeatOnce": "Sekali",
       "repeatEveryDay": "Setiap hari",
       "repeatWeekdays": "hari kerja",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
-      "dayInitialTue": "T",
-      "dayInitialWed": "W",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
+      "dayInitialSun": "M",
+      "dayInitialMon": "S",
+      "dayInitialTue": "S",
+      "dayInitialWed": "R",
+      "dayInitialThu": "K",
+      "dayInitialFri": "J",
       "dayInitialSat": "S",
       "daySun": "Matahari",
       "dayMon": "Senin",
@@ -2030,12 +2036,12 @@
       "dayThu": "Kam",
       "dayFri": "Jumat",
       "daySat": "Duduk",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
-      "miniDayTue": "T",
-      "miniDayWed": "W",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
+      "miniDaySun": "M",
+      "miniDayMon": "S",
+      "miniDayTue": "S",
+      "miniDayWed": "R",
+      "miniDayThu": "K",
+      "miniDayFri": "J",
       "miniDaySat": "S",
       "upcoming": "Mendatang",
       "newEvent": "Acara Baru",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "Masukkan JS untuk mengevaluasi, atau `reg query HKNS\\shell` untuk Registry CLI\nEnter untuk menjalankan · Shift+Enter untuk baris baru · ↑/↓ untuk riwayat",
       "run": "Jalankan",
       "readyMessage": "Konsol sudah siap. Ketikkan ekspresi di atas dan tekan Enter atau Run.\nShift+Enter untuk baris baru, ↑/↓ untuk mengingat perintah sebelumnya.",
-      "noOutputMatches": "(tidak ada keluaran yang cocok \"{{query}}\")"
+      "noOutputMatches": "(tidak ada keluaran yang cocok \"{{query}}\")",
+      "exportDialogTitle": "Ekspor keluaran Konsol",
+      "exportedTitle": "Keluaran Konsol diekspor",
+      "exportedBody": "Disimpan ke {{path}}",
+      "exportFailedTitle": "Ekspor Konsol gagal"
     },
     "contacts": {
       "appDataMissing": "Direktori data aplikasi hilang.",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "Debug posisi hamparan",
         "devNovaReg": "Status editor NovaReg",
         "devNovaRegDesc": "Favorit editor ini dan lompat sejarah."
-      }
+      },
+      "importDialogTitle": "Impor data Registry"
     },
     "appmanager": {
       "fallbackPackageName": "Paket ini",
@@ -2801,7 +2812,7 @@
       "copyFailedBtn": "Penyalinan gagal",
       "appIdLabel": "ID Aplikasi (domain terbalik, misalnya com.test.app)",
       "appNameLabel": "Nama aplikasi",
-      "appNamePlaceholder": "Aplikasi Uji",
+      "appNamePlaceholder": "Aplikasi uji",
       "versionLabel": "Versi (x.y.z)",
       "entryFileLabel": "Jalur file masuk",
       "signingMethodLabel": "Metode penandatanganan:",
@@ -3001,7 +3012,7 @@
         "allAccounts": "Semua akun",
         "exportCsv": "Ekspor CSV",
         "noEvents": "Belum ada acara.",
-        "target": "target: {{target}}",
+        "target": "sasaran: {{target}}",
         "exportTitle": "Ekspor acara akun",
         "fileWriteUnavailable": "Penulisan file tidak tersedia dalam runtime ini.",
         "csvExported": "CSV diekspor ke {{path}}",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "Tidak dapat membuat folder: {{message}}",
       "createFileFailed": "Tidak dapat membuat berkas: {{message}}",
       "fileType": "Jenis berkas",
-      "allTypes": "Semua jenis (*.*)"
+      "allTypes": "Semua jenis (*.*)",
+      "pinned": "Disematkan",
+      "mounts": "Drive terpasang",
+      "saveFailed": "File tidak dapat disimpan",
+      "unavailable": "Dialog file sistem tidak tersedia",
+      "search": "Cari di folder ini",
+      "searchAria": "Cari di folder ini",
+      "noMatches": "(Tidak ada hasil)"
     }
   }
 }

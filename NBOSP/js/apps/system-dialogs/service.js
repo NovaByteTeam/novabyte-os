@@ -192,6 +192,11 @@ const SystemDialogs = (() => {
   function fileIcon() {
     return `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
   }
+  function sideIcon(name, size = 16) {
+    if (typeof svgIcon === 'function') return svgIcon(name, size);
+    if (name === 'folder') return folderIcon().replaceAll('28', String(size));
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 15h.01M12 15h.01"/></svg>`;
+  }
   function chevronLeft() {
     return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
   }
@@ -245,6 +250,69 @@ const SystemDialogs = (() => {
 
   function isDirectorySafe(target) {
     try { return fs.statSync(target).isDirectory(); } catch (_) { return false; }
+  }
+
+  function getMountedVolumes() {
+    const mounted = new Map();
+    const platform = typeof process !== 'undefined'
+      ? process.platform
+      : (path.sep === '\\' ? 'win32' : 'linux');
+    const add = mountPath => {
+      if (typeof mountPath !== 'string' || !path.isAbsolute(mountPath) || !isDirectorySafe(mountPath)) return;
+      const resolved = path.resolve(mountPath);
+      if (mounted.has(resolved)) return;
+      mounted.set(resolved, {
+        label: path.basename(resolved) || resolved,
+        path: resolved,
+        icon: 'hard-drive',
+      });
+    };
+
+    if (platform === 'win32') {
+      for (let code = 65; code <= 90; code++) add(String.fromCharCode(code) + ':\\');
+    } else if (platform === 'darwin') {
+      add('/');
+      try {
+        for (const name of fs.readdirSync('/Volumes')) add(path.join('/Volumes', name));
+      } catch (error) {
+        if (error.code !== 'ENOENT') console.warn('[SystemDialogs] Could not enumerate mounted volumes:', error);
+      }
+    } else {
+      try {
+        const contents = fs.readFileSync('/proc/self/mountinfo', 'utf8');
+        const pseudoFilesystems = new Set([
+          'autofs', 'bpf', 'cgroup', 'cgroup2', 'configfs', 'debugfs',
+          'devpts', 'devtmpfs', 'fusectl', 'mqueue', 'overlay', 'proc',
+          'pstore', 'securityfs', 'sysfs', 'tmpfs', 'tracefs',
+        ]);
+        for (const line of contents.split('\n')) {
+          const separator = line.indexOf(' - ');
+          if (separator < 0) continue;
+          const fields = line.slice(0, separator).split(' ');
+          const filesystem = line.slice(separator + 3).split(' ')[0];
+          if (pseudoFilesystems.has(filesystem)) continue;
+          const mountPath = fields[4]?.replace(/\\([0-7]{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+          add(mountPath);
+        }
+      } catch (error) {
+        console.warn('[SystemDialogs] Could not read mounted volumes:', error);
+      }
+    }
+
+    return [...mounted.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  function readPinnedHostPaths() {
+    try {
+      const bag = window.NovaRegistry?.get('HKNU/shell/bags/files');
+      if (!Array.isArray(bag?.pinnedHostPaths)) return [];
+      return [...new Set(bag.pinnedHostPaths.filter(target =>
+        typeof target === 'string' && path.isAbsolute(target) && isDirectorySafe(target)
+      ).map(target => path.resolve(target)))];
+    } catch (error) {
+      console.warn('[SystemDialogs] Could not read pinned locations:', error);
+      return [];
+    }
   }
 
   // Sidebar "Quick access" common folders, Windows order.
@@ -513,6 +581,61 @@ const SystemDialogs = (() => {
         });
         sidebar.appendChild(btn);
         sideButtons.push({ el: btn, target: path.resolve(entry.target) });
+      }
+
+      const pinnedPaths = readPinnedHostPaths().filter(target =>
+        !quickEntries.some(entry => path.resolve(entry.target) === target)
+      );
+      if (pinnedPaths.length) {
+        const pinnedHeader = document.createElement('div');
+        pinnedHeader.className = 'system-file-dialog-side-header';
+        pinnedHeader.textContent = _t('apps.sysdialog.pinned');
+        sidebar.appendChild(pinnedHeader);
+        for (const target of pinnedPaths) {
+          const entry = { label: path.basename(target) || target, target, icon: () => sideIcon('folder', 16) };
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'system-file-dialog-side-item';
+          btn.setAttribute('aria-label', entry.label);
+          const icon = document.createElement('span');
+          icon.className = 'system-file-dialog-side-icon';
+          icon.innerHTML = entry.icon();
+          const label = document.createElement('span');
+          label.className = 'system-file-dialog-side-name';
+          label.textContent = entry.label;
+          btn.append(icon, label);
+          btn.addEventListener('click', () => {
+            if (path.resolve(entry.target) !== path.resolve(cwd)) navigateTo(entry.target);
+          });
+          sidebar.appendChild(btn);
+          sideButtons.push({ el: btn, target: path.resolve(entry.target) });
+        }
+      }
+
+      const mountedVolumes = getMountedVolumes();
+      if (mountedVolumes.length) {
+        const mountedHeader = document.createElement('div');
+        mountedHeader.className = 'system-file-dialog-side-header';
+        mountedHeader.textContent = _t('apps.sysdialog.mounts');
+        sidebar.appendChild(mountedHeader);
+        for (const entry of mountedVolumes) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'system-file-dialog-side-item';
+          btn.setAttribute('aria-label', entry.label);
+          const icon = document.createElement('span');
+          icon.className = 'system-file-dialog-side-icon';
+          icon.innerHTML = sideIcon(entry.icon, 16);
+          const label = document.createElement('span');
+          label.className = 'system-file-dialog-side-name';
+          label.textContent = entry.label;
+          btn.append(icon, label);
+          btn.addEventListener('click', () => {
+            if (path.resolve(entry.path) !== path.resolve(cwd)) navigateTo(entry.path);
+          });
+          sidebar.appendChild(btn);
+          sideButtons.push({ el: btn, target: path.resolve(entry.path) });
+        }
       }
 
       const grid = document.createElement('div');
@@ -1071,6 +1194,13 @@ const SystemDialogs = (() => {
   return {
     open(opts = {}) { return _show({ ...opts, mode: 'open' }); },
     save(opts = {}) { return _show({ ...opts, mode: 'save' }); },
+    async saveContent(opts = {}, content) {
+      const destination = await _show({ ...opts, mode: 'save' });
+      if (!destination) return null;
+      await fs.promises.writeFile(destination.path, content);
+      return destination;
+    },
+    getMountedVolumes,
   };
 })();
 

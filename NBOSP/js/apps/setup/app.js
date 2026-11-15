@@ -96,7 +96,7 @@ registerApp({
       .nvsetup-bottom { flex-shrink:0;display:flex;justify-content:space-between;gap:10px;padding:16px 34px 22px;border-top:1px solid var(--border-subtle); }
       .nvsetup-btn { padding:10px 22px;border-radius:10px;border:1px solid var(--border-default);background:var(--bg-elevated);color:var(--text-primary);font-size:13px;cursor:pointer; }
       .nvsetup-btn.ghost { background:transparent;border-color:transparent;color:var(--text-muted); }
-      .nvsetup-btn.primary { border-color:var(--accent);background:var(--accent);color:var(--text-primary);font-weight:600; }
+      .nvsetup-btn.primary { border-color:var(--accent);background:var(--accent);color:var(--text-on-accent);font-weight:600; }
       .nvsetup-btn.primary:disabled { opacity:.5;cursor:default; }
       .nvsetup-swatches { display:flex;gap:10px;justify-content:center;flex-wrap:wrap; }
       .nvsetup-swatch { width:34px;height:34px;border-radius:50%;border:2px solid transparent;cursor:pointer; }

@@ -51,10 +51,10 @@
     "express-session": "^1.19.0",
     "helmet": "^8.3.0",
     "i18next": "^27.1.2",
-    "imapflow": "^2.11.0",
+    "imapflow": "^2.12.1",
     "multer": "^2.5.0",
     "node-pop3": "^0.15.5",
-    "nodemailer": "^10.5.0",
+    "nodemailer": "^10.6.0",
     "postal-mime": "^4.2.1",
     "reflect-metadata": "^0.2.2",
     "tar": "^7.5.23",
@@ -72,8 +72,8 @@
   },
   "allowScripts": {
     "nw-builder@4.25.0": true,
-    "better-sqlite3@13.1.1": true,
-    "nw@0.120.0": true
+    "nw@0.120.0": true,
+    "better-sqlite3@13.2.0": true
   },
   "overrides": {
     "@nwutils/getter": "0.2.8"

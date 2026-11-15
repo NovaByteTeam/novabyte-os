@@ -331,7 +331,7 @@ registerApp({
 
     function btnStyle(primary) {
       return 'padding:5px 10px;' + (primary
-        ? 'background:var(--accent);color:var(--text-primary);border:none;'
+        ? 'background:var(--accent);color:var(--text-on-accent);border:none;'
         : 'background:transparent;color:var(--text-muted,#9aa4b2);border:1px solid var(--border-subtle,#2a2f3a);') +
         'border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;';
     }
@@ -348,12 +348,8 @@ registerApp({
     const auditBtn = el('button', btnStyle(false), _t('apps.novareg.auditBtn'));
     const exportBtn = el('button', btnStyle(false), _t('apps.novareg.exportBtn'));
     const importBtn = el('button', btnStyle(false), _t('apps.novareg.importBtn'));
-    const importFile = el('input');
-    importFile.type = 'file';
-    importFile.accept = '.json,.nvreg,application/json,text/plain';
-    importFile.style.display = 'none';
 
-    toolbar.append(jumpInput, jumpBtn, filterInput, newKeyBtn, newValueBtn, newLinkBtn, renameBtn, deleteBtn, copyPathBtn, findBtn, favBtn, permBtn, snapBtn, auditBtn, exportBtn, importBtn, importFile, historyDatalist);
+    toolbar.append(jumpInput, jumpBtn, filterInput, newKeyBtn, newValueBtn, newLinkBtn, renameBtn, deleteBtn, copyPathBtn, findBtn, favBtn, permBtn, snapBtn, auditBtn, exportBtn, importBtn, historyDatalist);
 
     // ── main split ─────────────────────────────────────────────────────
     const main = el('div', 'display:flex;flex:1;min-height:0;');
@@ -906,52 +902,53 @@ registerApp({
     }, { signal: ac.signal });
 
     // ── export / import (JSON or .nvreg text via window.NovaRegFile) ───
-    exportBtn.addEventListener('click', () => {
+    exportBtn.addEventListener('click', async () => {
       try {
         const useText = typeof window.NovaRegFile === 'object' && window.NovaRegFile;
         const data = Reg.export(selectedPath);
-        let blob;
         let ext;
+        let text;
         if (useText) {
-          blob = new Blob([window.NovaRegFile.stringify(selectedPath, data)], { type: 'text/plain' });
+          text = window.NovaRegFile.stringify(selectedPath, data);
           ext = 'nvreg';
         } else {
-          blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          text = JSON.stringify(data, null, 2);
           ext = 'json';
         }
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'nova-registry-' + selectedPath.replace(/[\\/]/g, '-') + '.' + ext;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        setStatus(useText ? _t('apps.novareg.exportedNvreg', { path: selectedPath }) : _t('apps.novareg.exportedJson', { path: selectedPath }));
+        const destination = await SystemDialogs.saveContent({
+          title: _t('apps.novareg.exportBtn'),
+          suggestedName: 'nova-registry-' + selectedPath.replace(/[\\/]/g, '-') + '.' + ext,
+          accept: `.${ext}`,
+        }, text);
+        if (destination) {
+          setStatus(useText ? _t('apps.novareg.exportedNvreg', { path: selectedPath }) : _t('apps.novareg.exportedJson', { path: selectedPath }));
+        }
       } catch (err) { setStatus(errorMessage(err)); }
     }, { signal: ac.signal });
 
-    importBtn.addEventListener('click', () => importFile.click(), { signal: ac.signal });
-    importFile.addEventListener('change', () => {
-      const file = importFile.files && importFile.files[0];
-      importFile.value = '';
+    importBtn.addEventListener('click', async () => {
+      let file;
+      try {
+        file = await SystemDialogs.open({
+          title: _t('apps.novareg.importDialogTitle'),
+          accept: '.json,.nvreg,application/json,text/plain',
+        });
+      } catch (err) {
+        setStatus(_t('apps.novareg.statusImportFailed', { message: errorMessage(err) }));
+        return;
+      }
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const text = String(reader.result);
-          const isNvreg = /\.nvreg$/i.test(file.name) || (!text.trim().startsWith('{') && typeof window.NovaRegFile === 'object');
-          let data;
-          if (isNvreg && window.NovaRegFile) data = window.NovaRegFile.parse(text).tree;
-          else data = JSON.parse(text);
-          // One-click safety net: snapshot the hive before merging anything.
-          try { Reg.saveSnapshot(selectedPath.split('/')[0], 'before-import', { actor: SELF }); } catch (_) {}
-          const result = Reg.import(selectedPath, data, { actor: SELF });
-          expanded[selectedPath] = true;
-          refresh().then(() => setStatus(_t('apps.novareg.statusImported', { count: result.merged, path: selectedPath })));
-        } catch (err) { setStatus(_t('apps.novareg.statusImportFailed', { message: errorMessage(err) })); }
-      };
-      reader.readAsText(file);
+      try {
+        const text = typeof file.content === 'string' ? file.content : file.content.toString('utf8');
+        const isNvreg = /\.nvreg$/i.test(file.name) || (!text.trim().startsWith('{') && typeof window.NovaRegFile === 'object');
+        let data;
+        if (isNvreg && window.NovaRegFile) data = window.NovaRegFile.parse(text).tree;
+        else data = JSON.parse(text);
+        try { Reg.saveSnapshot(selectedPath.split('/')[0], 'before-import', { actor: SELF }); } catch (_) {}
+        const result = Reg.import(selectedPath, data, { actor: SELF });
+        expanded[selectedPath] = true;
+        refresh().then(() => setStatus(_t('apps.novareg.statusImported', { count: result.merged, path: selectedPath })));
+      } catch (err) { setStatus(_t('apps.novareg.statusImportFailed', { message: errorMessage(err) })); }
     }, { signal: ac.signal });
 
     // Live refresh — one debounced listener on the registry change event.

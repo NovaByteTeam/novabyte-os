@@ -441,7 +441,7 @@ registerApp({
         const on = al.days.includes(i);
         const btn = createEl('button', {
           title: d,
-          style: `flex:1;padding:7px 0;border-radius:50%;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${on ? 'var(--accent)' : 'var(--border-subtle)'};background:${on ? 'var(--accent)' : 'transparent'};color:${on ? '#fff' : 'var(--text-muted)'};aspect-ratio:1;transition:all 0.12s;`,
+          style: `flex:1;padding:7px 0;border-radius:50%;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${on ? 'var(--accent)' : 'var(--border-subtle)'};background:${on ? 'var(--accent)' : 'transparent'};color:${on ? 'var(--text-on-accent)' : 'var(--text-muted)'};aspect-ratio:1;transition:all 0.12s;`,
         });
         btn.textContent = d.charAt(0);
         btn.dataset.i  = i;
@@ -462,7 +462,7 @@ registerApp({
 
       let delBtn = null;
       if (isEdit) {
-        delBtn = createEl('button', { textContent: _t('apps.clock.delete'), className: 'btn btn-sm', style: 'color:#f85149;border-color:#f85149;' });
+        delBtn = createEl('button', { textContent: _t('apps.clock.delete'), className: 'btn btn-sm', style: 'color:var(--text-danger);border-color:var(--text-danger);' });
         delBtn.addEventListener('click', () => {
           db.alarms.splice(idx, 1);
           saveDb();

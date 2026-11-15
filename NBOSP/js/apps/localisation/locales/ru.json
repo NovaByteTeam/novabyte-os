@@ -208,7 +208,7 @@
       "pinEntryAria": "Ввод PIN-кода",
       "signIn": "Войти",
       "clearAria": "Прозрачный",
-      "backspaceAria": "Backspace",
+      "backspaceAria": "Назад",
       "useBiometric": "👆 Используйте биометрию",
       "lockedOut": "Заблокировано. Попробуйте еще раз в {{seconds}}с",
       "verificationUnavailable": "Проверка недоступна: {{message}}",
@@ -1386,7 +1386,9 @@
         "viewIcons": "Вид: Значки",
         "viewList": "Просмотр: Список",
         "selectAll": "Выбрать все",
-        "delete": "Удалить"
+        "delete": "Удалить",
+        "pinToQuickAccess": "Закрепить в быстром доступе",
+        "unpinFromQuickAccess": "Открепить из быстрого доступа"
       },
       "dialogs": {
         "chooseDestinationFolder": "Выберите папку назначения",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "Файл заблокирован",
         "invalidDrop": "Удален неверный файл.",
         "failedToAdd": "Не удалось добавить файл.",
-        "couldNotVerify": "Не удалось проверить\"{{file}}\" — сбросил в безопасное состояние и пропустил."
+        "couldNotVerify": "Не удалось проверить\"{{file}}\" — сбросил в безопасное состояние и пропустил.",
+        "quickAccessFailed": "Не удалось обновить быстрый доступ",
+        "quickAccessNotSaved": "Не удалось сохранить закреплённые расположения.",
+        "quickAccessNotFolder": "Можно закреплять только существующие папки."
       },
       "linux": {
         "openParentFolder": "Открыть родительскую папку",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "Сеть",
-        "fs": "ФС"
+        "fs": "Файловая система"
       },
       "network": {
         "desc": "Показывает маршруты прокси, состояние защиты SSRF и недавнюю конфигурацию сети.",
@@ -1719,7 +1724,8 @@
         "saved": "Сохранено на диск и перезагружено в работающую ОС",
         "saveFailed": "Не удалось сохранить: {{message}}",
         "lines": "{{count}} строк",
-        "unsaved": "Изменено — ещё не сохранено"
+        "unsaved": "Изменено — ещё не сохранено",
+        "emptyRefused": "Сохранение пустого модуля запрещено"
       }
     },
     "install": {
@@ -1810,7 +1816,7 @@
       "memory": "Память",
       "domNodesByWindow": "Узлы DOM по окнам",
       "noWindowsOpen": "Ни одно окно не открыто",
-      "notAvailableShort": "н/д",
+      "notAvailableShort": "Недоступно",
       "longTaskLog": "Длинный журнал задач",
       "longTaskUnsupported": "Отслеживание длительных задач не поддерживается в этом браузере",
       "noLongTasks": "Длинных задач пока не записано",
@@ -1826,20 +1832,20 @@
       "noRequestsMatch": "Нет запросов, соответствующих текущему фильтру",
       "noRequestsRecorded": "Запросов пока не зарегистрировано",
       "sourceBrowser": "браузер · {{label}}",
-      "sourceOs": "ОС · {{label}}",
+      "sourceOs": "Операционная система · {{label}}",
       "showBody": "▸ тело",
       "hideBody": "▾ тело",
       "bodyNotCaptured": "тело не захвачено{{type}}",
-      "statusError": "ОШИБКА",
+      "statusError": "Ошибка",
       "unknownApp": "неизвестное приложение",
       "networkError": "сетевая ошибка",
       "bodyTruncated": "{{text}}…(усечено)",
-      "durationMs": "{{value}}РС",
+      "durationMs": "{{value}} мс",
       "fpsValue": "{{value}} кадр/с",
       "memoryValue": "{{value}} МБ",
       "longTasksValue": "{{count}} (>50 мс)",
       "none": "Никто",
-      "notAvailable": "Н/Д"
+      "notAvailable": "Недоступно"
     },
     "terminal": {
       "appDataMissing": "Отсутствует каталог данных приложения.",
@@ -1977,8 +1983,8 @@
       "alarms": "Сигнализация",
       "add": "Добавлять",
       "noAlarms": "Никаких будильников не установлено. Нажмите + Добавить, чтобы создать его.",
-      "am": "ЯВЛЯЮСЬ",
-      "pm": "ПМ",
+      "am": "ДП",
+      "pm": "ПП",
       "repeatOnce": "Один раз",
       "repeatEveryDay": "Каждый день",
       "repeatWeekdays": "Будни",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "Введите JS для оценки или `reg query HKNS\\shell` для реестра CLI.\nEnter для запуска · Shift+Enter для новой строки · ↑/↓ для истории",
       "run": "Запустить",
       "readyMessage": "Консоль готова. Введите выражение выше и нажмите Enter или Run.\nShift+Enter для перехода на новую строку, ↑/↓ для вызова предыдущих команд.",
-      "noOutputMatches": "(нет выходных совпадений \"{{query}}\")"
+      "noOutputMatches": "(нет выходных совпадений \"{{query}}\")",
+      "exportDialogTitle": "Экспорт вывода консоли",
+      "exportedTitle": "Вывод консоли экспортирован",
+      "exportedBody": "Сохранено в {{path}}",
+      "exportFailedTitle": "Не удалось экспортировать консоль"
     },
     "contacts": {
       "appDataMissing": "Отсутствует каталог данных приложения.",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "Позиция наложения отладки",
         "devNovaReg": "Состояние редактора NovaReg",
         "devNovaRegDesc": "Избранное этого редактора и история переходов."
-      }
+      },
+      "importDialogTitle": "Импорт данных реестра"
     },
     "appmanager": {
       "fallbackPackageName": "Этот пакет",
@@ -2771,7 +2782,7 @@
       "addWebAppSub": "Закрепите любой веб-сайт как приложение.",
       "urlLabel": "URL *",
       "nameLabel": "Имя *",
-      "namePlaceholder": "Мое приложение",
+      "namePlaceholder": "Моё приложение",
       "iconOptionalLabel": "Значок (необязательно)",
       "chooseImageBtn": "Выбрать изображение…",
       "iconNotImageError": "Пожалуйста, выберите файл изображения.",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "Не удалось создать папку: {{message}}",
       "createFileFailed": "Не удалось создать файл: {{message}}",
       "fileType": "Тип файлов",
-      "allTypes": "Все типы (*.*)"
+      "allTypes": "Все типы (*.*)",
+      "pinned": "Закреплённые",
+      "mounts": "Подключённые диски",
+      "saveFailed": "Не удалось сохранить файл",
+      "unavailable": "Системный диалог выбора файлов недоступен",
+      "search": "Поиск в этой папке",
+      "searchAria": "Поиск в этой папке",
+      "noMatches": "(Совпадений нет)"
     }
   }
 }

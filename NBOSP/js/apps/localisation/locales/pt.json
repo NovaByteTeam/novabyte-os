@@ -1386,7 +1386,9 @@
         "viewIcons": "Ver: Ícones",
         "viewList": "Ver: Lista",
         "selectAll": "Selecionar tudo",
-        "delete": "Excluir"
+        "delete": "Excluir",
+        "pinToQuickAccess": "Fixar no Acesso rápido",
+        "unpinFromQuickAccess": "Desafixar do Acesso rápido"
       },
       "dialogs": {
         "chooseDestinationFolder": "Escolha a pasta de destino",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "Arquivo bloqueado",
         "invalidDrop": "Arquivo inválido descartado.",
         "failedToAdd": "Falha ao adicionar arquivo.",
-        "couldNotVerify": "Não foi possível verificar \"{{file}}\" — caiu em um estado seguro e pulou."
+        "couldNotVerify": "Não foi possível verificar \"{{file}}\" — caiu em um estado seguro e pulou.",
+        "quickAccessFailed": "Falha ao atualizar o Acesso rápido",
+        "quickAccessNotSaved": "Não foi possível salvar os locais fixados.",
+        "quickAccessNotFolder": "Apenas pastas existentes podem ser fixadas."
       },
       "linux": {
         "openParentFolder": "Abrir pasta pai",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "Rede",
-        "fs": "FS"
+        "fs": "Sistema de arquivos"
       },
       "network": {
         "desc": "Mostra rotas de proxy, estado de guarda SSRF e configuração de rede recente.",
@@ -1719,7 +1724,8 @@
         "saved": "Salvo no disco e recarregado no OS em execução",
         "saveFailed": "Falha ao salvar: {{message}}",
         "lines": "{{count}} linhas",
-        "unsaved": "Editado — ainda não salvo"
+        "unsaved": "Editado — ainda não salvo",
+        "emptyRefused": "Salvamento de módulo vazio recusado"
       }
     },
     "install": {
@@ -1810,7 +1816,7 @@
       "memory": "Memória",
       "domNodesByWindow": "Nós DOM por janela",
       "noWindowsOpen": "Nenhuma janela aberta",
-      "notAvailableShort": "n / D",
+      "notAvailableShort": "Indisponível",
       "longTaskLog": "Log de tarefas longo",
       "longTaskUnsupported": "Rastreamento de tarefas longas não suportado neste navegador",
       "noLongTasks": "Nenhuma tarefa longa registrada ainda",
@@ -1826,20 +1832,20 @@
       "noRequestsMatch": "Nenhuma solicitação corresponde ao filtro atual",
       "noRequestsRecorded": "Nenhuma solicitação registrada ainda",
       "sourceBrowser": "navegador · {{label}}",
-      "sourceOs": "os · {{label}}",
+      "sourceOs": "Sistema operacional · {{label}}",
       "showBody": "▸ corpo",
       "hideBody": "▾ corpo",
       "bodyNotCaptured": "corpo não capturado{{type}}",
-      "statusError": "ERRAR",
+      "statusError": "Erro",
       "unknownApp": "aplicativo desconhecido",
       "networkError": "erro de rede",
       "bodyTruncated": "{{text}}…(truncado)",
-      "durationMs": "{{value}}EM",
+      "durationMs": "{{value}} ms",
       "fpsValue": "{{value}} FPS",
       "memoryValue": "{{value}} MB",
-      "longTasksValue": "{{count}} (>50ms)",
+      "longTasksValue": "{{count}} (>50 ms)",
       "none": "Nenhum",
-      "notAvailable": "N / D"
+      "notAvailable": "Indisponível"
     },
     "terminal": {
       "appDataMissing": "Diretório de dados do aplicativo ausente.",
@@ -1857,7 +1863,7 @@
       "helpSectionMath": "Matemática",
       "helpSectionFun": "Diversão",
       "helpAllCommands": "Todos os comandos:",
-      "helpAliases": "Aliases:",
+      "helpAliases": "Apelidos:",
       "shortcutsIntro": "Atalhos:",
       "shortcutsAutocomplete": "=preenchimento automático",
       "shortcutsHistory": "=história",
@@ -1977,17 +1983,17 @@
       "alarms": "Alarmes",
       "add": "Adicionar",
       "noAlarms": "Nenhum alarme definido. Toque em + Adicionar para criar um.",
-      "am": "SOU",
-      "pm": "PM",
+      "am": "a.m.",
+      "pm": "p.m.",
       "repeatOnce": "Uma vez",
       "repeatEveryDay": "Diariamente",
       "repeatWeekdays": "Dias da semana",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
+      "dayInitialSun": "D",
+      "dayInitialMon": "S",
       "dayInitialTue": "T",
       "dayInitialWed": "C",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
+      "dayInitialThu": "Q",
+      "dayInitialFri": "S",
       "dayInitialSat": "S",
       "daySun": "Sol",
       "dayMon": "seg",
@@ -2030,12 +2036,12 @@
       "dayThu": "qui",
       "dayFri": "sex",
       "daySat": "Sentado",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
+      "miniDaySun": "D",
+      "miniDayMon": "S",
       "miniDayTue": "T",
       "miniDayWed": "C",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
+      "miniDayThu": "Q",
+      "miniDayFri": "S",
       "miniDaySat": "S",
       "upcoming": "Por vir",
       "newEvent": "Novo Evento",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "Insira JS para avaliar ou `reg query HKNS\\shell` para a CLI do Registro\nEnter para executar · Shift+Enter para nova linha · ↑/↓ para histórico",
       "run": "Correr",
       "readyMessage": "Console pronto. Digite uma expressão acima e pressione Enter ou Executar.\nShift+Enter para uma nova linha, ↑/↓ para recuperar comandos anteriores.",
-      "noOutputMatches": "(nenhuma saída corresponde a \"{{query}}\")"
+      "noOutputMatches": "(nenhuma saída corresponde a \"{{query}}\")",
+      "exportDialogTitle": "Exportar saída do Console",
+      "exportedTitle": "Saída do Console exportada",
+      "exportedBody": "Salvo em {{path}}",
+      "exportFailedTitle": "Falha ao exportar o Console"
     },
     "contacts": {
       "appDataMissing": "Diretório de dados do aplicativo ausente.",
@@ -2141,7 +2151,7 @@
       "score": "Pontuação: {{score}}",
       "controlsHint": "Teclas de seta / WASD",
       "canvasAria": "Tela de jogo de cobra",
-      "gameOver": "Game Over",
+      "gameOver": "Fim de jogo",
       "playAgain": "↺ Jogue novamente"
     },
     "downloads": {
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "Posição de sobreposição de depuração",
         "devNovaReg": "Estado do editor NovaReg",
         "devNovaRegDesc": "Os favoritos e histórico de saltos deste editor."
-      }
+      },
+      "importDialogTitle": "Importar dados do Registro"
     },
     "appmanager": {
       "fallbackPackageName": "Este pacote",
@@ -2796,7 +2807,7 @@
       "tabVerify": "Verificar",
       "tabInstall": "Instalar",
       "copyBtn": "Cópia",
-      "downloadBtn": "Download",
+      "downloadBtn": "Baixar",
       "copiedBtn": "Copiado!",
       "copyFailedBtn": "Falha na cópia",
       "appIdLabel": "ID do aplicativo (domínio reverso, por exemplo, com.test.app)",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "Não foi possível criar a pasta: {{message}}",
       "createFileFailed": "Não foi possível criar o arquivo: {{message}}",
       "fileType": "Tipo de arquivo",
-      "allTypes": "Todos os tipos (*.*)"
+      "allTypes": "Todos os tipos (*.*)",
+      "pinned": "Fixados",
+      "mounts": "Unidades montadas",
+      "saveFailed": "Não foi possível salvar o arquivo",
+      "unavailable": "A caixa de diálogo de arquivos do sistema não está disponível",
+      "search": "Pesquisar nesta pasta",
+      "searchAria": "Pesquisar nesta pasta",
+      "noMatches": "(Nenhum resultado)"
     }
   }
 }

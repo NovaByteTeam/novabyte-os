@@ -80,6 +80,7 @@ vi.mock('../../server/middleware.js', async () => {
   const express = expressModule.default || expressModule;
   return {
     setupMiddleware: vi.fn(app => app.use(express.json())),
+    closeSessionDb: vi.fn(),
   };
 });
 
@@ -89,6 +90,7 @@ vi.mock('../../server/routes.js', () => ({
 
 vi.mock('../../server/favicons.js', () => ({
   setupFaviconRoutes: vi.fn(),
+  closeFaviconDb: vi.fn(),
 }));
 
 vi.mock('../../server/proxies.js', () => ({

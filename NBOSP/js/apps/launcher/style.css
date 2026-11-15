@@ -46,13 +46,13 @@
     right: -8px;
     width: 22px;
     height: 22px;
-    background: #22c55e;
-    border: 2px solid #fff;
+    background: var(--text-success);
+    border: 2px solid var(--bg-base);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
+    color: var(--text-on-accent);
     font-size: 15px;
     font-weight: bold;
     line-height: 1;
@@ -67,7 +67,7 @@
   }
 
   .desktop-icon:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-hover);
     transform: scale(1.08) translateY(-4px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   }
@@ -113,7 +113,7 @@
     position: fixed;
     z-index: 5;
     border: 1px solid var(--accent);
-    background: rgba(88, 166, 255, 0.1);
+    background: var(--accent-muted);
     pointer-events: none;
     display: none;
   }
@@ -160,7 +160,7 @@
     backdrop-filter: blur(16px) saturate(220%) brightness(108%);
     -webkit-backdrop-filter: blur(16px) saturate(220%) brightness(108%);
     filter: url(#glass-distortion-soft);
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-hover);
     border-top: 1px solid rgba(255, 255, 255, 0.45);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.50);
     pointer-events: none;
@@ -240,7 +240,7 @@
     flex-shrink: 0;
   }
   .taskbar-app-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
     transform: scale(1.08);
   }
   .taskbar-app-btn:active {
@@ -248,7 +248,7 @@
   }
   .taskbar-app-btn.active {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-hover);
   }
 
   /* Active-window indicator dot — small dot for running, dash for pinned. */
@@ -294,7 +294,7 @@
     height: 16px;
     border-radius: 8px;
     background: var(--accent);
-    color: white;
+    color: var(--text-on-accent);
     font-size: 10px;
     font-weight: 600;
     display: flex;
@@ -313,8 +313,8 @@
     min-width: 16px;
     height: 16px;
     border-radius: 8px;
-    background: #f85149;
-    color: white;
+    background: var(--text-danger);
+    color: var(--text-on-accent);
     font-size: 10px;
     font-weight: 600;
     display: flex;
@@ -388,7 +388,7 @@
     opacity: 1;
   }
   .preview-close:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--bg-hover);
     color: var(--text-danger);
   }
 
@@ -422,7 +422,7 @@
     min-height: 44px;
   }
   .tray-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
     color: var(--text-primary);
   }
   .tray-badge {
@@ -433,7 +433,7 @@
     height: 16px;
     border-radius: 8px;
     background: var(--text-danger);
-    color: white;
+    color: var(--text-on-accent);
     font-size: 10px;
     font-weight: 600;
     display: flex;
@@ -460,7 +460,7 @@
     color: inherit;
   }
   .tray-clock:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
   }
   .tray-time {
     font-size: 12px;
@@ -535,7 +535,7 @@
     color: var(--text-danger);
   }
   .tray-menu-item.danger:hover {
-    background: rgba(248, 81, 73, 0.15);
+    background: color-mix(in srgb, var(--text-danger) 16%, transparent);
   }
   .tray-menu-item svg {
     flex-shrink: 0;
@@ -563,7 +563,7 @@
       opacity 300ms var(--ease-macos),
       transform 300ms var(--ease-macos),
       visibility 300ms;
-    background: rgba(4, 6, 14, 0.60);
+    background: var(--bg-overlay);
     backdrop-filter: blur(24px) saturate(200%) brightness(90%);
     -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(90%);
     flex-direction: column;
@@ -591,8 +591,8 @@
     width: 380px;
     max-width: 90%;
     padding: 10px 18px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     border-radius: 40px;
     box-shadow:
       inset 0 1.5px 0 rgba(255, 255, 255, 0.38),
@@ -608,12 +608,12 @@
     transition: border-color var(--t-fast), box-shadow var(--t-fast);
   }
   .launchpad-search:focus {
-    border-color: rgba(88, 166, 255, 0.45);
+    border-color: var(--accent);
     box-shadow:
       inset 0 1.5px 0 rgba(255, 255, 255, 0.38),
       inset 0 -1px 0 rgba(0, 0, 0, 0.14),
       0 4px 20px rgba(0, 0, 0, 0.30),
-      0 0 0 3px rgba(88, 166, 255, 0.18);
+      0 0 0 3px var(--accent-muted);
   }
   .launchpad-search::placeholder {
     color: var(--text-muted);
@@ -660,7 +660,7 @@
     }
   }
   .launchpad-item.animate:hover {
-    background: rgba(255, 255, 255, 0.10);
+    background: var(--bg-hover);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.30),
       0 4px 16px rgba(0, 0, 0, 0.25);
@@ -676,10 +676,10 @@
     width: 60px;
     height: 60px;
     border-radius: var(--r-lg);
-    background: rgba(88, 166, 255, 0.12);
+    background: var(--accent-muted);
     backdrop-filter: blur(16px) saturate(200%);
     -webkit-backdrop-filter: blur(16px) saturate(200%);
-    border: 1px solid rgba(88, 166, 255, 0.25);
+    border: 1px solid var(--border-default);
     box-shadow:
       inset 0 1.5px 0 rgba(255, 255, 255, 0.35),
       inset 0 -1px 0 rgba(0, 0, 0, 0.12),
@@ -697,7 +697,7 @@
   }
   .launchpad-name mark {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
     border-radius: 2px;
     padding: 0 2px;
   }
@@ -705,7 +705,7 @@
 
 @layer overrides {
   .no-glass #taskbar,
-  .no-glass .taskbar { background: rgba(0, 0, 0, 0.50) !important; }
+  .no-glass .taskbar { background: var(--bg-base) !important; }
   .no-transparency #taskbar,
   .no-transparency .taskbar { background-color: var(--taskbar-bg) !important; }
   .no-transparency #taskbar::before { background: var(--bg-elevated) !important; filter: none !important; }

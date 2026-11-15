@@ -1386,7 +1386,9 @@
         "viewIcons": "Xem: Biểu tượng",
         "viewList": "Xem: Danh sách",
         "selectAll": "Chọn tất cả",
-        "delete": "Xóa bỏ"
+        "delete": "Xóa bỏ",
+        "pinToQuickAccess": "Ghim vào Truy cập nhanh",
+        "unpinFromQuickAccess": "Bỏ ghim khỏi Truy cập nhanh"
       },
       "dialogs": {
         "chooseDestinationFolder": "Chọn thư mục đích",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "Tệp bị chặn",
         "invalidDrop": "Đã bỏ tập tin không hợp lệ.",
         "failedToAdd": "Không thể thêm tệp.",
-        "couldNotVerify": "Không thể xác minh \"{{file}}\" — rơi vào trạng thái an toàn và bỏ qua."
+        "couldNotVerify": "Không thể xác minh \"{{file}}\" — rơi vào trạng thái an toàn và bỏ qua.",
+        "quickAccessFailed": "Không thể cập nhật Truy cập nhanh",
+        "quickAccessNotSaved": "Không thể lưu các vị trí đã ghim.",
+        "quickAccessNotFolder": "Chỉ có thể ghim các thư mục hiện có."
       },
       "linux": {
         "openParentFolder": "Mở thư mục mẹ",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "Mạng",
-        "fs": "FS"
+        "fs": "Hệ thống tệp"
       },
       "network": {
         "desc": "Hiển thị các tuyến proxy, trạng thái bảo vệ SSRF và cấu hình mạng gần đây.",
@@ -1719,7 +1724,8 @@
         "saved": "Đã lưu vào đĩa và nạp lại vào OS đang chạy",
         "saveFailed": "Lưu thất bại: {{message}}",
         "lines": "{{count}} dòng",
-        "unsaved": "Đã sửa — chưa lưu"
+        "unsaved": "Đã sửa — chưa lưu",
+        "emptyRefused": "Từ chối lưu mô-đun trống"
       }
     },
     "install": {
@@ -1810,7 +1816,7 @@
       "memory": "Ký ức",
       "domNodesByWindow": "Nút DOM theo cửa sổ",
       "noWindowsOpen": "Không có cửa sổ nào mở",
-      "notAvailableShort": "không có",
+      "notAvailableShort": "Không có sẵn",
       "longTaskLog": "Nhật ký nhiệm vụ dài",
       "longTaskUnsupported": "Theo dõi tác vụ dài không được hỗ trợ trong trình duyệt này",
       "noLongTasks": "Chưa có nhiệm vụ dài nào được ghi lại",
@@ -1826,20 +1832,20 @@
       "noRequestsMatch": "Không có yêu cầu nào phù hợp với bộ lọc hiện tại",
       "noRequestsRecorded": "Chưa có yêu cầu nào được ghi lại",
       "sourceBrowser": "trình duyệt · {{label}}",
-      "sourceOs": "os · {{label}}",
+      "sourceOs": "Hệ điều hành · {{label}}",
       "showBody": "▸ cơ thể",
       "hideBody": "▾ cơ thể",
       "bodyNotCaptured": "thi thể không bị bắt{{type}}",
-      "statusError": "LỖI",
+      "statusError": "Lỗi",
       "unknownApp": "ứng dụng không xác định",
       "networkError": "lỗi mạng",
       "bodyTruncated": "{{text}}…(cắt ngắn)",
-      "durationMs": "{{value}}bệnh đa xơ cứng",
+      "durationMs": "{{value}} ms",
       "fpsValue": "{{value}} khung hình/giây",
       "memoryValue": "{{value}} MB",
       "longTasksValue": "{{count}} (>50 mili giây)",
       "none": "Không có",
-      "notAvailable": "không áp dụng"
+      "notAvailable": "Không có sẵn"
     },
     "terminal": {
       "appDataMissing": "Thư mục dữ liệu ứng dụng bị thiếu.",
@@ -1977,18 +1983,18 @@
       "alarms": "Báo thức",
       "add": "Thêm vào",
       "noAlarms": "Không có báo thức nào được đặt. Nhấn vào + Thêm để tạo một cái.",
-      "am": "LÀ",
-      "pm": "Thủ tướng",
+      "am": "SA",
+      "pm": "CH",
       "repeatOnce": "Một lần",
       "repeatEveryDay": "Mỗi ngày",
       "repeatWeekdays": "Các ngày trong tuần",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
-      "dayInitialTue": "T",
-      "dayInitialWed": "W",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
-      "dayInitialSat": "S",
+      "dayInitialSun": "CN",
+      "dayInitialMon": "T2",
+      "dayInitialTue": "T3",
+      "dayInitialWed": "T4",
+      "dayInitialThu": "T5",
+      "dayInitialFri": "T6",
+      "dayInitialSat": "T7",
       "daySun": "Mặt trời",
       "dayMon": "Thứ hai",
       "dayTue": "thứ ba",
@@ -2030,13 +2036,13 @@
       "dayThu": "Thứ năm",
       "dayFri": "Thứ sáu",
       "daySat": "Đã ngồi",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
-      "miniDayTue": "T",
-      "miniDayWed": "W",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
-      "miniDaySat": "S",
+      "miniDaySun": "CN",
+      "miniDayMon": "T2",
+      "miniDayTue": "T3",
+      "miniDayWed": "T4",
+      "miniDayThu": "T5",
+      "miniDayFri": "T6",
+      "miniDaySat": "T7",
       "upcoming": "Sắp tới",
       "newEvent": "Sự kiện mới",
       "today": "Hôm nay",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "Nhập JS để đánh giá hoặc `reg query HKNS\\shell` cho CLI đăng ký\nEnter để chạy · Shift+Enter cho dòng mới · ↑/↓ cho lịch sử",
       "run": "Chạy",
       "readyMessage": "Bảng điều khiển đã sẵn sàng. Nhập biểu thức ở trên và nhấn Enter hoặc Run.\nShift+Enter để xuống dòng, ↑/↓ để gọi lại các lệnh trước đó.",
-      "noOutputMatches": "(không có đầu ra nào khớp \"{{query}}\")"
+      "noOutputMatches": "(không có đầu ra nào khớp \"{{query}}\")",
+      "exportDialogTitle": "Xuất kết quả Bảng điều khiển",
+      "exportedTitle": "Đã xuất kết quả Bảng điều khiển",
+      "exportedBody": "Đã lưu vào {{path}}",
+      "exportFailedTitle": "Xuất Bảng điều khiển thất bại"
     },
     "contacts": {
       "appDataMissing": "Thư mục dữ liệu ứng dụng bị thiếu.",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "Vị trí lớp phủ gỡ lỗi",
         "devNovaReg": "Trạng thái soạn thảo NovaReg",
         "devNovaRegDesc": "Mục yêu thích của biên tập viên này và lịch sử nhảy."
-      }
+      },
+      "importDialogTitle": "Nhập dữ liệu sổ đăng ký"
     },
     "appmanager": {
       "fallbackPackageName": "Gói này",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "Không thể tạo thư mục: {{message}}",
       "createFileFailed": "Không thể tạo tệp: {{message}}",
       "fileType": "Loại tệp",
-      "allTypes": "Tất cả các loại (*.*)"
+      "allTypes": "Tất cả các loại (*.*)",
+      "pinned": "Đã ghim",
+      "mounts": "Ổ đĩa đã gắn kết",
+      "saveFailed": "Không thể lưu tệp",
+      "unavailable": "Hộp thoại tệp hệ thống không khả dụng",
+      "search": "Tìm trong thư mục này",
+      "searchAria": "Tìm trong thư mục này",
+      "noMatches": "(Không có kết quả)"
     }
   }
 }

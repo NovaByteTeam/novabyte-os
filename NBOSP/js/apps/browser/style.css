@@ -22,7 +22,7 @@
     background: linear-gradient(
       180deg,
       var(--bg-sunken) 0%,
-      rgba(0, 0, 0, 0.18) 100%
+      var(--bg-sunken) 100%
     );
     border-bottom: 1px solid var(--border-subtle);
     padding: 6px 8px 0;
@@ -69,15 +69,15 @@
     transition: opacity 160ms, transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .browser-tab:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--bg-hover);
     color: var(--text-secondary);
   }
   .browser-tab.incognito {
-    background: rgba(80, 0, 120, 0.3) !important;
+    background: var(--accent-muted) !important;
   }
   .browser-tab.incognito.active {
-    background: rgba(100, 0, 160, 0.5) !important;
-    border-bottom-color: #a855f7 !important;
+    background: var(--accent-muted) !important;
+    border-bottom-color: var(--accent) !important;
   }
   .browser-tab.active {
     background: rgba(255, 255, 255, 0.07);
@@ -114,7 +114,7 @@
     opacity: 1;
   }
   .tab-close:hover {
-    background: rgba(248, 81, 73, 0.18);
+    background: color-mix(in srgb, var(--text-danger) 16%, transparent);
     color: var(--text-danger);
   }
   .tab-badge {
@@ -122,7 +122,7 @@
     padding: 1px 5px;
     border-radius: 8px;
     background: var(--accent);
-    color: #000;
+    color: var(--text-on-accent);
     font-weight: 700;
   }
   .browser-new-tab-btn {
@@ -141,7 +141,7 @@
     flex-shrink: 0;
   }
   .browser-new-tab-btn:hover {
-    background: rgba(255, 255, 255, 0.09);
+    background: var(--bg-hover);
     color: var(--text-primary);
   }
   .browser-tab.tab-hibernated,
@@ -154,7 +154,7 @@
     align-items: center;
     gap: 3px;
     padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.14);
+    background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
@@ -173,7 +173,7 @@
     flex-shrink: 0;
   }
   .browser-nav-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-hover);
     color: var(--text-primary);
     transform: scale(1.08);
   }
@@ -198,7 +198,7 @@
     padding: 7px 92px 7px 36px;
     border-radius: 20px;
     border: 1.5px solid var(--border-default);
-    background: rgba(0, 0, 0, 0.28);
+    background: var(--bg-sunken);
     color: var(--text-primary);
     font-size: 13px;
     font-family: var(--font-ui);
@@ -208,8 +208,8 @@
   }
   .browser-url-bar:focus {
     border-color: var(--accent);
-    background: rgba(0, 0, 0, 0.40);
-    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.12);
+    background: var(--bg-elevated);
+    box-shadow: 0 0 0 3px var(--accent-muted);
   }
   .browser-url-icon {
     position: absolute;
@@ -267,7 +267,7 @@
   }
   .omni-row.active,
   .omni-row:hover {
-    background: rgba(88, 166, 255, 0.10);
+    background: var(--accent-muted);
   }
   .omni-icon {
     flex-shrink: 0;
@@ -307,7 +307,7 @@
     padding: 11px 14px;
     border: 1px solid var(--border-default);
     border-radius: 24px;
-    background: rgba(18, 24, 36, 0.9);
+    background: var(--bg-overlay);
     color: var(--text-primary);
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
     opacity: 0;
@@ -404,7 +404,7 @@
   }
 
   .browser-viewport.mobile-mode {
-    background: #111;
+    background: var(--bg-base);
   }
   .browser-viewport.mobile-mode::before {
     content: 'Mobile View · 390px';
@@ -413,7 +413,7 @@
     left: 50%;
     transform: translateX(-50%);
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--text-muted);
     letter-spacing: 0.05em;
     pointer-events: none;
     z-index: 2;
@@ -427,8 +427,8 @@
     transform: translateX(-50%) !important;
     top: 0 !important;
     height: 100% !important;
-    border-left: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-left: 1px solid var(--border-subtle) !important;
+    border-right: 1px solid var(--border-subtle) !important;
     box-shadow: 0 0 60px rgba(0, 0, 0, 0.6);
   }
 
@@ -452,12 +452,12 @@
   }
 
   /* Browser — registry editor hive icons */
-  .hive-SYSTEM    { color: #58a6ff; }
-  .hive-SOFTWARE  { color: #3fb950; }
-  .hive-POLICIES  { color: #f85149; }
-  .hive-USER      { color: #d29922; }
-  .hive-HARDWARE  { color: #bc8cff; }
-  .hive-NETWORK   { color: #39d353; }
+  .hive-SYSTEM    { color: var(--text-link); }
+  .hive-SOFTWARE  { color: var(--text-success); }
+  .hive-POLICIES  { color: var(--text-danger); }
+  .hive-USER      { color: var(--text-warning); }
+  .hive-HARDWARE  { color: var(--accent); }
+  .hive-NETWORK   { color: var(--text-success); }
 
   .val-name {
     font-family: var(--font-mono);
@@ -479,34 +479,34 @@
     font-family: var(--font-mono);
   }
   .val-type-badge.STRING {
-    background: rgba(63, 185, 80, 0.15);
-    color: #3fb950;
-    border: 1px solid rgba(63, 185, 80, 0.3);
+    background: color-mix(in srgb, var(--text-success) 14%, transparent);
+    color: var(--text-success);
+    border: 1px solid color-mix(in srgb, var(--text-success) 35%, transparent);
   }
   .val-type-badge.DWORD {
-    background: rgba(88, 166, 255, 0.15);
-    color: #58a6ff;
-    border: 1px solid rgba(88, 166, 255, 0.3);
+    background: color-mix(in srgb, var(--text-link) 14%, transparent);
+    color: var(--text-link);
+    border: 1px solid color-mix(in srgb, var(--text-link) 35%, transparent);
   }
   .val-type-badge.QWORD {
-    background: rgba(188, 140, 255, 0.15);
-    color: #bc8cff;
-    border: 1px solid rgba(188, 140, 255, 0.3);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   }
   .val-type-badge.BINARY {
-    background: rgba(248, 81, 73, 0.15);
-    color: #f85149;
-    border: 1px solid rgba(248, 81, 73, 0.3);
+    background: color-mix(in srgb, var(--text-danger) 14%, transparent);
+    color: var(--text-danger);
+    border: 1px solid color-mix(in srgb, var(--text-danger) 35%, transparent);
   }
   .val-type-badge.MULTI_STRING {
-    background: rgba(210, 153, 34, 0.15);
-    color: #d29922;
-    border: 1px solid rgba(210, 153, 34, 0.3);
+    background: color-mix(in srgb, var(--text-warning) 14%, transparent);
+    color: var(--text-warning);
+    border: 1px solid color-mix(in srgb, var(--text-warning) 35%, transparent);
   }
   .val-type-badge.EXPAND_SZ {
-    background: rgba(57, 211, 83, 0.12);
-    color: #39d353;
-    border: 1px solid rgba(57, 211, 83, 0.3);
+    background: color-mix(in srgb, var(--text-success) 12%, transparent);
+    color: var(--text-success);
+    border: 1px solid color-mix(in srgb, var(--text-success) 35%, transparent);
   }
   .val-data {
     font-family: var(--font-mono);

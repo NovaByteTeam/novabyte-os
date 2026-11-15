@@ -54,9 +54,15 @@ vi.mock('../../server/core/ssl.js', () => ({
   configureSSL: vi.fn(() => ({ server: mockServer })),
 }));
 
-vi.mock('../../server/middleware.js', () => ({ setupMiddleware: vi.fn((app) => { app.use?.(); }) }));
+vi.mock('../../server/middleware.js', () => ({
+  setupMiddleware: vi.fn((app) => { app.use?.(); }),
+  closeSessionDb: vi.fn(),
+}));
 vi.mock('../../server/routes.js', () => ({ mountRoutes: vi.fn((app) => { app.use?.(); }) }));
-vi.mock('../../server/favicons.js', () => ({ setupFaviconRoutes: vi.fn((app) => { app.get?.(); }) }));
+vi.mock('../../server/favicons.js', () => ({
+  setupFaviconRoutes: vi.fn((app) => { app.get?.(); }),
+  closeFaviconDb: vi.fn(),
+}));
 
 describe('server/core/ssl.js — configureSSL', () => {
   beforeEach(() => {

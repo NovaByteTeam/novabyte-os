@@ -50,7 +50,7 @@ registerApp({
 
     // ── Lightbox ────────────────────────────────────────────────────────────
     const lb = createEl('div', {
-      style: 'display:none;position:absolute;inset:0;background:rgba(0,0,0,0.93);z-index:200;align-items:center;justify-content:center;flex-direction:column;',
+      style: 'display:none;position:absolute;inset:0;background:var(--bg-base);color:var(--text-primary);z-index:200;align-items:center;justify-content:center;flex-direction:column;',
       role: 'dialog',
       'aria-modal': 'true',
       'aria-label': _t('apps.gallery.viewerAria'),
@@ -61,22 +61,22 @@ registerApp({
       alt: '',
     });
     const lbClose = createEl('button', {
-      style: 'position:absolute;top:10px;right:14px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#fff;border-radius:6px;width:30px;height:30px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;',
+      style: 'position:absolute;top:10px;right:14px;background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-primary);border-radius:6px;width:30px;height:30px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;',
       'aria-label': _t('common.close'),
     });
     lbClose.innerHTML = svgIcon('x', 14);
     const lbPrev = createEl('button', {
-      style: 'position:absolute;left:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:50%;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;',
+      style: 'position:absolute;left:10px;background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-primary);border-radius:50%;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;',
       'aria-label': _t('apps.gallery.previousImageAria'),
     });
     lbPrev.innerHTML = svgIcon('chevron-left', 18);
     const lbNext = createEl('button', {
-      style: 'position:absolute;right:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:50%;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;',
+      style: 'position:absolute;right:10px;background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-primary);border-radius:50%;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;',
       'aria-label': _t('apps.gallery.nextImageAria'),
     });
     lbNext.innerHTML = svgIcon('chevron-right', 18);
     const lbCaption = createEl('div', {
-      style: 'position:absolute;bottom:12px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.55);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%;text-align:center;',
+      style: 'position:absolute;bottom:12px;left:50%;transform:translateX(-50%);color:var(--text-primary);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%;text-align:center;',
       'aria-live': 'polite',
     });
     lb.append(lbImg, lbClose, lbPrev, lbNext, lbCaption);
@@ -348,7 +348,7 @@ registerApp({
         void getUrl(f).then(showImage);
 
         const label = createEl('div', {
-          style: 'position:absolute;bottom:0;left:0;right:0;padding:4px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.7));color:#fff;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
+          style: 'position:absolute;bottom:0;left:0;right:0;padding:4px 6px;background:var(--bg-base);color:var(--text-primary);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
         });
         label.textContent = f.name;  // textContent — never innerHTML for user data
         card.appendChild(label);

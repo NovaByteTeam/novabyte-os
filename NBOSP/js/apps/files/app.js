@@ -169,14 +169,24 @@
       } catch { return null; }
     }
 
-    persistViewState() {
+    static writeViewBag(bag) {
       try {
         const r = window.NovaRegistry;
         if (!r || typeof r.set !== 'function') return false;
-        r.set(FilesApp.FILES_BAG_PATH, { viewMode: this.viewMode, sortBy: this.sortBy, sortAsc: this.sortAsc },
-          { type: 'REG_JSON', source: 'shell-bags' });
-        return true;
+        return r.set(FilesApp.FILES_BAG_PATH, bag, { type: 'REG_JSON', source: 'shell-bags' }) !== false;
       } catch { return false; }
+    }
+
+    persistViewState() {
+      const bag = FilesApp.readViewBag() || {};
+      const next = { ...bag, viewMode: this.viewMode, sortBy: this.sortBy, sortAsc: this.sortAsc };
+      if (this.quickAccessEdited || Array.isArray(bag.pinnedFolderIds)) {
+        next.pinnedFolderIds = [...this.pinnedFolderIds];
+      }
+      if (this.hostQuickAccessEdited || Array.isArray(bag.pinnedHostPaths)) {
+        next.pinnedHostPaths = [...this.pinnedHostPaths];
+      }
+      return FilesApp.writeViewBag(next);
     }
 
     constructor(content, state, options = {}) {
@@ -208,6 +218,14 @@
       this.sortBy = 'name';
       this.sortAsc = true;
       const filesBag = FilesApp.readViewBag();
+      this.pinnedFolderIds = Array.isArray(filesBag?.pinnedFolderIds)
+        ? [...new Set(filesBag.pinnedFolderIds.filter(id => typeof id === 'string'))]
+        : [];
+      this.pinnedHostPaths = Array.isArray(filesBag?.pinnedHostPaths)
+        ? [...new Set(filesBag.pinnedHostPaths.filter(target => typeof target === 'string'))]
+        : [];
+      this.quickAccessEdited = false;
+      this.hostQuickAccessEdited = false;
       if (filesBag) {
         if (filesBag.viewMode === 'icon' || filesBag.viewMode === 'list') this.viewMode = filesBag.viewMode;
         if (['name', 'size', 'mime', 'modified'].includes(filesBag.sortBy)) this.sortBy = filesBag.sortBy;
@@ -422,7 +440,7 @@
       this.sideTargets = [];
       const header = createEl('div', { className: 'system-file-dialog-side-header', textContent: _t('apps.sysdialog.quickAccess') });
       this.sidebar.appendChild(header);
-      const push = (label, folderId, icon) => {
+      const push = (label, folderId, icon, pinned = false) => {
         if (!folderId) return;
         const btn = createEl('button', {
           type: 'button',
@@ -437,6 +455,16 @@
         btn.addEventListener('click', () => {
           if (this.nav.cwd !== folderId) this.navigateTo(folderId);
         }, { signal: this.signal });
+        if (pinned) {
+          btn.addEventListener('contextmenu', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            ContextMenu.show(event.clientX, event.clientY, [{
+              label: _t('apps.files.contextMenu.unpinFromQuickAccess'),
+              action: () => this.setPinnedFolder(folderId, false),
+            }]);
+          }, { signal: this.signal });
+        }
         this.sidebar.appendChild(btn);
         this.sideTargets.push({ el: btn, id: folderId });
       };
@@ -451,7 +479,50 @@
         if (!folderId) continue;
         push(namesById.get(folderId) || key, folderId, SPECIAL_ICONS[key] || 'folder');
       }
+      const pinnedFolderIds = this.pinnedFolderIds.filter(id => {
+        const node = FS.files.get(id);
+        return node?.type === 'folder' && !this.sideTargets.some(target => target.id === id);
+      });
+      if (pinnedFolderIds.length) {
+        this.sidebar.appendChild(createEl('div', {
+          className: 'system-file-dialog-side-header',
+          textContent: _t('apps.sysdialog.pinned'),
+        }));
+        for (const id of pinnedFolderIds) {
+          const node = FS.files.get(id);
+          push(node.name, id, 'folder', true);
+        }
+      }
       this.updateSidebarActive();
+    }
+
+    setPinnedFolder(folderId, pinned) {
+      if (pinned && FS.files.get(folderId)?.type !== 'folder') {
+        Notify.show({
+          title: _t('apps.files.notifications.quickAccessFailed'),
+          body: _t('apps.files.notifications.quickAccessNotFolder'),
+          type: 'error',
+          appName: 'Files',
+        });
+        return;
+      }
+      const next = pinned
+        ? [...new Set([...this.pinnedFolderIds, folderId])]
+        : this.pinnedFolderIds.filter(id => id !== folderId);
+      const previous = this.pinnedFolderIds;
+      this.pinnedFolderIds = next;
+      this.quickAccessEdited = true;
+      if (!this.persistViewState()) {
+        this.pinnedFolderIds = previous;
+        Notify.show({
+          title: _t('apps.files.notifications.quickAccessFailed'),
+          body: _t('apps.files.notifications.quickAccessNotSaved'),
+          type: 'error',
+          appName: 'Files',
+        });
+        return;
+      }
+      this.buildQuickAccess();
     }
 
     updateSidebarActive() {
@@ -956,6 +1027,13 @@
           action: () => this.exportToHost([...selectedFileIds]),
         });
       }
+      if (f.type === 'folder' && !inTrash) {
+        const pinned = this.pinnedFolderIds.includes(f.id);
+        items.push({
+          label: _t(pinned ? 'apps.files.contextMenu.unpinFromQuickAccess' : 'apps.files.contextMenu.pinToQuickAccess'),
+          action: () => this.setPinnedFolder(f.id, !pinned),
+        });
+      }
       if (isHtmlFile(f)) {
         items.push({ label: _t('apps.files.contextMenu.editInTextEditor'), icon: 'pen', action: () => WM.createWindow('textedit', { fileId: f.id }) });
       }
@@ -1448,10 +1526,19 @@
       this.state = state;
       this.options = options;
       this.fs = require('fs').promises;
-      this.fsConstants = require('fs').constants;
+      this.fsSync = require('fs');
+      this.fsConstants = this.fsSync.constants;
       this.path = require('path');
       this.os = require('os');
       this.childProcess = require('child_process');
+      const filesBag = FilesApp.readViewBag();
+      this.pinnedHostPaths = Array.isArray(filesBag?.pinnedHostPaths)
+        ? [...new Set(filesBag.pinnedHostPaths.filter(target => {
+          if (typeof target !== 'string' || !this.path.isAbsolute(target)) return false;
+          try { return this.fsSync.statSync(target).isDirectory(); } catch { return false; }
+        }).map(target => this.path.resolve(target)))]
+        : [];
+      this.hostQuickAccessEdited = false;
       this.homePath = typeof FS !== 'undefined' && typeof FS.rootId === 'string'
         ? FS.rootId
         : this.os.homedir();
@@ -1748,7 +1835,7 @@
       this.sideTargets = [];
       const header = createEl('div', { className: 'system-file-dialog-side-header', textContent: _t('apps.sysdialog.quickAccess') });
       this.sidebar.appendChild(header);
-      const push = (label, target, icon) => {
+      const push = (label, target, icon, pinned = false) => {
         const btn = createEl('button', {
           type: 'button',
           className: 'system-file-dialog-side-item',
@@ -1763,6 +1850,16 @@
           if (this.path.resolve(target) === this.path.resolve(this.currentPath)) return;
           this.navigate(target);
         }, { signal: this.controller.signal });
+        if (pinned) {
+          btn.addEventListener('contextmenu', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            ContextMenu.show(event.clientX, event.clientY, [{
+              label: _t('apps.files.contextMenu.unpinFromQuickAccess'),
+              action: () => this.setPinnedHostPath(target, false),
+            }]);
+          }, { signal: this.controller.signal });
+        }
         this.sidebar.appendChild(btn);
         this.sideTargets.push({ el: btn, target: this.path.resolve(target) });
       };
@@ -1775,7 +1872,83 @@
         } catch (_) { continue; }
         push(folder, target, icon);
       }
+      const quickPaths = new Set(this.sideTargets.map(item => item.target));
+      const pinnedPaths = this.pinnedHostPaths.filter(target => {
+        try {
+          return this.path.isAbsolute(target) && this.fsSync.statSync(target).isDirectory()
+            && !quickPaths.has(this.path.resolve(target));
+        } catch { return false; }
+      });
+      if (pinnedPaths.length) {
+        this.sidebar.appendChild(createEl('div', {
+          className: 'system-file-dialog-side-header',
+          textContent: _t('apps.sysdialog.pinned'),
+        }));
+        for (const target of pinnedPaths) {
+          push(this.path.basename(target) || target, target, 'folder', true);
+        }
+      }
+      let mountedVolumes = [];
+      try {
+        mountedVolumes = window.SystemDialogs?.getMountedVolumes?.() || [];
+      } catch (error) {
+        console.error('[Files] Could not enumerate mounted volumes:', error);
+      }
+      const mountedPaths = new Set();
+      const uniqueMounts = mountedVolumes.filter(volume => {
+        const target = this.path.resolve(volume.path);
+        if (quickPaths.has(target) || pinnedPaths.some(pin => this.path.resolve(pin) === target) || mountedPaths.has(target)) return false;
+        mountedPaths.add(target);
+        return true;
+      });
+      if (uniqueMounts.length) {
+        this.sidebar.appendChild(createEl('div', {
+          className: 'system-file-dialog-side-header',
+          textContent: _t('apps.sysdialog.mounts'),
+        }));
+        for (const volume of uniqueMounts) push(volume.label, volume.path, 'hard-drive');
+      }
       this.updateSidebarActive();
+    }
+
+    persistQuickAccess() {
+      const bag = FilesApp.readViewBag() || {};
+      return FilesApp.writeViewBag({ ...bag, pinnedHostPaths: [...this.pinnedHostPaths] });
+    }
+
+    setPinnedHostPath(target, pinned) {
+      const normalized = this.path.resolve(target);
+      if (pinned) {
+        try {
+          if (!this.fsSync.statSync(normalized).isDirectory()) throw new Error(_t('apps.files.notifications.quickAccessNotFolder'));
+        } catch (error) {
+          Notify.show({
+            title: _t('apps.files.notifications.quickAccessFailed'),
+            body: error.message,
+            type: 'error',
+            appName: 'Files',
+          });
+          return;
+        }
+      }
+      const next = pinned
+        ? [...new Set([...this.pinnedHostPaths.map(path => this.path.resolve(path)), normalized])]
+        : this.pinnedHostPaths.filter(path => this.path.resolve(path) !== normalized);
+      const previous = this.pinnedHostPaths;
+      this.pinnedHostPaths = next;
+      this.hostQuickAccessEdited = true;
+      if (!this.persistQuickAccess()) {
+        this.pinnedHostPaths = previous;
+        this.hostQuickAccessEdited = false;
+        Notify.show({
+          title: _t('apps.files.notifications.quickAccessFailed'),
+          body: _t('apps.files.notifications.quickAccessNotSaved'),
+          type: 'error',
+          appName: 'Files',
+        });
+        return;
+      }
+      this.buildQuickAccess();
     }
 
     updateSidebarActive() {
@@ -1864,6 +2037,12 @@
           { label: _t('apps.files.linux.openFolder'), action: () => this.navigate(entry.path) },
           { label: _t('apps.files.linux.pasteIntoFolder'), disabled: !this.clipboard, action: () => this.pasteClipboard(entry.path) }
         );
+        items.push({
+          label: _t(this.pinnedHostPaths.some(path => this.path.resolve(path) === this.path.resolve(entry.path))
+            ? 'apps.files.contextMenu.unpinFromQuickAccess'
+            : 'apps.files.contextMenu.pinToQuickAccess'),
+          action: () => this.setPinnedHostPath(entry.path, !this.pinnedHostPaths.some(path => this.path.resolve(path) === this.path.resolve(entry.path))),
+        });
       } else if (isNovaPackage(entry.name)) {
         items.push({ label: _t('apps.files.linux.install'), disabled: entry.unavailable, action: () => this.installPackage(entry.path) });
       } else {

@@ -83,7 +83,7 @@ registerApp({
 
       const runBtn = createEl('button', {
         textContent: _t('apps.sysaccess.network.runTest'),
-        style: 'padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;margin-right:8px;'
+        style: 'padding:6px 14px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;margin-right:8px;'
       });
       const exportBtn = createEl('button', {
         textContent: _t('apps.sysaccess.network.exportResults'),
@@ -220,19 +220,19 @@ registerApp({
         renderHistory();
       }, { signal: ac.signal });
 
-      exportBtn.addEventListener('click', () => {
+      exportBtn.addEventListener('click', async () => {
         if (!runHistory.length) return;
         const payload = { exportedAt: new Date().toISOString(), runCount: runHistory.length, runs: runHistory };
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = createEl('a', { href: url, download: 'nbosp-sysaccess-network-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        // Same delayed-revoke pattern as console.js/perf.js exports: some
-        // browsers cancel the download if the blob URL is revoked before
-        // the click's download actually starts.
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        try {
+          await SystemDialogs.saveContent({
+            title: _t('apps.sysaccess.network.exportResults'),
+            suggestedName: 'nbosp-sysaccess-network-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json',
+            accept: '.json',
+          }, JSON.stringify(payload, null, 2));
+        } catch (error) {
+          console.error('[System Access] Network export failed:', error);
+          Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error', appName: 'System Access' });
+        }
       }, { signal: ac.signal });
 
       panels.network.appendChild(runBtn);
@@ -250,7 +250,7 @@ registerApp({
       // context (unlike an actual browser). A previous pass flagged this as
       // possibly throwing without a build-time shim — that concern doesn't
       // apply here since there's no browser bundle step involved at all.
-      corsRow.appendChild(createEl('span', { textContent: (typeof process !== 'undefined' && process.env?.CORS_ORIGIN) || 'https://localhost:3003 (default)', style: 'color:#3fb950;font-family:monospace;' }));
+      corsRow.appendChild(createEl('span', { textContent: (typeof process !== 'undefined' && process.env?.CORS_ORIGIN) || 'https://localhost:3003 (default)', style: 'color:var(--text-success);font-family:monospace;' }));
       corsCard.appendChild(corsRow);
       section.appendChild(corsCard);
 
@@ -329,7 +329,7 @@ registerApp({
       // Content is deliberately excluded from the export — file bodies can
       // be large/numerous, and per-file content is already viewable in the
       // detail panel on demand; a metadata export stays predictable in size.
-      fsExportBtn.addEventListener('click', () => {
+      fsExportBtn.addEventListener('click', async () => {
         const rows = [];
         function walk(id, path) {
           const node = FS.files.get(id);
@@ -347,13 +347,16 @@ registerApp({
         }
         walk(FS.rootId, '');
         const payload = { exportedAt: new Date().toISOString(), filter: fsFilterValue || null, nodeCount: rows.length, nodes: rows };
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = createEl('a', { href: url, download: 'nbosp-sysaccess-fs-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        try {
+          await SystemDialogs.saveContent({
+            title: _t('apps.sysaccess.fs.export'),
+            suggestedName: 'nbosp-sysaccess-fs-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json',
+            accept: '.json',
+          }, JSON.stringify(payload, null, 2));
+        } catch (error) {
+          console.error('[System Access] Filesystem export failed:', error);
+          Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error', appName: 'System Access' });
+        }
       }, { signal: ac.signal });
 
       function fmtBytes(n) {

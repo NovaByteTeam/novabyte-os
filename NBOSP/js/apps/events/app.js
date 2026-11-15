@@ -548,16 +548,19 @@ registerApp({
       render();
     }, { signal: ac.signal });
 
-    exportBtn.addEventListener('click', () => {
+    exportBtn.addEventListener('click', async () => {
       if (!lastFiltered.length) return;
       const lines = lastFiltered.map(e => `${new Date(e.timestamp).toISOString()} [${SEVERITY_LABEL[e.severity] || 'INFO'}] [${e.app}] ${e.message}`);
-      const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = createEl('a', { href: url, download: 'nbosp-events-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt' });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      try {
+        await SystemDialogs.saveContent({
+          title: _t('apps.events.toolbar.exportTitle'),
+          suggestedName: 'nbosp-events-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt',
+          accept: '.txt',
+        }, lines.join('\n'));
+      } catch (error) {
+        console.error('[Events] Export failed:', error);
+        Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error', appName: 'Events' });
+      }
     }, { signal: ac.signal });
 
     // ── Saved views ─────────────────────────────────────────────────────

@@ -28,13 +28,15 @@ function getShellSystemSettingsSnapshot() {
 // FIX: themes object hoisted to module-level constant — was re-allocated on every applyTheme() call
 const THEMES = {
   'nova-dark': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#07090f',
     '--bg-base': '#07090f',
     '--bg-elevated': 'rgba(14, 18, 28, 0.80)',
     '--bg-overlay': 'rgba(20, 26, 40, 0.70)',
     '--bg-sunken': '#030508',
     '--text-primary': '#e6edf3',
     '--text-secondary': '#8b949e',
-    '--text-muted': '#484f58',
+    '--text-muted': '#9aa4b2',
     '--text-link': '#58a6ff',
     '--text-danger': '#f85149',
     '--text-success': '#3fb950',
@@ -65,6 +67,8 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'nova-light': {
+    '--color-scheme': 'light',
+    '--text-on-accent': '#ffffff',
     '--bg-base': '#ffffff',
     '--bg-elevated': '#f6f8fa',
     '--bg-overlay': '#ffffff',
@@ -102,15 +106,17 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'nord': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#2e3440',
     '--bg-base': '#2e3440',
     '--bg-elevated': '#3b4252',
     '--bg-overlay': '#434c5e',
     '--bg-sunken': '#242933',
     '--text-primary': '#eceff4',
     '--text-secondary': '#d8dee9',
-    '--text-muted': '#4c566a',
+    '--text-muted': '#a0a9ba',
     '--text-link': '#88c0d0',
-    '--text-danger': '#bf616a',
+    '--text-danger': '#e78284',
     '--text-success': '#a3be8c',
     '--text-warning': '#ebcb8b',
     '--accent': '#88c0d0',
@@ -139,13 +145,15 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'dracula': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#282a36',
     '--bg-base': '#282a36',
     '--bg-elevated': '#44475a',
     '--bg-overlay': '#44475a',
     '--bg-sunken': '#21222c',
     '--text-primary': '#f8f8f2',
-    '--text-secondary': '#6272a4',
-    '--text-muted': '#484a66',
+    '--text-secondary': '#aeb8df',
+    '--text-muted': '#9da8d5',
     '--text-link': '#8be9fd',
     '--text-danger': '#ff5555',
     '--text-success': '#50fa7b',
@@ -176,13 +184,15 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'catppuccin': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#1e1e2e',
     '--bg-base': '#1e1e2e',
     '--bg-elevated': '#313244',
     '--bg-overlay': '#45475a',
     '--bg-sunken': '#181825',
     '--text-primary': '#cdd6f4',
     '--text-secondary': '#a6adc8',
-    '--text-muted': '#6c7086',
+    '--text-muted': '#9ba3bd',
     '--text-link': '#89b4fa',
     '--text-danger': '#f38ba8',
     '--text-success': '#a6e3a1',
@@ -213,13 +223,15 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'tokyo-night': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#1a1b26',
     '--bg-base': '#1a1b26',
     '--bg-elevated': '#24283b',
     '--bg-overlay': '#414868',
     '--bg-sunken': '#16161e',
     '--text-primary': '#c0caf5',
-    '--text-secondary': '#565f89',
-    '--text-muted': '#3b4261',
+    '--text-secondary': '#9aa5ce',
+    '--text-muted': '#8f9bc4',
     '--text-link': '#7aa2f7',
     '--text-danger': '#f7768e',
     '--text-success': '#9ece6a',
@@ -250,15 +262,17 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'gruvbox': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#282828',
     '--bg-base': '#282828',
     '--bg-elevated': '#3c3836',
     '--bg-overlay': '#504945',
     '--bg-sunken': '#1d2021',
     '--text-primary': '#ebdbb2',
     '--text-secondary': '#d5c4a1',
-    '--text-muted': '#665c54',
+    '--text-muted': '#bdae93',
     '--text-link': '#83a598',
-    '--text-danger': '#fb4934',
+    '--text-danger': '#ff6655',
     '--text-success': '#b8bb26',
     '--text-warning': '#fabd2f',
     '--accent': '#fabd2f',
@@ -287,6 +301,8 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'high-contrast': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#000000',
     '--bg-base': '#000000',
     '--bg-elevated': '#1a1a1a',
     '--bg-overlay': '#333333',
@@ -312,13 +328,13 @@ const THEMES = {
     '--surface-border-subtle': '#cccccc',
     '--surface-rim': '#ffffff',
     '--surface-highlight': '#222222',
-    '--window-border': '3px solid #ffffff',
+    '--window-border': '#ffffff',
     '--window-shadow': '0 8px 32px rgba(255,255,255,0.2), 0 2px 8px rgba(255,255,255,0.1)',
     '--taskbar-bg': 'rgba(0, 0, 0, 0.95)',
-    '--taskbar-border': '2px solid #ffffff',
-    '--border-subtle': '2px solid #ffffff',
-    '--border-default': '3px solid #ffffff',
-    '--border-strong': '4px solid #ffffff',
+    '--taskbar-border': '#ffffff',
+    '--border-subtle': '#cccccc',
+    '--border-default': '#ffffff',
+    '--border-strong': '#ffffff',
     '--r-window': '0px',
     '--font-size': '16px',
     '--window-blur': 'none'
@@ -332,6 +348,24 @@ function applyTheme(theme) {
     root.style.setProperty(k, v);
   }
   window.dispatchEvent(new CustomEvent('theme:changed', { detail: { theme } }));
+}
+
+function getAccentTextColor(accent) {
+  const hex = /^#[\da-f]{6}$/i.test(accent) ? accent.slice(1) : null;
+  if (!hex) return getComputedStyle(document.documentElement).getPropertyValue('--text-on-accent').trim();
+  const channels = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const luminance = channels
+    .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0);
+  return luminance > 0.179 ? '#000000' : '#ffffff';
+}
+
+function applyAccentColor(accent) {
+  const root = document.documentElement;
+  root.style.setProperty('--accent', accent);
+  root.style.setProperty('--accent-hover', accent + 'dd');
+  root.style.setProperty('--accent-muted', accent + '22');
+  root.style.setProperty('--text-on-accent', getAccentTextColor(accent));
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2044,20 +2078,12 @@ OS.events.on('settings:changed', async ({ key }) => {
       case 'theme': {
         applyTheme(getShellSystemSetting('theme') || 'nova-dark');
         const accent = getShellSystemSetting('accentColor');
-        if (accent) {
-          document.documentElement.style.setProperty('--accent', accent);
-          document.documentElement.style.setProperty('--accent-hover', accent + 'dd');
-          document.documentElement.style.setProperty('--accent-muted', accent + '22');
-        }
+        if (accent) applyAccentColor(accent);
         break;
       }
       case 'accentColor': {
         const accent = getShellSystemSetting('accentColor');
-        if (accent) {
-          document.documentElement.style.setProperty('--accent', accent);
-          document.documentElement.style.setProperty('--accent-hover', accent + 'dd');
-          document.documentElement.style.setProperty('--accent-muted', accent + '22');
-        }
+        if (accent) applyAccentColor(accent);
         break;
       }
       case 'reduceMotion':

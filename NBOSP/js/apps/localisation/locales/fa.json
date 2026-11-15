@@ -623,8 +623,8 @@
       "pinRemovedBody": "قفل پین غیرفعال شده است",
       "recovery": "بازیابی",
       "recoveryEnvironment": "محیط بازیابی",
-      "bootToRecovery": "Boot to Recovery",
-      "bootToRecoveryEnv": "Boot to Recovery Environment",
+      "bootToRecovery": "راه‌اندازی در حالت بازیابی",
+      "bootToRecoveryEnv": "راه‌اندازی در محیط بازیابی",
       "bootToRecoveryBody": "این کار دستگاه را مجدداً در محیط بازیابی لینوکس راه اندازی می کند، جایی که می توانید در حالت ایمن شروع به کار کنید، حافظه پنهان را پاک کنید، از داده ها نسخه پشتیبان تهیه یا بازیابی کنید یا سیستم را بازنشانی کنید.",
       "developer": "توسعه دهنده",
       "developerMode": "حالت توسعه دهنده",
@@ -1386,7 +1386,9 @@
         "viewIcons": "نمایش: نمادها",
         "viewList": "مشاهده: فهرست",
         "selectAll": "همه را انتخاب کنید",
-        "delete": "حذف کنید"
+        "delete": "حذف کنید",
+        "pinToQuickAccess": "سنجاق به دسترسی سریع",
+        "unpinFromQuickAccess": "برداشتن سنجاق از دسترسی سریع"
       },
       "dialogs": {
         "chooseDestinationFolder": "پوشه مقصد را انتخاب کنید",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "فایل مسدود شد",
         "invalidDrop": "فایل نامعتبر حذف شد.",
         "failedToAdd": "فایل اضافه نشد.",
-        "couldNotVerify": "تایید نشد\"{{file}}\" - در حالت امن به زمین افتاد و پرش شد."
+        "couldNotVerify": "تایید نشد\"{{file}}\" - در حالت امن به زمین افتاد و پرش شد.",
+        "quickAccessFailed": "به‌روزرسانی دسترسی سریع انجام نشد",
+        "quickAccessNotSaved": "ذخیره مکان‌های سنجاق‌شده ممکن نشد.",
+        "quickAccessNotFolder": "فقط پوشه‌های موجود را می‌توان سنجاق کرد."
       },
       "linux": {
         "openParentFolder": "پوشه والد را باز کنید",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "شبکه",
-        "fs": "FS"
+        "fs": "سیستم فایل"
       },
       "network": {
         "desc": "مسیرهای پراکسی، وضعیت محافظ SSRF و پیکربندی اخیر شبکه را نشان می دهد.",
@@ -1719,7 +1724,8 @@
         "saved": "در دیسک ذخیره شد و در OS در حال اجرا دوباره بارگذاری شد",
         "saveFailed": "ذخیره ناموفق بود: {{message}}",
         "lines": "{{count}} خط",
-        "unsaved": "ویرایش شد — هنوز ذخیره نشده"
+        "unsaved": "ویرایش شد — هنوز ذخیره نشده",
+        "emptyRefused": "ذخیره ماژول خالی رد شد"
       }
     },
     "install": {
@@ -1810,8 +1816,8 @@
       "memory": "حافظه",
       "domNodesByWindow": "گره های DOM توسط پنجره",
       "noWindowsOpen": "هیچ پنجره ای باز نمی شود",
-      "notAvailableShort": "n/a",
-      "longTaskLog": "Long Task Log",
+      "notAvailableShort": "در دسترس نیست",
+      "longTaskLog": "گزارش وظایف طولانی",
       "longTaskUnsupported": "ردیابی کار طولانی در این مرورگر پشتیبانی نمی شود",
       "noLongTasks": "هنوز کار طولانی ثبت نشده است",
       "noAttribution": "(هیچ منبعی در دسترس نیست)",
@@ -1826,20 +1832,20 @@
       "noRequestsMatch": "هیچ درخواستی با فیلتر فعلی مطابقت ندارد",
       "noRequestsRecorded": "هنوز درخواستی ثبت نشده است",
       "sourceBrowser": "مرورگر · {{label}}",
-      "sourceOs": "سیستم عامل · {{label}}",
+      "sourceOs": "سیستم‌عامل · {{label}}",
       "showBody": "▸ بدن",
       "hideBody": "▾ بدن",
       "bodyNotCaptured": "بدن اسیر نشده است{{type}}",
-      "statusError": "ERR",
+      "statusError": "خطا",
       "unknownApp": "برنامه ناشناخته",
       "networkError": "خطای شبکه",
       "bodyTruncated": "{{text}}… (قطع شده)",
-      "durationMs": "{{value}}ام‌اس",
+      "durationMs": "{{value}} میلی‌ثانیه",
       "fpsValue": "{{value}} فریم در ثانیه",
       "memoryValue": "{{value}} مگابایت",
       "longTasksValue": "{{count}} (> 50 میلی ثانیه)",
       "none": "هیچ کدام",
-      "notAvailable": "N/A"
+      "notAvailable": "در دسترس نیست"
     },
     "terminal": {
       "appDataMissing": "فهرست راهنمای داده برنامه وجود ندارد.",
@@ -1939,7 +1945,7 @@
       "exportTitle": "برنامه های فیلتر شده فعلی + ویندوز را به صورت JSON دانلود کنید",
       "registeredApps": "برنامه های ثبت شده ({{count}})",
       "verifiedBadge": "✓ تایید شده",
-      "permsCount": "{{count}} perms",
+      "permsCount": "{{count}} مجوز",
       "closeAll": "بستن همه ({{count}})",
       "appMeta": "شناسه: {{id}} · نسخه: {{version}} · تعداد راه اندازی: {{launchCount}}",
       "permissionsLine": "مجوزها: {{permissions}}",
@@ -1977,8 +1983,8 @@
       "alarms": "آلارم ها",
       "add": "اضافه کنید",
       "noAlarms": "هیچ آلارمی تنظیم نشده است. برای ایجاد یکی روی + Add ضربه بزنید.",
-      "am": "AM",
-      "pm": "PM",
+      "am": "ق.ظ",
+      "pm": "ب.ظ",
       "repeatOnce": "یک بار",
       "repeatEveryDay": "هر روز",
       "repeatWeekdays": "روزهای هفته",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "برای ارزیابی، JS را وارد کنید یا برای Registry CLI «HKNS\\shell query» را ثبت کنید\nبرای اجرا وارد شوید · Shift+Enter برای خط جدید · ↑/↓ برای تاریخچه",
       "run": "اجرا کنید",
       "readyMessage": "کنسول آماده است. یک عبارت بالا را تایپ کنید و Enter یا Run را فشار دهید.\nShift+Enter برای خط جدید، ↑/↓ برای فراخوانی دستورات قبلی.",
-      "noOutputMatches": "(بدون مطابقت خروجی\"{{query}}\")"
+      "noOutputMatches": "(بدون مطابقت خروجی\"{{query}}\")",
+      "exportDialogTitle": "خروجی کنسول را صادر کنید",
+      "exportedTitle": "خروجی کنسول صادر شد",
+      "exportedBody": "در {{path}} ذخیره شد",
+      "exportFailedTitle": "صدور خروجی کنسول ناموفق بود"
     },
     "contacts": {
       "appDataMissing": "فهرست راهنمای داده برنامه وجود ندارد.",
@@ -2550,7 +2560,7 @@
         "devEventsViews": "رویدادها - نماهای ذخیره شده",
         "devEventsAlerts": "رویدادها - قوانین هشدار",
         "devEventsSessions": "رویدادها - سابقه جلسه",
-        "devConsole": "Dev Console",
+        "devConsole": "کنسول توسعه",
         "devConsoleHistory": "تاریخچه فرمان کنسول",
         "devAppManager": "مدیر برنامه",
         "devAppManagerLog": "گزارش نصب برنامه",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "اشکال زدایی موقعیت پوشش",
         "devNovaReg": "وضعیت ویرایشگر NovaReg",
         "devNovaRegDesc": "موارد دلخواه این ویرایشگر و تاریخچه پرش."
-      }
+      },
+      "importDialogTitle": "وارد کردن داده‌های رجیستری"
     },
     "appmanager": {
       "fallbackPackageName": "این بسته",
@@ -2801,7 +2812,7 @@
       "copyFailedBtn": "کپی ناموفق بود",
       "appIdLabel": "شناسه برنامه (دامنه معکوس، به عنوان مثال com.test.app)",
       "appNameLabel": "نام برنامه",
-      "appNamePlaceholder": "برنامه تست",
+      "appNamePlaceholder": "برنامه آزمایشی",
       "versionLabel": "نسخه (x.y.z)",
       "entryFileLabel": "مسیر فایل ورودی",
       "signingMethodLabel": "روش امضا:",
@@ -3046,7 +3057,7 @@
         "newest": "اول جدیدترین",
         "oldest": "اول قدیمی ترین",
         "severity": "شدت",
-        "az": "A-Z"
+        "az": "الف تا ی"
       },
       "toolbar": {
         "saveView": "+ ذخیره نمای",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "ایجاد پوشه ناموفق بود: {{message}}",
       "createFileFailed": "ایجاد فایل ناموفق بود: {{message}}",
       "fileType": "نوع فایل",
-      "allTypes": "همه انواع (*.*)"
+      "allTypes": "همه انواع (*.*)",
+      "pinned": "سنجاق‌شده",
+      "mounts": "درایوهای متصل‌شده",
+      "saveFailed": "ذخیره فایل ممکن نشد",
+      "unavailable": "پنجره فایل سیستم در دسترس نیست",
+      "search": "جستجو در این پوشه",
+      "searchAria": "جستجو در این پوشه",
+      "noMatches": "(موردی پیدا نشد)"
     }
   }
 }

@@ -1386,7 +1386,9 @@
         "viewIcons": "دیکھیں: شبیہیں",
         "viewList": "دیکھیں: فہرست",
         "selectAll": "سبھی کو منتخب کریں",
-        "delete": "حذف کریں"
+        "delete": "حذف کریں",
+        "pinToQuickAccess": "فوری رسائی میں پن کریں",
+        "unpinFromQuickAccess": "فوری رسائی سے اَن پن کریں"
       },
       "dialogs": {
         "chooseDestinationFolder": "منزل کا فولڈر منتخب کریں",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "فائل بلاک کر دی گئی",
         "invalidDrop": "غلط فائل گرا دی گئی۔",
         "failedToAdd": "فائل شامل کرنے میں ناکام۔",
-        "couldNotVerify": "تصدیق نہیں ہو سکی\"{{file}}\"- ایک محفوظ حالت میں گرا اور چھوڑ دیا۔"
+        "couldNotVerify": "تصدیق نہیں ہو سکی\"{{file}}\"- ایک محفوظ حالت میں گرا اور چھوڑ دیا۔",
+        "quickAccessFailed": "فوری رسائی اپ ڈیٹ نہیں ہو سکی",
+        "quickAccessNotSaved": "پن کردہ مقامات محفوظ نہیں ہو سکے۔",
+        "quickAccessNotFolder": "صرف موجود فولڈرز پن کیے جا سکتے ہیں۔"
       },
       "linux": {
         "openParentFolder": "پیرنٹ فولڈر کھولیں",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "نیٹ ورک",
-        "fs": "ایف ایس"
+        "fs": "فائل سسٹم"
       },
       "network": {
         "desc": "پراکسی روٹس، SSRF گارڈ اسٹیٹ، اور حالیہ نیٹ ورک کنفیگریشن دکھاتا ہے۔",
@@ -1719,7 +1724,8 @@
         "saved": "ڈیسک پر محفوظ ہو گیا اور چل رہے OS میں ری لوڈ کر دیا گیا",
         "saveFailed": "محفوظ کرنے میں ناکام: {{message}}",
         "lines": "{{count}} سطریں",
-        "unsaved": "ترمیم شد — ابھی محفوظ نہیں"
+        "unsaved": "ترمیم شد — ابھی محفوظ نہیں",
+        "emptyRefused": "خالی ماڈیول محفوظ کرنے سے انکار کیا گیا"
       }
     },
     "install": {
@@ -1810,7 +1816,7 @@
       "memory": "یادداشت",
       "domNodesByWindow": "DOM نوڈس بذریعہ ونڈو",
       "noWindowsOpen": "کوئی کھڑکیاں نہیں کھلیں",
-      "notAvailableShort": "n/a",
+      "notAvailableShort": "دستیاب نہیں",
       "longTaskLog": "لانگ ٹاسک لاگ",
       "longTaskUnsupported": "اس براؤزر میں طویل ٹاسک ٹریکنگ کی سہولت نہیں ہے",
       "noLongTasks": "ابھی تک کوئی طویل کام ریکارڈ نہیں کیا گیا ہے",
@@ -1826,20 +1832,20 @@
       "noRequestsMatch": "کوئی درخواست موجودہ فلٹر سے مماثل نہیں ہے",
       "noRequestsRecorded": "ابھی تک کوئی درخواستیں ریکارڈ نہیں ہوئیں",
       "sourceBrowser": "براؤزر · {{label}}",
-      "sourceOs": "OS · {{label}}",
+      "sourceOs": "آپریٹنگ سسٹم · {{label}}",
       "showBody": "▸ جسم",
       "hideBody": "▾ جسم",
       "bodyNotCaptured": "جسم نہیں پکڑا گیا{{type}}",
-      "statusError": "ERR",
+      "statusError": "خرابی",
       "unknownApp": "نامعلوم ایپ",
       "networkError": "نیٹ ورک کی خرابی",
       "bodyTruncated": "{{text}}…(چھوٹا ہوا)",
-      "durationMs": "{{value}}MS",
+      "durationMs": "{{value}} ملی سیکنڈ",
       "fpsValue": "{{value}} fps",
       "memoryValue": "{{value}} ایم بی",
       "longTasksValue": "{{count}} (>50ms)",
       "none": "کوئی نہیں",
-      "notAvailable": "N/A"
+      "notAvailable": "دستیاب نہیں"
     },
     "terminal": {
       "appDataMissing": "ایپ ڈیٹا ڈائرکٹری غائب ہے۔",
@@ -1977,8 +1983,8 @@
       "alarms": "الارم",
       "add": "شامل کریں",
       "noAlarms": "کوئی الارم سیٹ نہیں ہے۔ ایک بنانے کے لیے + شامل کریں پر ٹیپ کریں۔",
-      "am": "AM",
-      "pm": "پی ایم",
+      "am": "قبل دوپہر",
+      "pm": "بعد دوپہر",
       "repeatOnce": "ایک بار",
       "repeatEveryDay": "ہر روز",
       "repeatWeekdays": "ہفتے کے دن",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "جائزہ لینے کے لیے JS درج کریں، یا رجسٹری CLI کے لیے `رج استفسار HKNS\\shell` کریں\nچلانے کے لیے درج کریں · نئی لائن کے لیے Shift+Enter · ↑/↓ تاریخ کے لیے",
       "run": "چلائیں",
       "readyMessage": "کنسول تیار ہے۔ اوپر ایک اظہار ٹائپ کریں اور Enter یا Run دبائیں۔\nنئی لائن کے لیے Shift+Enter، ↑/↓ پچھلی کمانڈز کو یاد کرنے کے لیے۔",
-      "noOutputMatches": "(کوئی آؤٹ پٹ میچ نہیں ہے\"{{query}}\")"
+      "noOutputMatches": "(کوئی آؤٹ پٹ میچ نہیں ہے\"{{query}}\")",
+      "exportDialogTitle": "کنسول آؤٹ پٹ برآمد کریں",
+      "exportedTitle": "کنسول آؤٹ پٹ برآمد ہو گیا",
+      "exportedBody": "{{path}} میں محفوظ کیا گیا",
+      "exportFailedTitle": "کنسول برآمد کرنے میں ناکامی"
     },
     "contacts": {
       "appDataMissing": "ایپ ڈیٹا ڈائرکٹری غائب ہے۔",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "اوورلے پوزیشن کو ڈیبگ کریں",
         "devNovaReg": "نووا ریگ ایڈیٹر اسٹیٹ",
         "devNovaRegDesc": "اس ایڈیٹر کی پسندیدہ اور جمپ ہسٹری۔"
-      }
+      },
+      "importDialogTitle": "رجسٹری ڈیٹا درآمد کریں"
     },
     "appmanager": {
       "fallbackPackageName": "یہ پیکج",
@@ -2801,7 +2812,7 @@
       "copyFailedBtn": "کاپی ناکام ہو گئی",
       "appIdLabel": "ایپ ID (ریورس ڈومین، جیسے com.test.app)",
       "appNameLabel": "ایپ کا نام",
-      "appNamePlaceholder": "ٹیسٹ ایپ",
+      "appNamePlaceholder": "آزمائشی ایپ",
       "versionLabel": "ورژن (x.y.z)",
       "entryFileLabel": "داخلے کی فائل کا راستہ",
       "signingMethodLabel": "دستخط کرنے کا طریقہ:",
@@ -3046,7 +3057,7 @@
         "newest": "تازہ ترین پہلے",
         "oldest": "سب سے قدیم پہلے",
         "severity": "شدت",
-        "az": "A-Z"
+        "az": "الف تا ے"
       },
       "toolbar": {
         "saveView": "+ منظر کو محفوظ کریں",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "فولڈر نہیں بن سکا: {{message}}",
       "createFileFailed": "فائل نہیں بن سکی: {{message}}",
       "fileType": "فائل کی قسم",
-      "allTypes": "تمام اقسام (*.*)"
+      "allTypes": "تمام اقسام (*.*)",
+      "pinned": "پن کردہ",
+      "mounts": "ماؤنٹ کردہ ڈرائیوز",
+      "saveFailed": "فائل محفوظ نہیں ہو سکی",
+      "unavailable": "سسٹم فائل ڈائیلاگ دستیاب نہیں",
+      "search": "اس فولڈر میں تلاش کریں",
+      "searchAria": "اس فولڈر میں تلاش کریں",
+      "noMatches": "(کوئی نتیجہ نہیں)"
     }
   }
 }

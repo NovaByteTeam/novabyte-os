@@ -1386,7 +1386,9 @@
         "viewIcons": "देखें: प्रतीक",
         "viewList": "सूची देखें",
         "selectAll": "सबका चयन करें",
-        "delete": "मिटाना"
+        "delete": "मिटाना",
+        "pinToQuickAccess": "त्वरित पहुँच में पिन करें",
+        "unpinFromQuickAccess": "त्वरित पहुँच से अनपिन करें"
       },
       "dialogs": {
         "chooseDestinationFolder": "गंतव्य फ़ोल्डर चुनें",
@@ -1451,7 +1453,10 @@
         "fileBlocked": "फ़ाइल अवरोधित",
         "invalidDrop": "अमान्य फ़ाइल हटा दी गई.",
         "failedToAdd": "फ़ाइल जोड़ने में विफल.",
-        "couldNotVerify": "सत्यापित नहीं किया जा सका\"{{file}}\"- सुरक्षित अवस्था में गिरा दिया गया और छोड़ दिया गया।"
+        "couldNotVerify": "सत्यापित नहीं किया जा सका\"{{file}}\"- सुरक्षित अवस्था में गिरा दिया गया और छोड़ दिया गया।",
+        "quickAccessFailed": "त्वरित पहुँच अपडेट नहीं हो सकी",
+        "quickAccessNotSaved": "पिन किए गए स्थान सहेजे नहीं जा सके।",
+        "quickAccessNotFolder": "केवल मौजूदा फ़ोल्डर पिन किए जा सकते हैं।"
       },
       "linux": {
         "openParentFolder": "मूल फ़ोल्डर खोलें",
@@ -1562,7 +1567,7 @@
       },
       "tabs": {
         "network": "नेटवर्क",
-        "fs": "एफएस"
+        "fs": "फ़ाइल सिस्टम"
       },
       "network": {
         "desc": "प्रॉक्सी रूट, एसएसआरएफ गार्ड स्थिति और हालिया नेटवर्क कॉन्फ़िगरेशन दिखाता है।",
@@ -1719,7 +1724,8 @@
         "saved": "डिस्क पर सहेजा गया और चालू OS में रीलोड कर दिया गया",
         "saveFailed": "सहेजने में विफल: {{message}}",
         "lines": "{{count}} पंक्तियाँ",
-        "unsaved": "संपादित — अभी तक सहेजा नहीं गया"
+        "unsaved": "संपादित — अभी तक सहेजा नहीं गया",
+        "emptyRefused": "खाली मॉड्यूल सहेजने से इनकार किया गया"
       }
     },
     "install": {
@@ -1810,7 +1816,7 @@
       "memory": "याद",
       "domNodesByWindow": "विंडो द्वारा DOM नोड्स",
       "noWindowsOpen": "कोई खिड़कियाँ नहीं खुलीं",
-      "notAvailableShort": "एन/ए",
+      "notAvailableShort": "उपलब्ध नहीं",
       "longTaskLog": "लंबा कार्य लॉग",
       "longTaskUnsupported": "इस ब्राउज़र में लंबी कार्य ट्रैकिंग समर्थित नहीं है",
       "noLongTasks": "अभी तक कोई लंबा कार्य रिकॉर्ड नहीं किया गया",
@@ -1826,20 +1832,20 @@
       "noRequestsMatch": "कोई भी अनुरोध वर्तमान फ़िल्टर से मेल नहीं खाता",
       "noRequestsRecorded": "अभी तक कोई अनुरोध दर्ज नहीं किया गया",
       "sourceBrowser": "ब्राउज़र · {{label}}",
-      "sourceOs": "ओएस · {{label}}",
+      "sourceOs": "ऑपरेटिंग सिस्टम · {{label}}",
       "showBody": "▸ शरीर",
       "hideBody": "▾ शरीर",
       "bodyNotCaptured": "शव कब्जे में नहीं लिया गया{{type}}",
-      "statusError": "ग़लती होना",
+      "statusError": "त्रुटि",
       "unknownApp": "अज्ञात ऐप",
       "networkError": "नेटवर्क त्रुटि",
       "bodyTruncated": "{{text}}…(छोटा किया गया)",
-      "durationMs": "{{value}}एमएस",
+      "durationMs": "{{value}} मिलीसेकंड",
       "fpsValue": "{{value}} एफपीएस",
       "memoryValue": "{{value}} एमबी",
       "longTasksValue": "{{count}} (>50 मि.मी.)",
       "none": "कोई नहीं",
-      "notAvailable": "एन/ए"
+      "notAvailable": "उपलब्ध नहीं"
     },
     "terminal": {
       "appDataMissing": "ऐप डेटा निर्देशिका गायब है.",
@@ -1978,7 +1984,7 @@
       "add": "जोड़ना",
       "noAlarms": "कोई अलार्म सेट नहीं. एक बनाने के लिए + जोड़ें टैप करें.",
       "am": "पूर्वाह्न",
-      "pm": "बजे",
+      "pm": "अपराह्न",
       "repeatOnce": "एक बार",
       "repeatEveryDay": "रोज रोज",
       "repeatWeekdays": "काम करने के दिन",
@@ -2097,7 +2103,11 @@
       "inputPlaceholder": "मूल्यांकन करने के लिए JS दर्ज करें, या रजिस्ट्री सीएलआई के लिए `reg query HKNS\\shell` दर्ज करें\nचलाने के लिए एंटर करें · नई लाइन के लिए Shift+Enter · इतिहास के लिए ↑/↓",
       "run": "चलाएँ",
       "readyMessage": "कंसोल तैयार. ऊपर एक एक्सप्रेशन टाइप करें और एंटर या रन दबाएँ।\nनई लाइन के लिए Shift+Enter, पिछले कमांड को याद करने के लिए ↑/↓।",
-      "noOutputMatches": "(कोई आउटपुट मेल नहीं खाता \"{{query}}\")"
+      "noOutputMatches": "(कोई आउटपुट मेल नहीं खाता \"{{query}}\")",
+      "exportDialogTitle": "कंसोल आउटपुट निर्यात करें",
+      "exportedTitle": "कंसोल आउटपुट निर्यात किया गया",
+      "exportedBody": "{{path}} में सहेजा गया",
+      "exportFailedTitle": "कंसोल निर्यात विफल"
     },
     "contacts": {
       "appDataMissing": "ऐप डेटा निर्देशिका गायब है.",
@@ -2560,7 +2570,8 @@
         "devOverlayPosition": "डीबग ओवरले स्थिति",
         "devNovaReg": "NovaReg संपादक स्थिति",
         "devNovaRegDesc": "इस संपादक का पसंदीदा और कूद इतिहास।"
-      }
+      },
+      "importDialogTitle": "रजिस्ट्री डेटा आयात करें"
     },
     "appmanager": {
       "fallbackPackageName": "यह पैकेज",
@@ -2801,7 +2812,7 @@
       "copyFailedBtn": "प्रतिलिपि विफल",
       "appIdLabel": "ऐप आईडी (रिवर्स-डोमेन, जैसे com.test.app)",
       "appNameLabel": "ऐप का नाम",
-      "appNamePlaceholder": "टेस्ट ऐप",
+      "appNamePlaceholder": "परीक्षण ऐप",
       "versionLabel": "संस्करण (x.y.z)",
       "entryFileLabel": "प्रविष्टि फ़ाइल पथ",
       "signingMethodLabel": "हस्ताक्षर करने की विधि:",
@@ -3046,7 +3057,7 @@
         "newest": "सबसे पहले नवीनतम",
         "oldest": "सबसे पुराना पहले",
         "severity": "गंभीरता",
-        "az": "ए-जेड"
+        "az": "अ-ह"
       },
       "toolbar": {
         "saveView": "+ दृश्य सहेजें",
@@ -3284,7 +3295,14 @@
       "createFolderFailed": "फ़ोल्डर नहीं बनाया जा सका: {{message}}",
       "createFileFailed": "फ़ाइल नहीं बनाई जा सकी: {{message}}",
       "fileType": "फ़ाइल प्रकार",
-      "allTypes": "सभी प्रकार (*.*)"
+      "allTypes": "सभी प्रकार (*.*)",
+      "pinned": "पिन किए गए",
+      "mounts": "माउंट की गई ड्राइव",
+      "saveFailed": "फ़ाइल सहेजी नहीं जा सकी",
+      "unavailable": "सिस्टम फ़ाइल संवाद उपलब्ध नहीं है",
+      "search": "इस फ़ोल्डर में खोजें",
+      "searchAria": "इस फ़ोल्डर में खोजें",
+      "noMatches": "(कोई परिणाम नहीं)"
     }
   }
 }

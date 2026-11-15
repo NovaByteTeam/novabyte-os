@@ -210,7 +210,7 @@ function showSystemImpersonationDialog(appData) {
       </div>
       <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
         <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.4);border-radius:8px;">
-          <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
+          <div style="width:6px;height:6px;border-radius:50%;background:var(--text-danger);flex-shrink:0;margin-top:7px;box-shadow:0 0 6px var(--text-danger);"></div>
           <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
             <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${_t('apps.appmanager.impersonationWhyTitle')}</div>
             ${_t('apps.appmanager.impersonationWhyBody')}
@@ -218,7 +218,7 @@ function showSystemImpersonationDialog(appData) {
         </div>
       </div>
       <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;">
-        <button id="nb-impersonation-ack-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.4);color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:600;">${_t('apps.appmanager.okayBtn')}</button>
+        <button id="nb-impersonation-ack-btn" style="background:color-mix(in srgb,var(--text-danger) 15%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 40%,transparent);color:var(--text-danger);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:600;">${_t('apps.appmanager.okayBtn')}</button>
       </div>
     `;
 
@@ -331,7 +331,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             <button id="nb-untrusted-more-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text-muted,#ccc);padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;transition:all 0.12s;font-weight:500;">${_t('apps.appmanager.moreInfoBtn')}</button>
             <div style="display:flex;gap:8px;">
               <button id="nb-untrusted-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">${_t('common.cancel')}</button>
-              <button id="nb-untrusted-launch-btn" style="display:none;background:rgba(248,81,73,0.15);border:1px solid ${isRevoked ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.3)'};color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:${isRevoked ? 700 : 600};">${isRevoked ? _t('apps.appmanager.installDespiteRevocation') : _t('apps.appmanager.installAnyway')}</button>
+              <button id="nb-untrusted-launch-btn" style="display:none;background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) ${isRevoked ? 40 : 30}%,transparent);color:var(--text-danger);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:${isRevoked ? 700 : 600};">${isRevoked ? _t('apps.appmanager.installDespiteRevocation') : _t('apps.appmanager.installAnyway')}</button>
             </div>
           </div>
         `;
@@ -428,7 +428,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
 
           <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
             <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
-              <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--text-danger);flex-shrink:0;margin-top:7px;box-shadow:0 0 6px var(--text-danger);"></div>
               <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
                 <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${_t('apps.appmanager.whySeriousTitle')}</div>
                 ${_t('apps.appmanager.tamperWhyBody')}
@@ -440,7 +440,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
                 <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailPackageId')}</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || _t('apps.appmanager.versionUnknown')}</span></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailVersion')}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailIntegrity')}</span><span style="font-weight:500;color:#f85149;text-align:right;">${_t('apps.appmanager.integrityFailed')}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted);">${_t('apps.appmanager.detailIntegrity')}</span><span style="font-weight:500;color:var(--text-danger);text-align:right;">${_t('apps.appmanager.integrityFailed')}</span></div>
                 ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailAffectedFiles')}</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
               </div>
             </div>
@@ -531,7 +531,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           <div style="padding:20px 24px 16px;background:linear-gradient(180deg,rgba(248,81,73,0.12),transparent);border-bottom:1px solid rgba(248,81,73,0.25);display:flex;align-items:flex-start;gap:14px;">
             <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
             <div style="flex:1;min-width:0;">
-              <div style="font-size:15px;font-weight:700;color:#f85149;margin-bottom:5px;letter-spacing:-0.01em;">${_t('apps.appmanager.maliciousTitle')}</div>
+              <div style="font-size:15px;font-weight:700;color:var(--text-danger);margin-bottom:5px;letter-spacing:-0.01em;">${_t('apps.appmanager.maliciousTitle')}</div>
               <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
                 <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.maliciousSummary')}
               </div>
@@ -540,7 +540,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
 
           <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
             <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
-              <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--text-danger);flex-shrink:0;margin-top:7px;box-shadow:0 0 6px var(--text-danger);"></div>
               <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
                 <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${_t('apps.appmanager.maliciousFoundTitle')}</div>
                 <span style="color:var(--text-primary,#eee);font-weight:500;">${safeFile}</span> — ${safeReason}
@@ -555,7 +555,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           </div>
 
           <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
-            <button id="nb-malware-ok-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);color:#f85149;padding:7px 18px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:700;">${_t('apps.appmanager.cancelInstallBtn')}</button>
+            <button id="nb-malware-ok-btn" style="background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 50%,transparent);color:var(--text-danger);padding:7px 18px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:700;">${_t('apps.appmanager.cancelInstallBtn')}</button>
           </div>
         `;
 
@@ -668,7 +668,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
                 <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailPackageId')}</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || _t('apps.appmanager.versionUnknown')}</span></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailVersion')}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailSignature')}</span><span style="font-weight:500;color:var(--text-primary,#eee);">${trustSignatureLabel}</span></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailIntegrity')}</span><span style="font-weight:500;color:#f85149;text-align:right;">${_t('apps.appmanager.integrityFailed')}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted);">${_t('apps.appmanager.detailIntegrity')}</span><span style="font-weight:500;color:var(--text-danger);text-align:right;">${_t('apps.appmanager.integrityFailed')}</span></div>
                 ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">${_t('apps.appmanager.detailAffectedFiles')}</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
               </div>
             </div>
@@ -1606,7 +1606,7 @@ registerApp({
         style: 'flex:1;padding:5px 9px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;'
       });
       const installBtn = createEl('button', {
-        style: 'padding:5px 10px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;'
+        style: 'padding:5px 10px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;'
       });
       installBtn.innerHTML = svgIcon('plus', 12) + ' ' + _t('apps.appmanager.installBtnLabel');
       toolbar.append(searchEl, installBtn);
@@ -2152,7 +2152,7 @@ registerApp({
           'play',
           (managedService || firstBootOnly || app.id === 'com.nbosp.launcher' || app.id === APP_MANAGER_ID || isDis)
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;'
-            : 'background:var(--accent);border:1px solid transparent;color:#fff;',
+            : 'background:var(--accent);border:1px solid transparent;color:var(--text-on-accent);',
           () => {
             if (managedService || firstBootOnly || app.id === 'com.nbosp.launcher' ||
                 isDis || app.id === APP_MANAGER_ID) return;
@@ -2920,7 +2920,7 @@ registerApp({
         style: 'flex:1;padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;min-width:0;'
       });
       const addBtn = createEl('button', {
-        style: 'padding:5px 10px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;'
+        style: 'padding:5px 10px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;'
       });
       addBtn.innerHTML = svgIcon('plus', 12) + ' ' + _t('apps.appmanager.addLabel');
       toolbar.append(searchEl, addBtn);
@@ -3137,7 +3137,7 @@ registerApp({
 
           const errEl = createEl('div', { style: 'font-size:11px;color:var(--text-danger);min-height:14px;' });
           const saveBtn = createEl('button', {
-            style: 'padding:10px;background:var(--accent);color:#fff;border:none;border-radius:9px;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:7px;'
+            style: 'padding:10px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:9px;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:7px;'
           });
           saveBtn.innerHTML = svgIcon('plus', 13) + ' ' + _t('apps.appmanager.addWebAppTitle');
           saveBtn.addEventListener('click', () => {
@@ -3216,8 +3216,8 @@ registerApp({
           return b;
         }
 
-        mkBtn(_t('common.open'), 'external-link', 'background:var(--accent);border:1px solid transparent;color:#fff;', () => launchWebApp(wa));
-        mkBtn(_t('common.remove'), 'trash', 'background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);color:#f85149;', async () => {
+        mkBtn(_t('common.open'), 'external-link', 'background:var(--accent);border:1px solid transparent;color:var(--text-on-accent);', () => launchWebApp(wa));
+        mkBtn(_t('common.remove'), 'trash', 'background:color-mix(in srgb,var(--text-danger) 8%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 25%,transparent);color:var(--text-danger);', async () => {
           const removeResult = await showModal(
             _t('apps.appmanager.removeWebAppTitle'),
             _t('apps.appmanager.removeWebAppBody', { name: wa.name }),

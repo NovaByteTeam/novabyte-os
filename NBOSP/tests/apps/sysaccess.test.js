@@ -2,7 +2,7 @@
 // (proxy reachability + SSRF guard) with run history/export, and the virtual
 // filesystem tree with filtering, node inspection and the uninitialized-FS
 // fallback.
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { resetTestStorage } from '../setup.js';
 import { loadWindowApp, initApp, settle } from '../helpers/app-harness.js';
 
@@ -134,30 +134,26 @@ describe("'System Access' app (js/apps/sysaccess)", () => {
     expect(content.textContent).toContain('proxy 0/2 · ssrf blocked 0/4');
   });
 
-  it('exports the run history as a JSON download only after a run', async () => {
-    const downloads = [];
+  it('exports the run history through SystemDialogs only after a run', async () => {
+    const saveContent = vi.fn(async () => null);
     const loaded = await loadWindowApp('sysaccess', {
-      stubs: { extra: { OS: DEV_OS, FS: makeFsFixture() } },
+      stubs: { extra: { OS: DEV_OS, FS: makeFsFixture(), SystemDialogs: { saveContent } } },
     });
     const win = loaded.window;
-    if (typeof win.URL.createObjectURL !== 'function') {
-      win.URL.createObjectURL = () => 'blob:mock/export';
-      win.URL.revokeObjectURL = () => {};
-    }
-    win.HTMLAnchorElement.prototype.click = function () {
-      downloads.push(this.getAttribute('download'));
-    };
     const content = initApp(loaded.app, { window: win, state: { cleanups: [] } });
 
     // No run yet → export is a no-op.
     findBtn(content, 'Export Results').click();
-    expect(downloads).toEqual([]);
+    expect(saveContent).not.toHaveBeenCalled();
 
     findBtn(content, 'Run Test').click();
     await settle(30);
     findBtn(content, 'Export Results').click();
-    expect(downloads).toHaveLength(1);
-    expect(downloads[0]).toMatch(/^nbosp-sysaccess-network-.*\.json$/);
+    await settle();
+    expect(saveContent).toHaveBeenCalledWith(
+      expect.objectContaining({ accept: '.json' }),
+      expect.stringContaining('"runs"')
+    );
   });
 
   it('renders the FS tree, expands folders and inspects file nodes', async () => {

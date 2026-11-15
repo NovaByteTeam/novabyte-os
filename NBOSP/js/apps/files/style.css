@@ -8,7 +8,7 @@
 .vault-sidebar {
 
     width: 200px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg-elevated);
     border-inline-end: 1px solid var(--border-subtle);
     padding: 8px;
     overflow-y: auto;
@@ -37,7 +37,7 @@
 
 .vault-sidebar-item:hover {
 
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
     color: var(--text-primary);
   
 }
@@ -93,7 +93,7 @@
 
 .vault-breadcrumb-seg:hover {
 
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
     color: var(--text-primary);
   
 }
@@ -135,7 +135,7 @@
 
 .vault-file:hover {
 
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
   
 }
 
@@ -341,7 +341,7 @@
 
 .vault-column-item:hover {
 
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
   
 }
 
@@ -373,7 +373,7 @@
 
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.85);
+    background: color-mix(in srgb, var(--bg-base) 85%, transparent);
     z-index: 1000;
     display: none;
     align-items: center;
@@ -457,31 +457,31 @@
 }
 
 .vault-tag-red {
- background: rgba(248, 81, 73, 0.2);  color: #f85149; 
+ background: color-mix(in srgb, var(--text-danger) 18%, transparent); color: var(--text-danger);
 }
 
 .vault-tag-orange {
- background: rgba(210, 153, 34, 0.2); color: #d29922; 
+ background: color-mix(in srgb, var(--text-warning) 18%, transparent); color: var(--text-warning);
 }
 
 .vault-tag-yellow {
- background: rgba(210, 153, 34, 0.15);color: #e3b341; 
+ background: color-mix(in srgb, var(--text-warning) 14%, transparent); color: var(--text-warning);
 }
 
 .vault-tag-green {
- background: rgba(63, 185, 80, 0.2);  color: #3fb950; 
+ background: color-mix(in srgb, var(--text-success) 18%, transparent); color: var(--text-success);
 }
 
 .vault-tag-blue {
- background: rgba(88, 166, 255, 0.2); color: #58a6ff; 
+ background: color-mix(in srgb, var(--text-link) 18%, transparent); color: var(--text-link);
 }
 
 .vault-tag-purple {
- background: rgba(188, 140, 255, 0.2);color: #bc8cff; 
+ background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent);
 }
 
 .vault-tag-gray {
- background: rgba(139, 148, 158, 0.2);color: #8b949e; 
+ background: var(--bg-hover); color: var(--text-secondary);
 }
 
 .vault-tags-row {
@@ -602,7 +602,7 @@
 
 .vault-tab:hover {
 
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
     color: var(--text-primary);
   
 }
@@ -629,7 +629,7 @@
 .vault-tab-close:hover {
 
     opacity: 1;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--bg-hover);
   
 }
 
@@ -648,7 +648,7 @@
 
 .vault-new-tab-btn:hover {
 
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
     color: var(--text-primary);
   
 }
@@ -706,7 +706,7 @@
 }
 
 .vault-app-root .browser-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 

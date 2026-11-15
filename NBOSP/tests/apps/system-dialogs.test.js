@@ -68,6 +68,58 @@ describe('SystemDialogs service (js/apps/system-dialogs)', () => {
     expect(Object.isFrozen(svc)).toBe(false);
     expect(typeof svc.open).toBe('function');
     expect(typeof svc.save).toBe('function');
+    expect(typeof svc.saveContent).toBe('function');
+    expect(typeof svc.getMountedVolumes).toBe('function');
+  });
+
+  it('saves supplied content through the system save dialog', async () => {
+    const { window, document } = await loadDialogs();
+    const exportDir = await fsPromises.mkdtemp(nodePath.join(nodeOs.tmpdir(), 'nbosp-console-export-'));
+    try {
+      const save = window.SystemDialogs.saveContent({
+        title: 'Export Console Output',
+        startPath: exportDir,
+        suggestedName: 'console.txt',
+      }, 'session output');
+      await settle(80);
+      confirmBtn(document).click();
+
+      await expect(save).resolves.toMatchObject({
+        path: nodePath.join(exportDir, 'console.txt'),
+        name: 'console.txt',
+      });
+      await expect(fsPromises.readFile(nodePath.join(exportDir, 'console.txt'), 'utf8'))
+        .resolves.toBe('session output');
+    } finally {
+      await fsPromises.rm(exportDir, { recursive: true, force: true });
+    }
+  });
+
+  it('lists mounted directories with the shared hard-drive icon', async () => {
+    const { window } = await loadDialogs();
+    const volumes = window.SystemDialogs.getMountedVolumes();
+    expect(volumes.length).toBeGreaterThan(0);
+    expect(volumes.every(volume => nodePath.isAbsolute(volume.path) && volume.icon === 'hard-drive')).toBe(true);
+  });
+
+  it('shows Files quick-access pins in the dialog sidebar', async () => {
+    const registry = mapRegistry(new Map([
+      ['HKNU/shell/bags/files', { pinnedHostPaths: [nodePath.join(tmpRoot, 'sub')] }],
+    ]));
+    const { window, document } = await loadDialogs([], null, registry);
+    const open = window.SystemDialogs.open({ startPath: tmpRoot });
+    await settle(80);
+
+    expect(document.querySelector('.system-file-dialog-side-header').textContent).toBe('Quick access');
+    const pinned = [...document.querySelectorAll('.system-file-dialog-side-item')]
+      .find(button => button.getAttribute('aria-label') === 'sub');
+    expect(pinned).toBeTruthy();
+    pinned.click();
+    await settle(80);
+    expect(pathBar(document).value).toBe(nodePath.join(tmpRoot, 'sub'));
+
+    cancelBtn(document).click();
+    await open;
   });
 
   it('defaults open/import and save dialogs to the mounted account root', async () => {
@@ -469,10 +521,11 @@ describe('SystemDialogs service (js/apps/system-dialogs)', () => {
     const p = window.SystemDialogs.open({ startPath: nodePath.join(tmpRoot, 'sub') });
     await settle(80);
 
-    // Only Home is listed: the common folders (Desktop/Documents/…) do not
-    // exist under the account root in the temp fixture, so they hide.
     const sideItems = [...document.querySelectorAll('.system-file-dialog-side-item')];
-    expect(sideItems.map((b) => b.getAttribute('aria-label'))).toEqual(['Home']);
+    expect(sideItems[0].getAttribute('aria-label')).toBe('Home');
+    expect(sideItems.slice(1).map(button => button.getAttribute('aria-label'))).toEqual(
+      window.SystemDialogs.getMountedVolumes().map(volume => volume.label)
+    );
     expect(sideItems[0].classList.contains('active')).toBe(false); // cwd is sub/
 
     sideItems[0].click();

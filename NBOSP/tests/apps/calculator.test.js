@@ -31,18 +31,19 @@ describe('Calculator sandbox entry', () => {
   });
 
   it('declares a sandboxed HTML entry instead of a host execution entry', async () => {
-    const [manifestText, html] = await Promise.all([
+    const [manifestText, html, source] = await Promise.all([
       readFile(manifestUrl, 'utf8'),
       readFile(htmlUrl, 'utf8'),
+      readFile(appUrl, 'utf8'),
     ]);
     const manifest = JSON.parse(manifestText);
 
     expect(manifest.entry).toBe('index.html');
     expect(manifest).not.toHaveProperty('unrestrictedEntry');
     expect(html).toContain('<script src="app.js"></script>');
-    expect(html).toContain('--bg-base: #07090f');
-    expect(html).toContain('--bg-elevated: rgba(14, 18, 28, 0.80)');
-    expect(html).toContain('--bg-overlay: rgba(20, 26, 40, 0.70)');
-    expect(html).toContain('--accent: #58a6ff');
+    expect(html).toContain('color: var(--text-primary)');
+    expect(source).toContain('background:var(--bg-base)');
+    expect(source).toContain('background:var(--bg-elevated)');
+    expect(source).toContain('background:var(--bg-overlay)');
   });
 });
