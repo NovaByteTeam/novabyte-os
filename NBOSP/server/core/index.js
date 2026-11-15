@@ -16,6 +16,7 @@ const { mountRoutes } = require('../routes');
 const { setupFaviconRoutes, closeFaviconDb } = require('../favicons');
 const { setupFrameCheckProxy, setupAppNetworkProxy, setupEmailImageProxy } = require('../proxies');
 const { setupEventsRoutes } = require('./events-routes');
+const { moduleOverrides } = require('./module-overrides');
 
 // Global error handlers
 process.on('uncaughtException', (error) => {
@@ -165,6 +166,9 @@ const jsCacheOptions = {
     etag: true,
     immutable: !isDevelopment
 };
+
+// Edits saved from the Modules app win over the shipped files; must precede static.
+app.use(moduleOverrides());
 
 // Serve static assets (but NOT index.html — handled by GET / route above)
 app.use(express.static(path.resolve(__dirname, '..', '..'), { ignore: ['index.html'] }));

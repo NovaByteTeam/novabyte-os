@@ -262,19 +262,28 @@ describe("'Modules' app (js/apps/modules)", () => {
   function makeHost({ code = '// module source\nlet a = 1;\n' } = {}) {
     const writes = [];
     const imports = [];
+    const dirs = [];
     const posix = {
       resolve: (base, rel = '') => (rel ? `${String(base).replace(/\/+$/, '')}/${String(rel).replace(/^\/+/, '')}` : String(base)),
+      join: (...parts) => parts.join('/'),
+      dirname: (p) => String(p).replace(/\/[^/]*$/, ''),
       sep: '/',
     };
     return {
-      writes, imports,
+      writes, imports, dirs,
       extra: {
         require: (name) => {
-          if (name === 'fs') return { writeFileSync: (p, c, enc) => writes.push([p, c, enc]) };
+          if (name === 'fs') {
+            return {
+              mkdirSync: (p, opts) => dirs.push([p, opts]),
+              writeFileSync: (p, c, enc) => writes.push([p, c, enc]),
+            };
+          }
           if (name === 'path') return posix;
+          if (name === 'os') return { homedir: () => '/home/tester' };
           throw new Error(`unexpected module ${name}`);
         },
-        process: { cwd: () => '/nbosp', platform: 'linux' },
+        process: { cwd: () => '/opt/nbosp/package.nw', platform: 'linux', env: {} },
         fetch: vi.fn(async (url) => ({ ok: true, status: 200, text: async () => code })),
       },
     };
@@ -330,13 +339,16 @@ describe("'Modules' app (js/apps/modules)", () => {
     editor.querySelector('[data-role="save"]').click();
     await settle(60);
 
+    // written to the per-user override folder, never into the read-only install
+    const overrideDir = '/home/tester/.local/share/novabyte/module-overrides';
+    expect(host.dirs).toEqual([[`${overrideDir}/js/core/core`, { recursive: true }]]);
     expect(host.writes).toEqual([[
-      '/nbosp/js/core/core/boot.js',
+      `${overrideDir}/js/core/core/boot.js`,
       '// module source\nlet a = 2;\nconsole.log(a);\n',
       'utf8',
     ]]);
     expect(host.imports).toHaveLength(1);
-    expect(content.textContent).toContain('Saved to disk and reloaded into the running OS');
+    expect(content.textContent).toContain('Saved to your override folder and reloaded into the running OS');
     // the unsaved marker cleared
     expect(content.textContent).not.toContain('Edited — not saved yet');
   });
@@ -358,10 +370,15 @@ describe("'Modules' app (js/apps/modules)", () => {
 
   it('live editor: a save that cannot write the file surfaces the failure inline', async () => {
     const host = makeHost();
+    const baseRequire = host.extra.require;
     host.extra.require = (name) => {
-      if (name === 'fs') return { writeFileSync: () => { throw new Error('EACCES: read-only file system'); } };
-      if (name === 'path') return { resolve: (base, rel = '') => (rel ? `${base}/${rel}` : base), sep: '/' };
-      throw new Error(`unexpected module ${name}`);
+      if (name === 'fs') {
+        return {
+          mkdirSync: () => {},
+          writeFileSync: () => { throw new Error('EACCES: read-only file system'); },
+        };
+      }
+      return baseRequire(name);
     };
     const { app, window } = await loadModules({ extra: host.extra });
     const content = initModules({ app, window });
@@ -374,6 +391,25 @@ describe("'Modules' app (js/apps/modules)", () => {
 
     expect(content.textContent).toContain('Save failed: EACCES: read-only file system');
     // nothing was imported — the reload pipeline never ran
+    expect(host.imports).toEqual([]);
+  });
+
+  it('live editor: refuses to save an empty module', async () => {
+    const host = makeHost();
+    const { app, window } = await loadModules({ extra: host.extra });
+    const content = initModules({ app, window });
+    content.querySelector('[data-mod-path="js/core/core/boot.js"] [data-role="edit"]').click();
+    await settle(30);
+    const editor = content.querySelector('[data-module-editor="js/core/core/boot.js"]');
+    const textarea = editor.querySelector('textarea');
+    textarea.value = '  \n';
+    textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+    editor.querySelector('[data-role="save"]').click();
+    await settle(30);
+
+    expect(content.textContent).toContain('Refusing to save an empty module');
+    expect(host.writes).toEqual([]);
     expect(host.imports).toEqual([]);
   });
 });

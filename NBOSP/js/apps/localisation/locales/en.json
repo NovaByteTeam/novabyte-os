@@ -1716,7 +1716,8 @@
         "save": "Save & reload",
         "back": "← Back to modules",
         "fetchFailed": "Could not load {{path}}: HTTP {{status}}",
-        "saved": "Saved to disk and reloaded into the running OS",
+        "saved": "Saved to your override folder and reloaded into the running OS",
+        "emptyRefused": "Refusing to save an empty module",
         "saveFailed": "Save failed: {{message}}",
         "lines": "{{count}} lines",
         "unsaved": "Edited — not saved yet"

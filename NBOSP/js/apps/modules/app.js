@@ -269,22 +269,37 @@ registerApp({
       } catch (_) { return false; }
     }
 
+    // The install under /opt is read-only for the user, so edits are written
+    // to an override folder that the server serves ahead of the shipped files
+    // (server/core/module-overrides.js builds the same path).
+    function moduleOverrideRoot() {
+      const pathMod = require('path');
+      return process.env.NOVABYTE_MODULE_OVERRIDES_DIR
+        ? pathMod.resolve(process.env.NOVABYTE_MODULE_OVERRIDES_DIR)
+        : pathMod.join(require('os').homedir(), '.local', 'share', 'novabyte', 'module-overrides');
+    }
+
     function resolveModuleFile(modulePath) {
       const pathMod = require('path');
-      const root = pathMod.resolve(process.cwd());
+      const root = moduleOverrideRoot();
       // Module paths are served-rooted ("js/core/..."): strip the leading
-      // slash, resolve against the NBOSP root, and refuse anything that
-      // escapes it — the editor writes exactly the file the URL space serves.
-      const target = pathMod.resolve(root, String(modulePath).replace(/^\/+/, ''));
-      if (target !== root && !target.startsWith(root + pathMod.sep)) {
-        throw new Error('Module path escapes the NovaByte root');
+      // slash and refuse anything the server wouldn't serve from the overlay.
+      const rel = String(modulePath).replace(/^\/+/, '');
+      if (!/^js\/.+\.m?js$/.test(rel)) {
+        throw new Error('Only .js modules under js/ can be edited');
+      }
+      const target = pathMod.resolve(root, rel);
+      if (!target.startsWith(root + pathMod.sep)) {
+        throw new Error('Module path escapes the override folder');
       }
       return target;
     }
 
     function writeModuleFile(mod, code) {
       const fs = require('fs');
-      fs.writeFileSync(resolveModuleFile(mod.path), code, 'utf8');
+      const target = resolveModuleFile(mod.path);
+      fs.mkdirSync(require('path').dirname(target), { recursive: true });
+      fs.writeFileSync(target, code, 'utf8');
     }
 
     let editorEl = null;
@@ -365,6 +380,11 @@ registerApp({
       saveBtn.dataset.role = 'save';
       saveBtn.addEventListener('click', async () => {
         const editedCode = textarea.value;
+        if (!editedCode.trim()) {
+          statusEl.textContent = _t('apps.modules.editor.emptyRefused');
+          statusEl.style.color = '#f85149';
+          return;
+        }
         try {
           writeModuleFile(mod, editedCode);
         } catch (e) {
