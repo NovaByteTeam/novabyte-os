@@ -14,7 +14,7 @@
   }
   .nook-sidebar {
     width: 200px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg-sidebar, var(--bg-sunken));
     border-right: 1px solid var(--border-subtle);
     padding: 8px;
     overflow-y: auto;
@@ -37,7 +37,7 @@
     min-height: 36px;
   }
   .nook-section-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bg-hover);
     color: var(--text-primary);
   }
   .nook-section-btn.active {
@@ -89,7 +89,7 @@
     margin: 2px 0;
   }
   .nook-row.clickable:hover {
-    background: rgba(88, 166, 255, 0.08);
+    background: var(--accent-muted);
     border-bottom-color: transparent;
   }
   .nook-row.clickable:active {
@@ -189,7 +189,7 @@
     font-size: 13px;
   }
   .nook-shortcuts-table tr:hover {
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--bg-hover);
   }
   .nook-shortcut-key {
     display: inline-block;

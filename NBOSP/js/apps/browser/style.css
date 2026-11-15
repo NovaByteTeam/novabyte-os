@@ -80,7 +80,7 @@
     border-bottom-color: var(--accent) !important;
   }
   .browser-tab.active {
-    background: rgba(255, 255, 255, 0.07);
+    background: var(--bg-hover);
     border-color: var(--border-subtle);
     color: var(--text-primary);
   }
@@ -241,8 +241,8 @@
     right: 12px;
     pointer-events: none;
   }
-  .browser-url-secure.https { background: rgba(63, 185, 80, 0.13);  color: var(--text-success); }
-  .browser-url-secure.http  { background: rgba(210, 153, 34, 0.13); color: var(--text-warning); }
+  .browser-url-secure.https { background: color-mix(in srgb,var(--text-success) 13%,transparent); color: var(--text-success); }
+  .browser-url-secure.http  { background: color-mix(in srgb,var(--text-warning) 13%,transparent); color: var(--text-warning); }
 
   .omnibox-dropdown {
     display: none;

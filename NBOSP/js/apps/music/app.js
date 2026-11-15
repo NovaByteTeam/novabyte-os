@@ -389,8 +389,8 @@
 
       function syncShuffleBtn() {
         if (shuffle) {
-          shuffleBtn.style.color = '#4ade80';
-          shuffleBtn.style.background = 'rgba(74,222,128,0.15)';
+          shuffleBtn.style.color = 'var(--text-success)';
+          shuffleBtn.style.background = 'color-mix(in srgb,var(--text-success) 15%,transparent)';
         } else {
           shuffleBtn.style.color = '';
           shuffleBtn.style.background = '';
@@ -400,8 +400,8 @@
 
       function syncRepeatBtn() {
         if (repeat) {
-          repeatBtn.style.color = '#4ade80';
-          repeatBtn.style.background = 'rgba(74,222,128,0.15)';
+          repeatBtn.style.color = 'var(--text-success)';
+          repeatBtn.style.background = 'color-mix(in srgb,var(--text-success) 15%,transparent)';
         } else {
           repeatBtn.style.color = '';
           repeatBtn.style.background = '';

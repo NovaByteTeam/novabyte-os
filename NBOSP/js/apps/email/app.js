@@ -46,7 +46,7 @@ registerApp({
       .em-root{display:flex;flex-direction:column;height:100%;overflow:hidden;font-size:13px;}
       .em-toolbar{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--border);background:var(--bg-elevated);flex-shrink:0;}
       .em-tb-btn{background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:5px 8px;border-radius:6px;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;transition:background .12s,color .12s;}
-      .em-tb-btn:hover{background:var(--bg-elevated-2,rgba(255,255,255,.06));color:var(--text-primary);}
+      .em-tb-btn:hover{background:var(--bg-hover);color:var(--text-primary);}
       .em-tb-btn.em-primary{background:var(--accent);color:var(--text-on-accent);}
       .em-tb-btn.em-primary:hover{opacity:.88;}
       .em-tb-sep{flex:1;}
@@ -56,19 +56,19 @@ registerApp({
       .em-sidebar.hidden{width:0;overflow:hidden;}
       .em-sb-section{font-size:10px;font-weight:700;color:var(--text-secondary);letter-spacing:.07em;padding:12px 12px 3px;text-transform:uppercase;}
       .em-sb-row{display:flex;align-items:center;gap:7px;padding:7px 14px;font-size:13px;cursor:pointer;color:var(--text-secondary);white-space:nowrap;transition:background .1s;}
-      .em-sb-row:hover{background:rgba(255,255,255,.05);}
-      .em-sb-row.active{background:rgba(99,102,241,.15);color:var(--accent);}
+      .em-sb-row:hover{background:var(--bg-hover);}
+      .em-sb-row.active{background:var(--accent-muted);color:var(--accent);}
       .em-sb-badge{margin-left:auto;background:var(--accent);color:var(--text-on-accent);border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;}
       /* List column */
       .em-list-col{width:280px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
       .em-list-tb{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0;}
       .em-search{flex:1;background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text-primary);font-size:12px;outline:none;}
       .em-search:focus{border-color:var(--accent);}
-      .em-batch-bar{display:none;align-items:center;gap:6px;padding:5px 10px;background:rgba(99,102,241,.1);border-bottom:1px solid var(--border);font-size:12px;color:var(--text-primary);flex-shrink:0;}
+      .em-batch-bar{display:none;align-items:center;gap:6px;padding:5px 10px;background:var(--accent-muted);border-bottom:1px solid var(--border);font-size:12px;color:var(--text-primary);flex-shrink:0;}
       .em-msg-list{flex:1;overflow-y:auto;}
       .em-msg-row{display:flex;align-items:flex-start;gap:7px;padding:9px 10px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s,transform .18s;position:relative;}
       .em-msg-row:hover{background:var(--bg-elevated);}
-      .em-msg-row.selected{outline:1px solid var(--accent);outline-offset:-1px;background:rgba(99,102,241,.2);}
+      .em-msg-row.selected{outline:1px solid var(--accent);outline-offset:-1px;background:var(--accent-muted);}
       .em-msg-row.unread .em-msg-from{font-weight:700;color:var(--text-primary);}
       .em-msg-row.unread .em-msg-subj{font-weight:600;color:var(--text-secondary);}
       .em-msg-check{width:14px;height:14px;flex-shrink:0;accent-color:var(--accent);cursor:pointer;margin-top:3px;}
@@ -96,10 +96,10 @@ registerApp({
       .em-spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:em-spin .6s linear infinite;}
       /* Buttons */
       .em-btn{background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-secondary);padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer;transition:background .1s;}
-      .em-btn:hover{background:var(--bg-elevated-2,rgba(255,255,255,.08));color:var(--text-primary);}
+      .em-btn:hover{background:var(--bg-hover);color:var(--text-primary);}
       .em-btn:disabled{opacity:.4;cursor:default;}
       .em-btn.danger{color:var(--text-danger);border-color:color-mix(in srgb,var(--text-danger) 40%,transparent);}
-      .em-btn.danger:hover{background:rgba(229,85,85,.1);}
+      .em-btn.danger:hover{background:color-mix(in srgb,var(--text-danger) 12%,transparent);}
       /* Setup */
       .em-setup{flex:1;padding:24px;overflow-y:auto;}
       .em-setup-card{width:100%;max-width:430px;margin:0 auto;display:flex;flex-direction:column;gap:10px;}
@@ -773,7 +773,7 @@ registerApp({
 
       // SMTP section (optional — used for sending via IMAP/POP3 accounts)
       const smtpSection = createEl('div', {
-        style: 'display:flex;flex-direction:column;gap:8px;padding:8px;background:rgba(255,255,255,.03);border-radius:8px;border:1px solid var(--border);',
+        style: 'display:flex;flex-direction:column;gap:8px;padding:8px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border);',
       });
       smtpSection.appendChild(createEl('div', {
         className: 'em-lbl',

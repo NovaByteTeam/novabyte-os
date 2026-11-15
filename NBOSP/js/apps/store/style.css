@@ -244,12 +244,12 @@
 
 .category-button:hover {
   border-color: var(--store-border);
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--bg-hover);
   color: var(--store-text);
 }
 
 .category-button.is-active {
-  border-color: rgba(116, 183, 255, 0.18);
+  border-color: var(--store-accent);
   background: var(--store-accent-soft);
   color: var(--store-accent);
 }

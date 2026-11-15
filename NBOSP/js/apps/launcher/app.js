@@ -109,7 +109,7 @@ function _highlightMatches(target, text, query) {
     }
     if (idx > i) target.appendChild(document.createTextNode(text.slice(i, idx)));
     const mark = document.createElement('mark');
-    mark.style.cssText = 'background:var(--accent);color:#fff;border-radius:2px;padding:0 2px;';
+    mark.style.cssText = 'background:var(--accent);color:var(--text-on-accent);border-radius:2px;padding:0 2px;';
     mark.textContent = text.slice(idx, idx + q.length);
     target.appendChild(mark);
     i = idx + q.length;
@@ -458,7 +458,7 @@ function appendWebAppItem(webApp, grid) {
 
   const name = createEl('div', { className: 'launchpad-name', textContent: webApp.name });
   const indicator = createEl('div', {
-    style: 'position:absolute;bottom:4px;right:4px;width:8px;height:8px;background:#58a6ff;border-radius:50%;border:1px solid rgba(255,255,255,0.3);',
+    style: 'position:absolute;bottom:4px;right:4px;width:8px;height:8px;background:var(--accent);border-radius:50%;border:1px solid var(--border-strong);',
     title: _t('shell.launchpad.webApp')
   });
 
@@ -545,7 +545,7 @@ function attachLaunchpadDragHandlers(item, displayName, payload) {
     e.dataTransfer.setData('application/json', JSON.stringify(payload));
     e.dataTransfer.setData('text/plain', displayName);
     const dragImg = createEl('div', {
-      style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:8px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;'
+      style: 'padding:8px 16px;background:var(--accent);color:var(--text-on-accent);border-radius:8px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;'
     });
     dragImg.textContent = displayName;
     document.body.appendChild(dragImg);

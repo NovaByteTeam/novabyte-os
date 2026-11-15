@@ -203,7 +203,7 @@
   }
 
   ::selection {
-    background: rgba(88, 166, 255, 0.3);
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
     color: var(--text-primary);
   }
 
@@ -216,12 +216,12 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.18);
+    background: var(--border-strong);
     border-radius: 3px;
     transition: background 200ms var(--ease-macos);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.35);
+    background: var(--text-muted);
   }
   ::-webkit-scrollbar-corner {
     background: transparent;
@@ -231,7 +231,7 @@
   /* as the limited property set allows. */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+    scrollbar-color: var(--border-strong) transparent;
   }
 
   /* Headings get balanced wrapping so titles don't orphan a final word, */
@@ -431,9 +431,9 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(30px);
-    -webkit-backdrop-filter: blur(30px);
+    background: rgba(0, 0, 0, 0.24);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
   }
   #lock-screen.active {
     display: flex;
@@ -448,7 +448,7 @@
     content: '';
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.45);
+    background: rgba(0, 0, 0, 0.18);
   }
   .lock-avatar {
     width: 80px;
@@ -564,7 +564,7 @@
     .app-window,
     .context-menu,
     .toast {
-      background: rgba(10, 14, 22, 0.92) !important;
+      background: var(--bg-elevated) !important;
     }
   }
 
@@ -739,19 +739,19 @@
   }
   /* Unfocused traffic-light buttons → uniform grey dots */
   .app-window:not(.focused) .window-control-btn {
-    background: rgba(255, 255, 255, 0.18) !important;
+    background: color-mix(in srgb, var(--text-muted) 50%, transparent) !important;
     transition: background 160ms ease;
   }
 
   /* Focused: full vivid, accent border glow */
   .app-window.focused {
     opacity: 1;
-    border-color: rgba(255, 255, 255, 0.26);
+    border-color: var(--window-border, var(--border-default));
     box-shadow:
       var(--lg-shadow),
       var(--lg-inner-glow),
-      0 0 0 1px rgba(88, 166, 255, 0.28),
-      0 0 56px rgba(88, 166, 255, 0.10);
+      0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
+      0 0 56px color-mix(in srgb, var(--accent) 10%, transparent);
     transition:
       opacity 160ms ease,
       border-color 160ms ease,
@@ -855,7 +855,7 @@
     display: none;
   }
   .app-window--transparent {
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--window-border, var(--border-default));
     box-shadow: none;
   }
   .app-window--transparent::before {
@@ -898,15 +898,15 @@
   #snap-preview {
     position: fixed;
     z-index: 50;
-    background: rgba(88, 166, 255, 0.08);
-    border: 1.5px solid rgba(88, 166, 255, 0.55);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
     border-radius: var(--r-md);
     backdrop-filter: blur(24px) saturate(180%) brightness(110%);
     -webkit-backdrop-filter: blur(24px) saturate(180%) brightness(110%);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.12),
-      0 0 0 1px rgba(88, 166, 255, 0.12),
-      0 8px 32px rgba(88, 166, 255, 0.12);
+      0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
+      0 8px 32px color-mix(in srgb, var(--accent) 12%, transparent);
     pointer-events: none;
     opacity: 0;
     transition:
@@ -935,18 +935,18 @@
   }
   .sc-zone {
     position: absolute;
-    background: rgba(88, 166, 255, 0.05);
-    border: 1px solid rgba(88, 166, 255, 0.18);
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
     transition:
       background calc(120ms * var(--anim-speed)) ease,
       border-color calc(120ms * var(--anim-speed)) ease,
       box-shadow calc(120ms * var(--anim-speed)) ease;
   }
   .sc-zone.active {
-    background: rgba(88, 166, 255, 0.18);
-    border-color: rgba(88, 166, 255, 0.65);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 65%, transparent);
     box-shadow:
-      0 0 16px rgba(88, 166, 255, 0.25),
+      0 0 16px color-mix(in srgb, var(--accent) 25%, transparent),
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 
@@ -974,7 +974,7 @@
     padding: 4px;
     border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.25));
     border-radius: var(--r-sm, 10px);
-    background: #111722;
+    background: var(--bg-elevated, #111722);
     color: var(--text-primary, #e6edf3);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
     font: 13px/1.4 var(--font-ui, sans-serif);
@@ -1132,8 +1132,9 @@
     display: flex;
     gap: 16px;
     padding: 24px 28px;
-    background: rgba(20, 26, 40, 0.75);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
     border-radius: var(--r-xl);
     box-shadow:
       0 24px 64px rgba(0, 0, 0, 0.5),
@@ -1158,12 +1159,12 @@
     cursor: pointer;
   }
   .app-switcher-item:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--bg-hover);
     transform: translateY(-2px);
   }
   .app-switcher-item.active {
     border-color: var(--accent);
-    background: rgba(88, 166, 255, 0.15);
+    background: var(--accent-muted);
     transform: translateY(-2px);
   }
   .app-switcher-icon {
@@ -1173,12 +1174,12 @@
     align-items: center;
     justify-content: center;
     font-size: 26px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-sunken);
     border-radius: var(--r-lg);
     transition: all 200ms var(--ease-macos);
   }
   .app-switcher-item.active .app-switcher-icon {
-    background: rgba(88, 166, 255, 0.2);
+    background: var(--accent-muted);
     transform: scale(1.05);
   }
   .app-switcher-name {
@@ -1612,7 +1613,7 @@
   }
   .calendar-popup-grid > span.is-today {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
     font-weight: 600;
   }
 
@@ -1705,7 +1706,7 @@
     min-height: 32px;
   }
   .btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--bg-hover);
     border-color: var(--border-strong);
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
@@ -1716,12 +1717,12 @@
   .btn-primary {
     background: var(--accent);
     border-color: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
   }
   .btn-primary:hover {
     background: var(--accent-hover);
     transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(88, 166, 255, 0.3);
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 30%, transparent);
   }
   .btn-danger {
     background: transparent;
@@ -1763,6 +1764,15 @@
     color: var(--text-muted);
   }
 
+  select {
+    color-scheme: var(--color-scheme, dark);
+    color: var(--text-primary);
+  }
+  select option {
+    background: var(--bg-base);
+    color: var(--text-primary);
+  }
+
   /* Toggle switch (macOS style) */
   .toggle {
     width: 44px;
@@ -1788,15 +1798,16 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: white;
+    background: var(--bg-base);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     transition: transform 250ms var(--ease-spring);
   }
   .toggle.active::after {
     transform: translateX(22px);
+    background: var(--text-on-accent);
   }
   .toggle:focus-visible {
-    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.4);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
   }
   .toggle:active::after {
     transform: scale(0.9);
@@ -2346,7 +2357,7 @@
     line-height: 1.4;
   }
   .system-file-dialog-status.is-error {
-    color: #f85149;
+    color: var(--text-danger);
   }
   .system-file-dialog-status:empty {
     display: none;
@@ -2495,7 +2506,7 @@
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   font-size: 12px;
   line-height: 1.5;
-  color: #0f0;
+  color: var(--text-success);
   background: transparent;
   padding: 6px 10px;
   border-radius: 6px;
@@ -2576,7 +2587,7 @@
   padding: 18px 12px 14px;
   border-radius: 14px;
   border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   cursor: pointer;
   transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
@@ -2653,7 +2664,7 @@
   padding: 28px 34px;
   border-radius: 16px;
   border: 1px solid var(--border-default);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-elevated);
   max-width: 420px;
 }
 #lock-screen .lock-wizard-sub {

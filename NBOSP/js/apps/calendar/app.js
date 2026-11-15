@@ -525,12 +525,12 @@ registerApp({
       const colorBtns = COLORS.map((c, i) => {
         const cb = createEl('button', {
           title: COLOR_NAMES[i],
-          style: `width:22px;height:22px;border-radius:50%;background:${c};border:2px solid ${c === selectedColor ? '#fff' : 'transparent'};cursor:pointer;`
+          style: `width:22px;height:22px;border-radius:50%;background:${c};border:2px solid ${c === selectedColor ? 'var(--text-primary)' : 'transparent'};cursor:pointer;`
         });
         cb.setAttribute('aria-label', COLOR_NAMES[i]);
         cb.addEventListener('click', () => {
           selectedColor = c;
-          colorBtns.forEach((b, j) => b.style.borderColor = COLORS[j] === c ? '#fff' : 'transparent');
+          colorBtns.forEach((b, j) => b.style.borderColor = COLORS[j] === c ? 'var(--text-primary)' : 'transparent');
         }, { signal: sig });
         colorRow.appendChild(cb);
         return cb;

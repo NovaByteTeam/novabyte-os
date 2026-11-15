@@ -95,7 +95,7 @@ describe('Calendar app (js/apps/calendar)', () => {
       ['Blue', 'Green', 'Yellow', 'Red', 'Purple', 'Salmon', 'Sky', 'Lime'].includes(b.getAttribute('aria-label')));
     expect(swatches).toHaveLength(8);
     swatches[2].click();
-    expect(swatches[2].style.borderColor).toContain('255, 255, 255'); // selected ring
+    expect(swatches[2].style.borderColor).toBe('var(--text-primary)'); // selected ring
 
     const saveBtn = [...overlay.querySelectorAll('button')].find((b) => b.textContent === 'Add Event');
     saveBtn.click();

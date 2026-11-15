@@ -450,7 +450,7 @@ registerApp({
           const isOn = btn.dataset.on === '1';
           btn.dataset.on    = isOn ? '0' : '1';
           btn.style.background   = isOn ? 'transparent' : 'var(--accent)';
-          btn.style.color        = isOn ? 'var(--text-muted)' : '#fff';
+          btn.style.color        = isOn ? 'var(--text-muted)' : 'var(--text-on-accent)';
           btn.style.borderColor  = isOn ? 'var(--border-subtle)' : 'var(--accent)';
         });
         daysRow.appendChild(btn);

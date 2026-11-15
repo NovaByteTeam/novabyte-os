@@ -246,13 +246,13 @@ describe("'Music' app (js/apps/music)", () => {
 
     shuffleBtn.click();
     expect(shuffleBtn.getAttribute('aria-pressed')).toBe('true');
-    expect(shuffleBtn.style.color).toBe('rgb(74, 222, 128)');
+    expect(shuffleBtn.style.color).toBe('var(--text-success)');
     let prefs = JSON.parse(window.localStorage.getItem(PREFS_KEY));
     expect(prefs.shuffle).toBe(true);
 
     repeatBtn.click();
     expect(repeatBtn.getAttribute('aria-pressed')).toBe('true');
-    expect(repeatBtn.style.color).toBe('rgb(74, 222, 128)');
+    expect(repeatBtn.style.color).toBe('var(--text-success)');
     prefs = JSON.parse(window.localStorage.getItem(PREFS_KEY));
     expect(prefs.repeat).toBe(true);
 

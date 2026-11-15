@@ -879,7 +879,7 @@ const Notify = {
         const pct = n.progress.indeterminate
           ? 40
           : Math.max(0, Math.min(100, Math.round((Number(n.progress.value) / max) * 100)));
-        fill.style.cssText = `height:100%;width:${pct}%;background:#58a6ff;border-radius:2px;`;
+        fill.style.cssText = `height:100%;width:${pct}%;background:var(--accent);border-radius:2px;`;
         bar.appendChild(fill);
         content.appendChild(bar);
       }

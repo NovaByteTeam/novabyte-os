@@ -160,8 +160,24 @@ registerApp({
       'admin:apps': 'Manage apps (admin)', 'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs'
     };
 
-    const RISK_COLOR = { low: '#3fb950', medium: '#d29922', high: '#f0883e', critical: '#f85149' };
-    const RISK_BG    = { low: 'rgba(63,185,80,0.1)', medium: 'rgba(210,153,34,0.1)', high: 'rgba(240,136,62,0.1)', critical: 'rgba(248,81,73,0.1)' };
+    const RISK_COLOR = {
+      low: 'var(--text-success)',
+      medium: 'var(--text-warning)',
+      high: 'var(--text-danger)',
+      critical: 'var(--text-danger)',
+    };
+    const RISK_BG = {
+      low: 'color-mix(in srgb,var(--text-success) 10%,transparent)',
+      medium: 'color-mix(in srgb,var(--text-warning) 10%,transparent)',
+      high: 'color-mix(in srgb,var(--text-danger) 10%,transparent)',
+      critical: 'color-mix(in srgb,var(--text-danger) 10%,transparent)',
+    };
+    const RISK_BORDER = {
+      low: 'color-mix(in srgb,var(--text-success) 40%,transparent)',
+      medium: 'color-mix(in srgb,var(--text-warning) 40%,transparent)',
+      high: 'color-mix(in srgb,var(--text-danger) 40%,transparent)',
+      critical: 'color-mix(in srgb,var(--text-danger) 40%,transparent)',
+    };
 
     // Region data — declared once here, not rebuilt on every render.
     // Previously these lived inside renderDateAndRegion(), so every visit
@@ -937,7 +953,7 @@ registerApp({
       recoveryGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.recovery') }));
       const recoveryRow = createEl('div', { className: 'nook-row' });
       recoveryRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.system.recoveryEnvironment') }));
-      const recoveryBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.system.bootToRecovery'), style: { background: '#6c5ce7' } });
+      const recoveryBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.system.bootToRecovery'), style: { background: 'var(--accent)', color: 'var(--text-on-accent)' } });
       recoveryBtn.addEventListener('click', async () => {
         const confirmed = await showModal(
           _t('settings.system.bootToRecoveryEnv'),
@@ -1616,7 +1632,7 @@ registerApp({
         if (!isAlive() || !selfUsage) return;
 
         const usageRow = (label, used, quota, highlight) => {
-          const row = createEl('div', { className: 'nook-row', style: { flexDirection: 'column', alignItems: 'stretch', gap: '4px', background: highlight ? 'rgba(88,166,255,0.07)' : undefined, borderRadius: highlight ? '8px' : undefined, padding: highlight ? '6px 8px' : undefined } });
+          const row = createEl('div', { className: 'nook-row', style: { flexDirection: 'column', alignItems: 'stretch', gap: '4px', background: highlight ? 'color-mix(in srgb,var(--accent) 7%,transparent)' : undefined, borderRadius: highlight ? '8px' : undefined, padding: highlight ? '6px 8px' : undefined } });
           const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
           top.appendChild(createEl('span', { className: 'nook-row-label', textContent: label }));
           top.appendChild(createEl('span', { textContent: formatBytes(used) + (quota ? ' / ' + formatBytes(quota) : '') }));
@@ -2302,11 +2318,11 @@ registerApp({
           const pendingCount = dangerous.length - grantedCount - deniedCount;
           if (grantedCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeAllowed', { count: grantedCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:color-mix(in srgb,var(--text-success) 12%,transparent);color:var(--text-success);border:1px solid color-mix(in srgb,var(--text-success) 30%,transparent);' }));
           if (deniedCount  > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeDenied', { count: deniedCount }),  style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:color-mix(in srgb,var(--text-danger) 12%,transparent);color:var(--text-danger);border:1px solid color-mix(in srgb,var(--text-danger) 30%,transparent);' }));
-          if (pendingCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeNotAsked', { count: pendingCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
+          if (pendingCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeNotAsked', { count: pendingCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg-hover);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
           if (dangerous.length === 0 && normal.length === 0)
-            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noPermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
+            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noPermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg-hover);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
           else if (dangerous.length === 0)
-            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noSensitivePermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
+            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noSensitivePermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg-hover);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
         }
         refreshBadges();
 
@@ -2351,7 +2367,7 @@ registerApp({
 
             const riskBadge = createEl('span', {
               textContent: permRiskLabel(risk),
-              style: 'font-size:9px;padding:1px 6px;border-radius:20px;background:' + RISK_BG[risk] + ';color:' + RISK_COLOR[risk] + ';border:1px solid ' + RISK_COLOR[risk] + '40;font-weight:600;'
+              style: 'font-size:9px;padding:1px 6px;border-radius:20px;background:' + RISK_BG[risk] + ';color:' + RISK_COLOR[risk] + ';border:1px solid ' + RISK_BORDER[risk] + ';font-weight:600;'
             });
             const labelEl = createEl('div');
             labelEl.appendChild(createEl('div', { textContent: label, style: 'font-size:13px;color:var(--text-primary);font-weight:500;' }));
@@ -2371,10 +2387,10 @@ registerApp({
             toggleInput.checked = isGranted;
             toggleInput.setAttribute('aria-label', label);
             const slider = createEl('span', {
-              style: 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:' + (isGranted ? 'var(--accent)' : (isDenied ? 'rgba(248,81,73,0.3)' : 'var(--bg-elevated)')) + ';border:1px solid var(--border-subtle);'
+              style: 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:' + (isGranted ? 'var(--accent)' : (isDenied ? 'color-mix(in srgb,var(--text-danger) 30%,transparent)' : 'var(--bg-elevated)')) + ';border:1px solid var(--border-subtle);'
             });
             const knob = createEl('span', {
-              style: 'position:absolute;top:2px;left:' + (isGranted ? '20px' : '2px') + ';width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);'
+              style: 'position:absolute;top:2px;left:' + (isGranted ? '20px' : '2px') + ';width:16px;height:16px;border-radius:50%;background:' + (isGranted ? 'var(--text-on-accent)' : 'var(--bg-base)') + ';transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);'
             });
             slider.appendChild(knob);
             toggleWrap.append(toggleInput, slider);
@@ -2387,10 +2403,12 @@ registerApp({
                 if (mgr.resetPermission) await Promise.resolve(mgr.resetPermission(perm, appId)).catch(err => devLog('resetPermission failed:', err));
                 await mgr.grantPermission(perm, appId, { permanent: true, reason: 'Manually granted via Settings', grantedBy: 'user' });
                 slider.style.background = 'var(--accent)';
+                knob.style.background = 'var(--text-on-accent)';
                 knob.style.left = '20px';
               } else {
                 await mgr.revokePermission(perm, appId);
-                slider.style.background = 'rgba(248,81,73,0.3)';
+                slider.style.background = 'color-mix(in srgb,var(--text-danger) 30%,transparent)';
+                knob.style.background = 'var(--bg-base)';
                 knob.style.left = '2px';
               }
               refreshBadges();
@@ -3628,7 +3646,7 @@ registerApp({
       secRowLeft.appendChild(createEl('span', { textContent: _t('settings.about.securityPatchLevel'), style: 'color:var(--text-secondary);' }));
       secRow.appendChild(secRowLeft);
       const secRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
-      const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;', textContent: '\uD83D\uDD12 ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-15') });
+      const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--text-success) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-success) 35%,transparent);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:var(--text-success);', textContent: '\uD83D\uDD12 ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-15') });
       secRowRight.appendChild(secBadge);
       secRow.appendChild(secRowRight);
       swRows.appendChild(secRow);
@@ -3646,8 +3664,8 @@ registerApp({
       tierRow.appendChild(createEl('span', { textContent: _t('settings.about.platformSignature'), style: 'color:var(--text-secondary);' }));
       const tierBadge    = createEl('span', {
         style: signatureTier === 'release-keys'
-          ? 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;'
-          : 'display:inline-flex;align-items:center;gap:5px;background:rgba(255,159,10,0.12);border:1px solid rgba(255,159,10,0.35);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#ff9f0a;',
+          ? 'display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--text-success) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-success) 35%,transparent);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:var(--text-success);'
+          : 'display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--text-warning) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-warning) 35%,transparent);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:var(--text-warning);',
         title: signatureTier === 'release-keys'
           ? _t('settings.about.signatureReleaseTitle')
           : _t('settings.about.signatureTestTitle'),

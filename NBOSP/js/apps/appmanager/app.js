@@ -193,14 +193,14 @@ function showSystemImpersonationDialog(appData) {
     backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.8);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:nb-fade-in 180ms ease-out;';
 
     const box = document.createElement('div');
-    box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.55);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.65),0 0 0 1px rgba(255,255,255,0.04) inset,0 0 50px rgba(248,81,73,0.12);animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
+    box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid color-mix(in srgb,var(--text-danger) 55%,transparent);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.65),0 0 0 1px rgba(255,255,255,0.04) inset,0 0 50px color-mix(in srgb,var(--text-danger) 12%,transparent);animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
     const safeName = escapeHtml(appData?.name || appData?.id || _t('apps.appmanager.fallbackPackageName'));
     const safeId = escapeHtml(appData?.id || _t('apps.appmanager.idNone'));
 
     box.innerHTML = `
       <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
-        <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.14);border:1px solid rgba(248,81,73,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDEAB</div>
+        <div style="width:44px;height:44px;border-radius:12px;background:color-mix(in srgb,var(--text-danger) 14%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 50%,transparent);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDEAB</div>
         <div style="flex:1;min-width:0;">
           <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">${_t('apps.appmanager.impersonationTitle')}</div>
           <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
@@ -209,7 +209,7 @@ function showSystemImpersonationDialog(appData) {
         </div>
       </div>
       <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
-        <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.4);border-radius:8px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:color-mix(in srgb,var(--text-danger) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 40%,transparent);border-radius:8px;">
           <div style="width:6px;height:6px;border-radius:50%;background:var(--text-danger);flex-shrink:0;margin-top:7px;box-shadow:0 0 6px var(--text-danger);"></div>
           <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
             <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${_t('apps.appmanager.impersonationWhyTitle')}</div>
@@ -226,7 +226,7 @@ function showSystemImpersonationDialog(appData) {
     styleEl.textContent = `
       @keyframes nb-fade-in { from { opacity: 0; } to { opacity: 1; } }
       @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
-      #nb-impersonation-ack-btn:hover { background:rgba(248,81,73,0.25);border-color:rgba(248,81,73,0.6); }
+      #nb-impersonation-ack-btn:hover { background:color-mix(in srgb,var(--text-danger) 25%,transparent);border-color:color-mix(in srgb,var(--text-danger) 60%,transparent); }
       #nb-impersonation-ack-btn:active { transform:scale(0.97); }
     `;
     document.head.appendChild(styleEl);
@@ -261,7 +261,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         const integrityLabel = integrityStatus === 'ok' ? _t('apps.appmanager.integrityPassed')
           : integrityStatus === 'failed' ? _t('apps.appmanager.integrityFailed')
           : _t('apps.appmanager.integrityUnavailable');
-        const integrityColor = integrityStatus === 'failed' ? '#f85149' : 'var(--text-primary,#eee)';
+        const integrityColor = integrityStatus === 'failed' ? 'var(--text-danger)' : 'var(--text-primary,#eee)';
 
         let title, summary, cautionText, cautionBorderColor, cautionBgColor, cautionDotColor, cautionTitle, iconEmoji;
 
@@ -271,27 +271,27 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.untrustedRevokedSummary')}`;
           cautionTitle = _t('apps.appmanager.whySeriousTitle');
           cautionText = _t('apps.appmanager.untrustedRevokedCaution');
-          cautionBorderColor = 'rgba(248,81,73,0.35)';
-          cautionBgColor = 'rgba(248,81,73,0.1)';
-          cautionDotColor = '#f85149';
+          cautionBorderColor = 'color-mix(in srgb,var(--text-danger) 35%,transparent)';
+          cautionBgColor = 'color-mix(in srgb,var(--text-danger) 10%,transparent)';
+          cautionDotColor = 'var(--text-danger)';
         } else if (hasSignature) {
           iconEmoji = '\u26A0\uFE0F';
           title = _t('apps.appmanager.untrustedUnknownTitle');
           summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.untrustedUnknownSummary')}`;
           cautionTitle = _t('apps.appmanager.whatThisMeansTitle');
           cautionText = _t('apps.appmanager.untrustedUnknownCaution');
-          cautionBorderColor = 'rgba(210,153,34,0.3)';
-          cautionBgColor = 'rgba(210,153,34,0.08)';
-          cautionDotColor = '#d29922';
+          cautionBorderColor = 'color-mix(in srgb,var(--text-warning) 30%,transparent)';
+          cautionBgColor = 'color-mix(in srgb,var(--text-warning) 8%,transparent)';
+          cautionDotColor = 'var(--text-warning)';
         } else {
           iconEmoji = '\u26A0\uFE0F';
           title = _t('apps.appmanager.untrustedUnsignedTitle');
           summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} ${_t('apps.appmanager.untrustedUnsignedSummary')}`;
           cautionTitle = _t('apps.appmanager.whatThisMeansTitle');
           cautionText = _t('apps.appmanager.untrustedUnsignedCaution');
-          cautionBorderColor = 'rgba(210,153,34,0.25)';
-          cautionBgColor = 'rgba(210,153,34,0.06)';
-          cautionDotColor = '#d29922';
+          cautionBorderColor = 'color-mix(in srgb,var(--text-warning) 25%,transparent)';
+          cautionBgColor = 'color-mix(in srgb,var(--text-warning) 6%,transparent)';
+          cautionDotColor = 'var(--text-warning)';
         }
 
         box.innerHTML = `
@@ -342,7 +342,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
           #nb-untrusted-more-btn:hover { background:var(--bg-elevated,#2a2a2a);border-color:var(--border,#555); }
           #nb-untrusted-cancel-btn:hover { background:var(--bg-elevated,#2a2a2a);border-color:var(--border,#555); }
-          #nb-untrusted-launch-btn:hover { background:rgba(248,81,73,0.25);border-color:rgba(248,81,73,0.5);box-shadow:0 0 12px rgba(248,81,73,0.15); }
+          #nb-untrusted-launch-btn:hover { background:color-mix(in srgb,var(--text-danger) 25%,transparent);border-color:color-mix(in srgb,var(--text-danger) 50%,transparent);box-shadow:0 0 12px color-mix(in srgb,var(--text-danger) 15%,transparent); }
           #nb-untrusted-launch-btn:active { transform:scale(0.97); }
         `;
         document.head.appendChild(styleEl);
@@ -407,7 +407,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:nb-fade-in 180ms ease-out;';
 
         const box = document.createElement('div');
-        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.4);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
+        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid color-mix(in srgb,var(--text-danger) 40%,transparent);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
         const safeName = escapeHtml(appData.name || appData.id || _t('apps.appmanager.fallbackAppName'));
         const safeId = escapeHtml(appData.id || '');
@@ -417,7 +417,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
 
         box.innerHTML = `
           <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
-            <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
+            <div style="width:44px;height:44px;border-radius:12px;background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 40%,transparent);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
             <div style="flex:1;min-width:0;">
               <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">${_t('apps.appmanager.tamperTitle')}</div>
               <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
@@ -427,7 +427,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           </div>
 
           <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
-            <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 35%,transparent);border-radius:8px;">
               <div style="width:6px;height:6px;border-radius:50%;background:var(--text-danger);flex-shrink:0;margin-top:7px;box-shadow:0 0 6px var(--text-danger);"></div>
               <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
                 <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${_t('apps.appmanager.whySeriousTitle')}</div>
@@ -453,7 +453,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
 
           <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
             <button id="nb-tamper-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">${_t('common.cancel')}</button>
-            <button id="nb-tamper-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">${_t('apps.appmanager.installDespiteTampering')}</button>
+            <button id="nb-tamper-install-btn" disabled style="background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 25%,transparent);color:color-mix(in srgb,var(--text-danger) 50%,transparent);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">${_t('apps.appmanager.installDespiteTampering')}</button>
           </div>
         `;
 
@@ -462,9 +462,9 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           @keyframes nb-fade-in { from { opacity: 0; } to { opacity: 1; } }
           @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
           #nb-tamper-cancel-btn:hover { background:var(--bg-elevated,#2a2a2a);border-color:var(--border,#555); }
-          #nb-tamper-install-btn:not(:disabled):hover { background:rgba(248,81,73,0.25);border-color:rgba(248,81,73,0.5);box-shadow:0 0 12px rgba(248,81,73,0.15); }
+          #nb-tamper-install-btn:not(:disabled):hover { background:color-mix(in srgb,var(--text-danger) 25%,transparent);border-color:color-mix(in srgb,var(--text-danger) 50%,transparent);box-shadow:0 0 12px color-mix(in srgb,var(--text-danger) 15%,transparent); }
           #nb-tamper-install-btn:not(:disabled):active { transform:scale(0.97); }
-          #nb-tamper-confirm-input:focus { border-color:rgba(248,81,73,0.5); }
+          #nb-tamper-confirm-input:focus { border-color:color-mix(in srgb,var(--text-danger) 50%,transparent); }
         `;
         document.head.appendChild(styleEl);
 
@@ -483,8 +483,8 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           const match = input.value.trim().toLowerCase() === 'install tampered';
           installBtn.disabled = !match;
           installBtn.style.cursor = match ? 'pointer' : 'not-allowed';
-          installBtn.style.color = match ? '#f85149' : 'rgba(248,81,73,0.5)';
-          installBtn.style.borderColor = match ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.25)';
+          installBtn.style.color = match ? 'var(--text-danger)' : 'color-mix(in srgb,var(--text-danger) 50%,transparent)';
+          installBtn.style.borderColor = match ? 'color-mix(in srgb,var(--text-danger) 40%,transparent)' : 'color-mix(in srgb,var(--text-danger) 25%,transparent)';
         });
 
         box.querySelector('#nb-tamper-cancel-btn').addEventListener('click', () => {
@@ -520,7 +520,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:nb-fade-in 180ms ease-out;';
 
         const box = document.createElement('div');
-        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.5);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.04) inset,0 0 40px rgba(248,81,73,0.08);animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
+        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid color-mix(in srgb,var(--text-danger) 50%,transparent);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.04) inset,0 0 40px color-mix(in srgb,var(--text-danger) 8%,transparent);animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
         const safeName = escapeHtml(appData?.name || appData?.id || _t('apps.appmanager.fallbackAppName'));
         const safeId = escapeHtml(appData?.id || '');
@@ -528,8 +528,8 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         const safeReason = escapeHtml(reason || _t('apps.appmanager.maliciousDefaultReason'));
 
         box.innerHTML = `
-          <div style="padding:20px 24px 16px;background:linear-gradient(180deg,rgba(248,81,73,0.12),transparent);border-bottom:1px solid rgba(248,81,73,0.25);display:flex;align-items:flex-start;gap:14px;">
-            <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
+          <div style="padding:20px 24px 16px;background:linear-gradient(180deg,color-mix(in srgb,var(--text-danger) 12%,transparent),transparent);border-bottom:1px solid color-mix(in srgb,var(--text-danger) 25%,transparent);display:flex;align-items:flex-start;gap:14px;">
+            <div style="width:44px;height:44px;border-radius:12px;background:color-mix(in srgb,var(--text-danger) 15%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 50%,transparent);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
             <div style="flex:1;min-width:0;">
               <div style="font-size:15px;font-weight:700;color:var(--text-danger);margin-bottom:5px;letter-spacing:-0.01em;">${_t('apps.appmanager.maliciousTitle')}</div>
               <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
@@ -539,7 +539,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           </div>
 
           <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
-            <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 35%,transparent);border-radius:8px;">
               <div style="width:6px;height:6px;border-radius:50%;background:var(--text-danger);flex-shrink:0;margin-top:7px;box-shadow:0 0 6px var(--text-danger);"></div>
               <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
                 <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${_t('apps.appmanager.maliciousFoundTitle')}</div>
@@ -563,7 +563,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         styleEl.textContent = `
           @keyframes nb-fade-in { from { opacity: 0; } to { opacity: 1; } }
           @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
-          #nb-malware-ok-btn:hover { background:rgba(248,81,73,0.28);border-color:rgba(248,81,73,0.7);box-shadow:0 0 14px rgba(248,81,73,0.2); }
+          #nb-malware-ok-btn:hover { background:color-mix(in srgb,var(--text-danger) 28%,transparent);border-color:color-mix(in srgb,var(--text-danger) 70%,transparent);box-shadow:0 0 14px color-mix(in srgb,var(--text-danger) 20%,transparent); }
           #nb-malware-ok-btn:active { transform:scale(0.97); }
         `;
         document.head.appendChild(styleEl);
@@ -605,7 +605,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:nb-fade-in 180ms ease-out;';
 
         const box = document.createElement('div');
-        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.4);border-radius:14px;max-width:540px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
+        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid color-mix(in srgb,var(--text-danger) 40%,transparent);border-radius:14px;max-width:540px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
         const safeName = escapeHtml(appData.name || appData.id || _t('apps.appmanager.fallbackAppName'));
         const safeId = escapeHtml(appData.id || '');
@@ -634,7 +634,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
 
         box.innerHTML = `
           <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
-            <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
+            <div style="width:44px;height:44px;border-radius:12px;background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 40%,transparent);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
             <div style="flex:1;min-width:0;">
               <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">${escapeHtml(_t('apps.appmanager.twoProblemsTitle', { trust: trustTitle }))}</div>
               <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
@@ -646,16 +646,16 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           <div style="padding:16px 24px;display:flex;flex-direction:column;gap:12px;flex:1;min-height:0;overflow-y:auto;">
             <div style="display:flex;flex-direction:column;gap:6px;">
               <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);">${escapeHtml(_t('apps.appmanager.trustIssueLabel', { trust: trustTitle }))}</div>
-              <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(210,153,34,0.08);border:1px solid rgba(210,153,34,0.3);border-radius:8px;">
-                <div style="width:6px;height:6px;border-radius:50%;background:#d29922;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #d29922;"></div>
+              <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:color-mix(in srgb,var(--text-warning) 8%,transparent);border:1px solid color-mix(in srgb,var(--text-warning) 30%,transparent);border-radius:8px;">
+                <div style="width:6px;height:6px;border-radius:50%;background:var(--text-warning);flex-shrink:0;margin-top:7px;box-shadow:0 0 6px var(--text-warning);"></div>
                 <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">${trustSummary}</div>
               </div>
             </div>
 
             <div style="display:flex;flex-direction:column;gap:6px;">
               <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);">${_t('apps.appmanager.integrityIssueLabel')}</div>
-              <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
-                <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
+              <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 35%,transparent);border-radius:8px;">
+                <div style="width:6px;height:6px;border-radius:50%;background:var(--text-danger);flex-shrink:0;margin-top:7px;box-shadow:0 0 6px var(--text-danger);"></div>
                 <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
                   ${_t('apps.appmanager.comboIntegrityBody')}
                 </div>
@@ -681,7 +681,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
 
           <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
             <button id="nb-combo-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">${_t('common.cancel')}</button>
-            <button id="nb-combo-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">${_t('apps.appmanager.installDespiteBoth')}</button>
+            <button id="nb-combo-install-btn" disabled style="background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 25%,transparent);color:color-mix(in srgb,var(--text-danger) 50%,transparent);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">${_t('apps.appmanager.installDespiteBoth')}</button>
           </div>
         `;
 
@@ -690,9 +690,9 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           @keyframes nb-fade-in { from { opacity: 0; } to { opacity: 1; } }
           @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
           #nb-combo-cancel-btn:hover { background:var(--bg-elevated,#2a2a2a);border-color:var(--border,#555); }
-          #nb-combo-install-btn:not(:disabled):hover { background:rgba(248,81,73,0.25);border-color:rgba(248,81,73,0.5);box-shadow:0 0 12px rgba(248,81,73,0.15); }
+          #nb-combo-install-btn:not(:disabled):hover { background:color-mix(in srgb,var(--text-danger) 25%,transparent);border-color:color-mix(in srgb,var(--text-danger) 50%,transparent);box-shadow:0 0 12px color-mix(in srgb,var(--text-danger) 15%,transparent); }
           #nb-combo-install-btn:not(:disabled):active { transform:scale(0.97); }
-          #nb-combo-confirm-input:focus { border-color:rgba(248,81,73,0.5); }
+          #nb-combo-confirm-input:focus { border-color:color-mix(in srgb,var(--text-danger) 50%,transparent); }
         `;
         document.head.appendChild(styleEl);
 
@@ -711,8 +711,8 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           const match = input.value.trim().toLowerCase() === 'install tampered';
           installBtn.disabled = !match;
           installBtn.style.cursor = match ? 'pointer' : 'not-allowed';
-          installBtn.style.color = match ? '#f85149' : 'rgba(248,81,73,0.5)';
-          installBtn.style.borderColor = match ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.25)';
+          installBtn.style.color = match ? 'var(--text-danger)' : 'color-mix(in srgb,var(--text-danger) 50%,transparent)';
+          installBtn.style.borderColor = match ? 'color-mix(in srgb,var(--text-danger) 40%,transparent)' : 'color-mix(in srgb,var(--text-danger) 25%,transparent)';
         });
 
         box.querySelector('#nb-combo-cancel-btn').addEventListener('click', () => {
@@ -1687,16 +1687,16 @@ registerApp({
         // trust-store entry does. Shown independent of tampered/revoked state below
         // since a system app can still be tampered or have its signer revoked.
         if (isSystemSigned) {
-          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeSystemTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-accent,#5b9dff);background:rgba(91,157,255,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeSystem')}</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeSystemTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeSystem')}</span>`);
         }
         if (app.tampered) {
-          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeTamperedTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeTampered')}</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeTamperedTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:color-mix(in srgb,var(--text-danger) 12%,transparent);padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeTampered')}</span>`);
         }
         if (app.revoked) {
-          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeRevokedTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeRevoked')}</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeRevokedTitle'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:color-mix(in srgb,var(--text-danger) 12%,transparent);padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeRevoked')}</span>`);
         }
         if (app.verified && !app.revoked) {
-          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeVerifiedTitle', { signer: app.signer || _t('apps.appmanager.badgeVerifiedFallbackSigner') }))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-success,#3fb950);background:var(--bg-success-muted,rgba(63,185,80,0.12));padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeVerified')}</span>`);
+          badges.push(`<span title="${escapeHtml(_t('apps.appmanager.badgeVerifiedTitle', { signer: app.signer || _t('apps.appmanager.badgeVerifiedFallbackSigner') }))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-success,#3fb950);background:var(--bg-success-muted,color-mix(in srgb,var(--text-success) 12%,transparent));padding:${pad};border-radius:5px;white-space:nowrap;">${_t('apps.appmanager.badgeVerified')}</span>`);
         } else if (!app.revoked) {
           // Not verified and not revoked (revoked already implies "not a
           // trusted signer" via its own pill above, so don't also stack
@@ -1967,8 +1967,9 @@ registerApp({
             const denied = manager.isDenied(permission, app.id);
             row.input.checked = granted;
             row.input.setAttribute('aria-label', _t('apps.appmanager.permissionAria', { permission: manager.permissionLabel ? manager.permissionLabel(permission) : (manager.PERMISSION_CATEGORIES[permission]?.label || permission), app: app.name }));
-            row.slider.style.background = granted ? 'var(--accent)' : denied ? 'rgba(248,81,73,0.3)' : 'var(--bg-sunken)';
+            row.slider.style.background = granted ? 'var(--accent)' : denied ? 'color-mix(in srgb,var(--text-danger) 30%,transparent)' : 'var(--bg-sunken)';
             row.knob.style.left = granted ? '20px' : '2px';
+            row.knob.style.background = granted ? 'var(--text-on-accent)' : 'var(--bg-base)';
           }
 
           for (const permission of permissions) {
@@ -1981,7 +1982,7 @@ registerApp({
             const toggle = createEl('label', { style: 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;' });
             const input = createEl('input', { type: 'checkbox', style: 'opacity:0;position:absolute;inset:0;width:100%;height:100%;cursor:pointer;z-index:2;' });
             const slider = createEl('span', { style: 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:var(--bg-sunken);border:1px solid var(--border-subtle);' });
-            const knob = createEl('span', { style: 'position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);' });
+            const knob = createEl('span', { style: 'position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--bg-base);transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);' });
             slider.appendChild(knob);
             toggle.append(input, slider);
             rows.set(permission, { input, slider, knob });
@@ -2178,8 +2179,8 @@ registerApp({
           managedService || app.id === APP_MANAGER_ID
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;opacity:0.5;'
             : isDis
-              ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
-              : 'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:var(--text-warning);',
+              ? 'background:color-mix(in srgb,var(--text-success) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-success) 35%,transparent);color:var(--text-success);'
+              : 'background:color-mix(in srgb,var(--text-warning) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-warning) 35%,transparent);color:var(--text-warning);',
           managedService || app.id === APP_MANAGER_ID
             ? () => {}
             : () => {
@@ -2201,7 +2202,7 @@ registerApp({
           app.system ? 'lock' : 'trash',
           app.system
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;'
-            : 'background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);color:#f85149;',
+            : 'background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 30%,transparent);color:var(--text-danger);',
           () => doUninstall(app.id)
         );
         uninstBtn.disabled = app.system === true;
@@ -2222,7 +2223,7 @@ registerApp({
         const clearDataBtn = makeActionBtn(
           _t('apps.appmanager.clearDataLabel'),
           'trash',
-          'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:var(--text-warning);',
+          'background:color-mix(in srgb,var(--text-warning) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-warning) 35%,transparent);color:var(--text-warning);',
           async () => {
             try {
               await clearAppData();
@@ -2246,7 +2247,7 @@ registerApp({
         const forceStopBtn = makeActionBtn(
           _t('apps.appmanager.forceStopLabel'),
           'no-entry',
-          'background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);color:#f85149;',
+          'background:color-mix(in srgb,var(--text-danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 30%,transparent);color:var(--text-danger);',
           async () => {
             try {
               await forceStopApp();
@@ -2274,7 +2275,7 @@ registerApp({
           isBoot ? _t('apps.appmanager.startsAtBoot') : _t('apps.appmanager.startAtBoot'),
           isBoot ? 'done' : 'shutdown',
           isBoot
-            ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
+            ? 'background:color-mix(in srgb,var(--text-success) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-success) 35%,transparent);color:var(--text-success);'
             : 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);',
           async () => {
             if (isBoot) {
@@ -2357,12 +2358,12 @@ registerApp({
 
           function permStyle(p) {
             if (['fs:access', 'admin:system'].includes(p)) {
-              return 'background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.35);color:#f85149;';
+              return 'background:color-mix(in srgb,var(--text-danger) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 35%,transparent);color:var(--text-danger);';
             }
             if (['device:geolocation', 'system:settings'].includes(p)) {
-              return 'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:#d29922;';
+              return 'background:color-mix(in srgb,var(--text-warning) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-warning) 35%,transparent);color:var(--text-warning);';
             }
-            return 'background:var(--accent-muted);border:1px solid rgba(88,166,255,0.3);color:var(--accent);';
+            return 'background:var(--accent-muted);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent);';
           }
 
           allPerms.forEach(({ p, req }) => {

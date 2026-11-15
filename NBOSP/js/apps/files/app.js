@@ -913,7 +913,7 @@
       this.listBody.addEventListener('mouseenter', (e) => {
         const row = e.target.closest?.('.vault-list-row');
         if (row?._fileNode && !this.selectedIds.has(row._fileNode.id)) {
-          row.style.background = 'rgba(255,255,255,0.04)';
+          row.style.background = 'var(--bg-hover)';
         }
       }, { capture: true, signal: this.signal });
       this.listBody.addEventListener('mouseleave', (e) => {

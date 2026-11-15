@@ -106,6 +106,106 @@ describe('Browser app (js/apps/browser)', () => {
     expect(urlBar.placeholder).toBe('Search or enter URL…');
   });
 
+  it('uses the active theme colors in generated network error pages', async () => {
+    const { app, window } = await loadWindowApp('browser', { stubs: browserStubs() });
+    const content = initApp(app, { window });
+    const theme = {
+      '--bg-base': '#ffffff',
+      '--bg-elevated': '#f6f8fa',
+      '--bg-sunken': '#f0f0f0',
+      '--border-default': '#d0d7de',
+      '--text-primary': '#24292f',
+      '--text-secondary': '#57606a',
+      '--text-link': '#0969da',
+      '--text-warning': '#9a6700',
+      '--text-danger': '#cf222e',
+      '--accent': '#0969da',
+      '--text-on-accent': '#ffffff',
+    };
+    for (const [name, value] of Object.entries(theme)) {
+      window.document.documentElement.style.setProperty(name, value);
+    }
+
+    const urlBar = content.querySelector('#browser-url-bar');
+    urlBar.value = 'https://example.test/';
+    enter(window, urlBar);
+    const webview = content.querySelector('webview');
+    let injectedCode = '';
+    webview.executeScript = ({ code }) => { injectedCode = code; };
+    const error = new window.Event('loaderror');
+    Object.defineProperties(error, {
+      isTopLevel: { value: true },
+      validatedURL: { value: 'https://example.test/' },
+      errorCode: { value: -105 },
+      errorDescription: { value: 'NAME_NOT_RESOLVED' },
+    });
+    webview.dispatchEvent(error);
+
+    expect(injectedCode).toContain('background:#ffffff;color:#24292f');
+    expect(injectedCode).toContain('background:#f6f8fa');
+    expect(injectedCode).toContain('color:#0969da');
+  });
+
+  it('syncs the selected color scheme to guest webviews and theme changes', async () => {
+    const { app, window } = await loadWindowApp('browser', { stubs: browserStubs() });
+    const content = initApp(app, { window });
+    const urlBar = content.querySelector('#browser-url-bar');
+    urlBar.value = 'https://example.test/';
+    enter(window, urlBar);
+    const webview = content.querySelector('webview');
+    const injectedStyles = [];
+    const injectedScripts = [];
+    webview.executeScript = ({ code }) => injectedScripts.push(code);
+    webview.insertCSS = ({ code }) => injectedStyles.push(code);
+    window.document.documentElement.style.setProperty('--color-scheme', 'light');
+
+    const load = new window.Event('loadcommit');
+    Object.defineProperties(load, {
+      isTopLevel: { value: true },
+      url: { value: 'https://example.test/' },
+    });
+    webview.dispatchEvent(load);
+    expect(webview.style.colorScheme).toBe('light');
+    expect(injectedStyles).toEqual([':root{color-scheme:light!important}']);
+
+    const guestListeners = new Map();
+    const guestWindow = {
+      matchMedia(query) {
+        const listeners = new Set();
+        const list = {
+          media: query,
+          matches: query === 'all',
+          addEventListener: (_type, listener) => listeners.add(listener),
+          removeEventListener: (_type, listener) => listeners.delete(listener),
+          dispatchEvent(event) {
+            for (const listener of listeners) listener(event);
+            return true;
+          },
+        };
+        guestListeners.set(query, list);
+        return list;
+      },
+      MediaQueryListEvent: class {
+        constructor(type, options) { Object.assign(this, { type }, options); }
+      },
+    };
+    const guestDocument = { documentElement: { style: {} } };
+    const runGuestScript = code => new Function('window', 'document', code)(guestWindow, guestDocument);
+    runGuestScript(injectedScripts.at(-1));
+    const lightPreference = guestWindow.matchMedia('(prefers-color-scheme: light)');
+    const changeEvents = [];
+    lightPreference.addEventListener('change', event => changeEvents.push(event.matches));
+    expect(lightPreference.matches).toBe(true);
+
+    window.document.documentElement.style.setProperty('--color-scheme', 'dark');
+    window.dispatchEvent(new window.CustomEvent('theme:changed'));
+    expect(webview.style.colorScheme).toBe('dark');
+    expect(injectedStyles.at(-1)).toBe(':root{color-scheme:dark!important}');
+    runGuestScript(injectedScripts.at(-1));
+    expect(lightPreference.matches).toBe(false);
+    expect(changeEvents).toEqual([false]);
+  });
+
   it('uses the captured request headers for ordinary downloads and saves data downloads', async () => {
     const savedPaths = new Map();
     const statuses = [];

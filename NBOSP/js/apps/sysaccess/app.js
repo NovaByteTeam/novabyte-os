@@ -26,7 +26,7 @@ registerApp({
       { id: 'fs',      name: _t('apps.sysaccess.tabs.fs'),      icon: 'folder' },
     ];
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:hidden;';
 
     const tabBar = createEl('div', { className: 'sysaccess-tabs', style: 'display:flex;border-bottom:1px solid var(--border-subtle);background:var(--bg-elevated);flex-shrink:0;' });
     const panels = {};
@@ -147,14 +147,14 @@ registerApp({
           return;
         }
         runHistory.forEach(run => {
-          const row = createEl('div', { style: 'display:flex;justify-content:space-between;padding:3px 6px;background:var(--bg-default);border-radius:4px;font-size:11px;font-family:monospace;' });
+          const row = createEl('div', { style: 'display:flex;justify-content:space-between;padding:3px 6px;background:var(--bg-sunken);border-radius:4px;font-size:11px;font-family:monospace;' });
           const time = new Date(run.timestamp).toLocaleTimeString();
           row.appendChild(createEl('span', { textContent: time, style: 'color:var(--text-muted);' }));
           const proxyOk = run.proxyResults.filter(r => r.ok).length;
           const ssrfBlocked = run.ssrfRows.filter(r => r.blocked).length;
           row.appendChild(createEl('span', {
             textContent: _t('apps.sysaccess.network.historySummary', { ok: proxyOk, total: run.proxyResults.length, blocked: ssrfBlocked, ssrfTotal: run.ssrfRows.length }),
-            style: 'color:' + (proxyOk === run.proxyResults.length ? '#3fb950' : '#f85149') + ';'
+            style: 'color:' + (proxyOk === run.proxyResults.length ? 'var(--text-success)' : 'var(--text-danger)') + ';'
           }));
           historyList.appendChild(row);
         });
@@ -183,7 +183,7 @@ registerApp({
         proxyResults.forEach(item => {
           const row = createEl('div', { style: 'display:flex;justify-content:space-between;padding:4px 0;font-size:12px;' });
           row.appendChild(createEl('span', { textContent: item.label, style: 'color:var(--text-muted);' }));
-          row.appendChild(createEl('span', { textContent: item.status, style: 'font-family:monospace;color:' + (item.ok ? '#3fb950' : '#f85149') + ';' }));
+          row.appendChild(createEl('span', { textContent: item.status, style: 'font-family:monospace;color:' + (item.ok ? 'var(--text-success)' : 'var(--text-danger)') + ';' }));
           proxyCard.appendChild(row);
         });
 
@@ -206,7 +206,7 @@ registerApp({
         ssrfRows.forEach(r => {
           const row = createEl('div', { style: 'display:flex;justify-content:space-between;padding:4px 0;font-size:12px;font-family:monospace;' });
           row.appendChild(createEl('span', { textContent: r.url, style: 'color:var(--text-muted);' }));
-          const color = r.blocked === null ? '#d29922' : (r.blocked ? '#f85149' : '#3fb950');
+          const color = r.blocked === null ? 'var(--text-warning)' : (r.blocked ? 'var(--text-danger)' : 'var(--text-success)');
           row.appendChild(createEl('span', { textContent: r.verdict, style: 'color:' + color + ';' }));
           ssrfCard.appendChild(row);
         });

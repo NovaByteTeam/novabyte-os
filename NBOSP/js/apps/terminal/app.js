@@ -1398,14 +1398,14 @@ function initLinuxTerminal(content, state) {
     ? FS.rootId
     : os.homedir();
   const controller = new AbortController();
-  const root = createEl('div', { style: 'height:100%;display:flex;flex-direction:column;background:#0b0e14;color:#e6edf3;font:13px monospace;' });
+  const root = createEl('div', { style: 'height:100%;display:flex;flex-direction:column;background:var(--bg-base);color:var(--text-primary);font:13px monospace;' });
   const output = createEl('pre', {
     role: 'log',
     'aria-label': _t('apps.terminal.outputAria'),
     style: 'flex:1;overflow:auto;margin:0;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;'
   });
-  const inputRow = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid #30363d;' });
-  const prompt = createEl('span', { textContent: `${os.userInfo().username}@novabyte:$`, style: 'color:#79c0ff;white-space:nowrap;' });
+  const inputRow = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border-subtle);' });
+  const prompt = createEl('span', { textContent: `${os.userInfo().username}@novabyte:$`, style: 'color:var(--accent);white-space:nowrap;' });
   const input = createEl('input', {
     className: 'shell-input',
     'aria-label': _t('apps.terminal.shellCommandAria'),

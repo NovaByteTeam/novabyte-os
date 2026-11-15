@@ -76,7 +76,7 @@ const APP_REGISTRY = [];
             const wrapper = document.createElement('div');
             wrapper.style.cssText = 'width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;';
             const urlBar = document.createElement('div');
-            urlBar.style.cssText = 'background:rgba(0,0,0,0.22);border-bottom:1px solid rgba(255,255,255,0.07);padding:5px 12px;font-size:11px;color:rgba(255,255,255,0.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:monospace;flex-shrink:0;';
+            urlBar.style.cssText = 'background:var(--bg-sunken);border-bottom:1px solid var(--border-subtle);padding:5px 12px;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:monospace;flex-shrink:0;';
             try {
               urlBar.textContent = '\uD83D\uDD12 ' + new URL(waData.url).host;
             } catch {

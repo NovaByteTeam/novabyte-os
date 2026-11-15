@@ -1409,13 +1409,68 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
 
   it('applyTheme writes the theme custom properties and dispatches theme:changed', async () => {
     const { window } = await bootDesktop();
+    const colorSchemeMeta = window.document.createElement('meta');
+    colorSchemeMeta.name = 'color-scheme';
+    window.document.head.appendChild(colorSchemeMeta);
     const events = [];
     window.addEventListener('theme:changed', (e) => events.push(e.detail.theme));
+    window.applyTheme('nova-light');
+    expect(colorSchemeMeta.content).toBe('light');
+    expect(window.document.documentElement.style.colorScheme).toBe('light');
     window.applyTheme('nord');
-    expect(events).toEqual(['nord']);
+    expect(events).toEqual(['nova-light', 'nord']);
+    expect(colorSchemeMeta.content).toBe('dark');
     expect(window.document.documentElement.style.getPropertyValue('--bg-base')).toBe('#2e3440');
     expect(() => window.applyTheme('not-a-theme')).not.toThrow(); // falls back to nova-dark
-    expect(events).toEqual(['nord', 'not-a-theme']);
+    expect(events).toEqual(['nova-light', 'nord', 'not-a-theme']);
+  });
+
+  it('keeps semantic text colors readable in every built-in theme', async () => {
+    const { window } = await bootDesktop();
+    const themes = [
+      'nova-dark', 'nova-light', 'nord', 'dracula',
+      'catppuccin', 'tokyo-night', 'gruvbox', 'high-contrast',
+    ];
+    const foregrounds = [
+      '--text-primary', '--text-secondary', '--text-muted', '--text-link',
+      '--text-danger', '--text-success', '--text-warning', '--accent',
+    ];
+    const parseColor = (color, behind = [0, 0, 0]) => {
+      const hexChannels = color.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i)?.slice(1);
+      if (hexChannels) return hexChannels.map((channel) => parseInt(channel, 16) / 255);
+      const rgba = color.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i);
+      if (rgba) {
+        const alpha = rgba[4] == null ? 1 : Number(rgba[4]);
+        return [1, 2, 3].map((index, channel) =>
+          Number(rgba[index]) / 255 * alpha + behind[channel] * (1 - alpha));
+      }
+      throw new Error(`Expected a hex or rgb theme color, got ${color}`);
+    };
+    const luminance = (channels) => {
+      const linear = channels.map((value) => {
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    };
+
+    for (const theme of themes) {
+      window.applyTheme(theme);
+      const styles = window.document.documentElement.style;
+      const base = parseColor(styles.getPropertyValue('--bg-base'));
+      const surfaces = ['--bg-base', '--bg-elevated', '--bg-sunken', '--bg-overlay']
+        .map((token) => luminance(parseColor(styles.getPropertyValue(token), base)));
+      for (const token of foregrounds) {
+        const foreground = luminance(parseColor(styles.getPropertyValue(token)));
+        for (const background of surfaces) {
+          const [lighter, darker] = [background, foreground].sort((a, b) => b - a);
+          expect((lighter + 0.05) / (darker + 0.05), `${theme} ${token}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+      const accent = luminance(parseColor(styles.getPropertyValue('--accent')));
+      const accentText = luminance(parseColor(styles.getPropertyValue('--text-on-accent')));
+      const [lighter, darker] = [accent, accentText].sort((a, b) => b - a);
+      expect((lighter + 0.05) / (darker + 0.05), `${theme} --text-on-accent`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it('routes file types to their default apps through WM.createWindow', async () => {
