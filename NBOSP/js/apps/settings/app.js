@@ -3458,7 +3458,7 @@ registerApp({
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleVersionClick(); }
       }, { signal: lifecycle.signal });
       swRows.appendChild(novaVersionRow);
-      swRows.appendChild(mkRow(_t('settings.about.buildDate'),  '2026-11-14'));
+      swRows.appendChild(mkRow(_t('settings.about.buildDate'),  '2026-11-15'));
 
       const secRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });
       const secRowLeft  = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
