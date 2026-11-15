@@ -1382,7 +1382,15 @@
       this.homePath = typeof FS !== 'undefined' && typeof FS.rootId === 'string'
         ? FS.rootId
         : this.os.homedir();
-      this.currentPath = this.path.resolve(options.path || this.homePath);
+      // Bugfix: opening a desktop folder ignored the requested folder. On Linux
+      // the desktop/launcher passes folderId, and the FS node id there IS the
+      // absolute path — treat it as the start path. (Browser-mode FilesApp
+      // already honors folderId; this mirrors that for the Linux backend.)
+      this.currentPath = this.path.resolve(
+        options.path
+        || (typeof options.folderId === 'string' && options.folderId.startsWith('/') ? options.folderId : null)
+        || this.homePath
+      );
       this.state._linuxPath = this.currentPath;
       this.selectedPath = null;
       this.selectedPaths = new Set();
@@ -1792,6 +1800,12 @@
         // App Manager only accepts a lowercase ".novaapp" suffix.
         const name = this.path.basename(filePath).replace(/\.novaapp$/i, '.novaapp');
         const file = new File([data], name, { type: 'application/octet-stream' });
+        // Bugfix: right-click Install on a .novaapp failed with "ENOENT: open ''".
+        // NW.js DOM File objects carry a non-standard `.path`, but files built via
+        // the `new File(...)` constructor get path '' — App Manager then calls
+        // fs.readFile('') and dies. Re-attach the real absolute path we read from
+        // (a plain property on NW.js File objects) so the native fast-path works.
+        file.path = filePath;
 
         // Same gate the window manager applies to a dropped file.
         if (window.Scanner) {

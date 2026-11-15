@@ -72,8 +72,10 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     { uid: 'u-sam-002', displayName: 'Sam', username: 'sam', role: 'standard', roleLabel: 'Standard', status: 'active', locked: false, pinLength: 4, hasPassphrase: false, hasBiometric: false, mustChangePin: false },
   ];
 
-  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' } } = {}) {
+  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }, changePinResult = null, webauthnResult = null } = {}) {
     const loginCalls = [];
+    const changePinCalls = [];
+    const webauthnCalls = [];
     const workerCalls = [];
     const manager = {
       state: () => ({ status: 'loggedout', uid: null, uname: null, displayName: null, role: null }),
@@ -87,7 +89,12 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
       resumeUser: async () => ({ ok: false }),
       suspendForSwitch: async () => ({ ok: true }),
       guestLogin: async () => ({ ok: true, guest: true }),
-      webauthnLogin: async () => ({ ok: false, code: 'UNAVAILABLE', message: 'no webauthn' }),
+      changePin: changePinResult
+        ? async (currentSecret, newPin) => { changePinCalls.push([currentSecret, newPin]); return changePinResult; }
+        : async () => ({ ok: false, code: 'CHANGE_PIN_FAILED', message: 'no stub' }),
+      webauthnLogin: webauthnResult
+        ? async (args) => { webauthnCalls.push(args); return webauthnResult; }
+        : async () => ({ ok: false, code: 'UNAVAILABLE', message: 'no webauthn' }),
       on: () => () => {},
     };
     const scope = {
@@ -120,7 +127,7 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     });
     dom = loaded.dom;
     loaded.document.body.innerHTML = LOCK_SCREEN_MARKUP;
-    return { ...loaded, manager, loginCalls, wmCalls, workerCalls, scope };
+    return { ...loaded, manager, loginCalls, changePinCalls, webauthnCalls, wmCalls, workerCalls, scope };
   }
 
   async function loadFirstBoot({
@@ -325,6 +332,69 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     await settle(50);
     expect(document.getElementById('lock-screen').className).not.toContain('active');
     expect(manager.state()).toBeTruthy(); // the guest tile path ran through the manager
+  });
+
+  it('a must-change login lands on the forced-PIN card: chrome hidden, digits never leak into unlock attempts, success tears the gate down', async () => {
+    const { window, document, loginCalls, changePinCalls } = await loadMultiUser({
+      loginResult: { ok: true, user: ACCOUNTS[1], mustChangePin: true },
+      changePinResult: { ok: true },
+    });
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][1].click(); // Sam, 4-digit PIN
+    await settle();
+    await pressPin(document, window, '4321'); // 4th digit auto-submits the sheet
+    await settle(50);
+
+    // The forced-PIN card is up and the sheet chrome underneath is hidden.
+    const card = document.getElementById('lock-forced-pin');
+    expect(card).toBeTruthy();
+    expect(document.getElementById('lock-screen').className).toContain('active');
+    expect(window.LockScreenService.state()).toBe('forced-pin');
+    expect(document.getElementById('lock-numpad').style.display).toBe('none');
+    expect(document.getElementById('lock-username').style.display).toBe('none');
+
+    // Digit keys while the card is up never fall through into a new
+    // verify/unlock round-trip (they drive the card's inputs or nothing).
+    await pressPin(document, window, '9999');
+    await settle(30);
+    expect(loginCalls).toHaveLength(1); // only the original sheet verification
+
+    // A successful save restores the chrome visibility and takes the whole
+    // gate down — the overlay cannot stick with a dead 'forced-pin' surface.
+    document.getElementById('fp-pin').value = '5678';
+    document.getElementById('fp-pin2').value = '5678';
+    card.querySelector('.fw-submit').click();
+    await settle(50);
+    expect(changePinCalls).toEqual([[null, '5678']]);
+    expect(document.getElementById('lock-forced-pin')).toBeNull();
+    expect(document.getElementById('lock-screen').className).not.toContain('active');
+    expect(window.LockScreenService.state()).toBe('hidden');
+    expect(document.getElementById('lock-numpad').style.display).toBe(''); // chrome restored for the next lock
+  });
+
+  it('a biometric login of a must-change account routes onto the forced-PIN card too', async () => {
+    const { window, document, webauthnCalls } = await loadMultiUser({
+      webauthnResult: { ok: true, mustChangePin: true },
+    });
+    // jsdom has no WebAuthn: provide the platform-authenticator surface the
+    // button and the unlock path probe.
+    window.PublicKeyCredential = {
+      isUserVerifyingPlatformAuthenticatorAvailable: async () => true,
+    };
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][0].click(); // Ada (hasBiometric)
+    await settle();
+    const bioBtn = document.querySelector('#lock-screen .biometric-btn');
+    expect(bioBtn).toBeTruthy();
+    bioBtn.click();
+    await settle(50);
+
+    expect(webauthnCalls).toEqual([{ uid: 'u-ada-001' }]);
+    expect(document.getElementById('lock-forced-pin')).toBeTruthy();
+    expect(window.LockScreenService.state()).toBe('forced-pin');
+    expect(document.getElementById('lock-screen').className).toContain('active');
   });
 });
 

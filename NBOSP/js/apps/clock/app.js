@@ -67,6 +67,15 @@ registerApp({
 
     function pad(n) { return String(Math.floor(n)).padStart(2, '0'); }
 
+    // The user's 12/24h preference (Settings → clockFormat; default '12h').
+    // Fully guarded so the app still renders when OS/settings are absent
+    // (e.g. the app-test harness), matching the background service's reader.
+    function use24h() {
+      try {
+        return typeof OS !== 'undefined' && OS?.settings?.get?.('clockFormat') === '24h';
+      } catch { return false; }
+    }
+
     const clockSvc = window.__NBOSP_BG?.clock;
 
     function syncClockState() {
@@ -219,8 +228,12 @@ registerApp({
 
       if (sec !== _lastClockSec) {
         _lastClockSec = sec;
+        // Bugfix: the digital face used the locale-default 12/24h rendering,
+        // ignoring the user's explicit clockFormat preference. Pass hour12
+        // from the setting (re-read each second so a live change applies).
+        const use24 = use24h();
         digitalEl.textContent = now.toLocaleTimeString([], {
-          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: !use24,
         });
         dateEl.textContent = now.toLocaleDateString([], {
           weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -315,6 +328,10 @@ registerApp({
       for (const { idx, al } of sorted) {
         const [hhS, mmS] = al.time.split(':');
         const hh = +hhS, mm = +mmS;
+        // Bugfix: the alarm list was hard-coded to 12h and ignored the
+        // clockFormat preference (the notification path had the inverse
+        // bug — raw 24h). Render in the user's chosen format now.
+        const use24 = use24h();
         const ampm = hh < 12 ? _t('apps.clock.am') : _t('apps.clock.pm');
         const h12  = hh % 12 || 12;
 
@@ -323,10 +340,13 @@ registerApp({
         left.addEventListener('click', () => openAlarmModal(idx));
 
         const timeRow = createEl('div', { style: 'display:flex;align-items:baseline;gap:5px;' });
-        const timeEl  = createEl('div', { className: 'nbc-alarm-time', textContent: `${h12}:${pad(mm)}` });
+        const timeEl  = createEl('div', { className: 'nbc-alarm-time', textContent: use24 ? `${pad(hh)}:${pad(mm)}` : `${h12}:${pad(mm)}` });
         timeEl.style.color = al.enabled ? 'var(--text-primary)' : 'var(--text-muted)';
-        const ampmEl = createEl('div', { className: 'nbc-alarm-ampm', textContent: ampm });
-        timeRow.append(timeEl, ampmEl);
+        timeRow.append(timeEl);
+        if (!use24) {
+          const ampmEl = createEl('div', { className: 'nbc-alarm-ampm', textContent: ampm });
+          timeRow.append(ampmEl);
+        }
 
         const meta = createEl('div', { className: 'nbc-alarm-meta' });
         const parts = [];

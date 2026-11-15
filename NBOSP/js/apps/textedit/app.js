@@ -6,7 +6,11 @@ function initLinuxTextEdit(content, state, options = {}) {
   state.cleanups = Array.isArray(state.cleanups) ? state.cleanups : [];
   state.cleanups.push(() => controller.abort());
 
-  let currentPath = options.path || options.filePath || null;
+  // Bugfix: desktop-opened files arrived with only options.fileId, and on Linux
+  // the FS node id IS the absolute path — without this fallback TextEdit showed
+  // an empty untitled editor instead of the file the user clicked.
+  let currentPath = options.path || options.filePath
+    || (typeof options.fileId === 'string' && options.fileId.startsWith('/') ? options.fileId : null);
   let modified = false;
   const root = createEl('div', { style: 'position:absolute;inset:0;display:flex;flex-direction:column;min-height:0;overflow:hidden;' });
   const toolbar = createEl('div', { style: 'display:flex;gap:8px;padding:8px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;' });

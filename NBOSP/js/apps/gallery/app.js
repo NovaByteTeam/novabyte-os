@@ -3,7 +3,14 @@ registerApp({
   version: '3.0.2',
   description: 'Image Viewer',
   defaultSize: [840, 580], minSize: [500, 360],
-  init(content, state) {
+  // WM passes launch options as the third init() argument; the app tests
+  // inject the opened-file id directly into `state`. Prefer options (the
+  // real launch path) and keep state as the fallback so both callers work.
+  init(content, state, options = {}) {
+    // Bugfix: opened-from-Files images never showed — this read only
+    // state.fileId, but WM.createWindow hands launch options to init()
+    // via the `options` argument.
+    const openedFileId = (options && options.fileId) || state.fileId;
 
     // ── NovaByte runtime guard ──────────────────────────────────────────────
     if (!window.AppDirs?.getAppDataPath('com.nbosp.gallery', 'files')) {
@@ -246,7 +253,7 @@ registerApp({
             content: null,
             parentId: null,
           }));
-        const openedFile = state.fileId ? FS?.files?.get(state.fileId) : null;
+        const openedFile = openedFileId ? FS?.files?.get(openedFileId) : null;
         if (openedFile?.type === 'file' && (
           openedFile.mimeType?.startsWith('image/') ||
           IMG_EXTS.has((openedFile.name || '').split('.').pop().toLowerCase())
@@ -407,10 +414,10 @@ registerApp({
     }
 
     // ── Initial render ───────────────────────────────────────────────────────
-    // Single render call regardless of whether state.fileId is set.
+    // Single render call regardless of whether an opened-file id is set.
     void render().then(() => {
-      if (!state.fileId) return;
-      const startIdx = images.findIndex(f => f.id === state.fileId);
+      if (!openedFileId) return;
+      const startIdx = images.findIndex(f => f.id === openedFileId);
       if (startIdx !== -1) void openLb(startIdx);
     });
   }

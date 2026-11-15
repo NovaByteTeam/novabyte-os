@@ -247,6 +247,32 @@ describe('App Manager app (js/apps/appmanager)', () => {
     expect(window.APP_REGISTRY.some((a) => a.id === 'com.hobby.app')).toBe(true);
   });
 
+  it('reads NW-style File objects whose .path is the empty string via the text() fallback', async () => {
+    // Regression for the Files app right-click Install bug: files synthesized
+    // with `new File(...)` under NW.js carry a string .path of '' — the native
+    // fast-path used to be taken for it and die on fs.readFile('') (ENOENT
+    // open ''). An empty path must fall through to the file.text() branch.
+    const { content, window, document } = await loadAppManager();
+    const pkg = {
+      novabyte_app: true,
+      manifest: { id: 'com.synthetic.app', name: 'Synthetic App', version: '0.2.0', description: 'Built from bytes' },
+      files: {},
+    };
+    const file = new window.File([JSON.stringify(pkg)], 'synthetic.novaapp', { type: 'application/json' });
+    file.path = ''; // the NW.js constructor-built File quirk
+
+    const pending = content._novaAppProcessFile(file);
+    await settle(); // reads the bytes, then the untrusted dialog opens
+    const moreBtn = document.querySelector('#nb-untrusted-more-btn');
+    expect(moreBtn).toBeTruthy();
+    moreBtn.click();
+    document.querySelector('#nb-untrusted-launch-btn').click();
+
+    expect(await pending).toBe('installed');
+    const stored = JSON.parse(window.localStorage.getItem(APPS_KEY));
+    expect(stored[0]).toMatchObject({ id: 'com.synthetic.app', name: 'Synthetic App', verified: false });
+  });
+
   it('rejects invalid packages with an install-failed notification', async () => {
     const { content, window, Notify, document } = await loadAppManager();
 

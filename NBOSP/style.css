@@ -208,6 +208,19 @@
     outline-offset: 2px;
   }
 
+  /* WM auto-focus (wm.js focusWindow): the window manager focuses the
+     first text input of a freshly opened window programmatically via
+     requestAnimationFrame; Chromium matches :focus-visible for text inputs
+     even on script focus, which painted a 2px accent outline on every new
+     window without any user interaction. wm.js marks the element with
+     data-wm-autofocus and clears the mark on the first real keydown or
+     pointerdown inside the window, so this suppression only ever covers
+     that initial programmatic focus — real keyboard navigation keeps its
+     outlines afterwards. */
+  .window-content [data-wm-autofocus]:focus-visible {
+    outline: none;
+  }
+
   ::selection {
     background: rgba(88, 166, 255, 0.3);
     color: var(--text-primary);
@@ -1515,6 +1528,22 @@
     cursor: pointer;
   }
 
+  /* WiFi popup — created dynamically by tray/service.js (only positioning */
+  /* stays inline on the element). Same glass treatment as .volume-popup */
+  /* (blur + translucent background) so all tray flyouts look consistent. */
+  .wifi-popup {
+    position: fixed;
+    z-index: 9200;
+    background: var(--bg-overlay);
+    border: 1px solid var(--border-default);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 16px;
+    min-width: 200px;
+  }
+
   /* Calendar popup — small month-view widget opened from the taskbar clock. */
   /* Same overlay/blur/shadow treatment as .volume-popup for visual */
   /* consistency between tray popups. */
@@ -1958,8 +1987,8 @@
   .system-file-dialog {
     display: flex;
     flex-direction: column;
-    width: min(640px, calc(100vw - 32px));
-    max-width: 640px;
+    width: min(760px, calc(100vw - 32px));
+    max-width: 760px;
     max-height: min(78vh, 680px);
     padding: 0;
     overflow: hidden;
@@ -1972,6 +2001,7 @@
   .system-file-dialog-toolbar {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     min-height: 52px;
     padding: 8px 16px;
@@ -2094,6 +2124,7 @@
   .system-file-dialog-footer {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     padding: 12px 16px;
     border-top: 1px solid var(--border-subtle);
@@ -2105,6 +2136,231 @@
   }
   .system-file-dialog-footer > .btn {
     flex: 0 0 auto;
+  }
+
+  /* ── Windows-Explorer layout: quick-access sidebar + main column ───── */
+  .system-file-dialog-body {
+    display: flex;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .system-file-dialog-sidebar {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 170px;
+    width: 170px;
+    padding: 10px 8px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: var(--bg-sunken);
+    border-right: 1px solid var(--border-subtle);
+  }
+  .system-file-dialog-side-header {
+    flex: 0 0 auto;
+    padding: 2px 8px 8px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    user-select: none;
+  }
+  .system-file-dialog-side-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    padding: 7px 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-primary);
+    font: 12px var(--font-ui, sans-serif);
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+  }
+  .system-file-dialog-side-item:hover {
+    background: var(--bg-hover);
+  }
+  .system-file-dialog-side-item.active {
+    border-color: var(--accent);
+    background: var(--accent-muted);
+  }
+  .system-file-dialog-side-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .system-file-dialog-side-icon {
+    display: flex;
+    flex: 0 0 auto;
+    color: var(--text-secondary);
+  }
+  .system-file-dialog-side-icon svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+  }
+  .system-file-dialog-side-item.active .system-file-dialog-side-icon {
+    color: var(--accent);
+  }
+  .system-file-dialog-side-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Breadcrumb address bar (clickable segments + edit toggle) ─────── */
+  .system-file-dialog-breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 0 6px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: var(--bg-sunken);
+    overflow: hidden;
+    cursor: text;
+  }
+  .system-file-dialog-crumb {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: 12px var(--font-ui, sans-serif);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .system-file-dialog-crumb:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .system-file-dialog-crumb:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .system-file-dialog-crumb-sep {
+    display: flex;
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  .system-file-dialog-crumb-current {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 4px 6px;
+    overflow: hidden;
+    color: var(--text-primary);
+    font: 600 12px var(--font-ui, sans-serif);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    user-select: none;
+  }
+  .system-file-dialog-path-edit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    padding: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: var(--bg-overlay);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .system-file-dialog-path-edit:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .system-file-dialog-path-edit:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  /* Edit mode: crumbs and the edit button yield to the path input. */
+  .system-file-dialog-path-wrap.editing .system-file-dialog-breadcrumbs,
+  .system-file-dialog-path-wrap.editing .system-file-dialog-path-edit {
+    display: none;
+  }
+  .system-file-dialog-path-wrap:not(.editing) .system-file-dialog-path {
+    display: none;
+  }
+
+  /* ── Toolbar action buttons: New folder / New file ─────────────────── */
+  .system-file-dialog-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    font: 12px var(--font-ui, sans-serif);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+  .system-file-dialog-action-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .system-file-dialog-action-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .system-file-dialog-action-icon {
+    display: flex;
+    flex: 0 0 auto;
+    color: var(--text-muted);
+  }
+  .system-file-dialog-action-icon svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+  }
+  .system-file-dialog-action-btn:hover .system-file-dialog-action-icon {
+    color: var(--accent);
+  }
+  .system-file-dialog-action-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── Footer status line (creation feedback / errors) ───────────────── */
+  .system-file-dialog-status {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-height: 2.6em;
+    overflow: hidden;
+    color: var(--text-muted);
+    font: 11px var(--font-ui, sans-serif);
+    line-height: 1.4;
+  }
+  .system-file-dialog-status.is-error {
+    color: #f85149;
+  }
+  .system-file-dialog-status:empty {
+    display: none;
   }
 }
 

@@ -54,6 +54,7 @@ describe('UnrestrictedGate (js/platform/security/unrestricted-gate.js)', () => {
     vi.restoreAllMocks();
     delete globalThis.OS;
     delete globalThis.AppPackage;
+    delete window.NovaAppPackageStore;
   });
 
   describe('surface', () => {
@@ -77,6 +78,113 @@ describe('UnrestrictedGate (js/platform/security/unrestricted-gate.js)', () => {
         source: 'system-bundle',
         integrity: { method: 'blake3', fileHashes: { 'index.html': 'abc' } },
       };
+      expect(UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings')).toBe(true);
+    });
+
+    it('does not trip the tamper flag from the in-memory entry — probe verdicts come from the persisted store (2026-11-15 regression)', async () => {
+      // The first cut of the call-time probe passed this launch-config-
+      // shaped entry (no `files`) straight to AppPackage.verifyIntegrity,
+      // which always fails for that shape — revoking Settings on every
+      // clean install. The probe now resolves the persisted store record
+      // instead; with no store available the probe is inconclusive and
+      // must NOT revoke.
+      globalThis.OS.apps['com.nbosp.settings'] = {
+        system: true,
+        verified: true,
+        signer: 'NovaByte System',
+        manifest: { system: true },
+        source: 'system-bundle',
+        integrity: { method: 'blake3', fileHashes: { 'index.html': 'abc' } },
+      };
+      globalThis.AppPackage = { verifyIntegrity: vi.fn(async () => false) };
+      const flushAsync = () => new Promise((r) => setTimeout(r, 0));
+
+      expect(UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings')).toBe(true);
+      await flushAsync();
+      await flushAsync();
+      // Inconclusive probe (no store) — still trusted, and the entry was
+      // never handed to verifyIntegrity.
+      expect(UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings')).toBe(true);
+      expect(globalThis.AppPackage.verifyIntegrity).not.toHaveBeenCalled();
+    });
+
+    it('stays trusted when the persisted store record verifies clean', async () => {
+      globalThis.OS.apps['com.nbosp.settings'] = {
+        system: true,
+        verified: true,
+        signer: 'NovaByte System',
+        manifest: { system: true },
+        source: 'system-bundle',
+        integrity: { method: 'blake3', payloadHash: 'p', fileHashes: { 'app.js': 'h' } },
+      };
+      const record = {
+        id: 'com.nbosp.settings',
+        manifest: { system: true },
+        integrity: { method: 'blake3', payloadHash: 'p', fileHashes: { 'app.js': 'h' } },
+        storagePath: 'apps/settings',
+      };
+      window.NovaAppPackageStore = {
+        loadRegistry: () => [record],
+        hydrateApp: vi.fn(async (r) => ({ ...r, files: { 'app.js': 'QUJD' } })),
+      };
+      globalThis.AppPackage = { verifyIntegrity: vi.fn(async () => true) };
+      const flushAsync = () => new Promise((r) => setTimeout(r, 0));
+
+      expect(UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings')).toBe(true);
+      await flushAsync();
+      await flushAsync();
+      expect(UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings')).toBe(true);
+      // Verified against the synthesized store payload — not the entry.
+      expect(globalThis.AppPackage.verifyIntegrity).toHaveBeenCalledWith({
+        novabyte_app: undefined,
+        manifest: record.manifest,
+        files: { 'app.js': 'QUJD' },
+        compiled_at: undefined,
+        integrity: record.integrity,
+      });
+    });
+
+    it('revokes on a conclusive store mismatch and recovers when the store verifies again', async () => {
+      globalThis.OS.apps['com.nbosp.settings'] = {
+        system: true,
+        verified: true,
+        signer: 'NovaByte System',
+        manifest: { system: true },
+        source: 'system-bundle',
+        integrity: { method: 'blake3', payloadHash: 'p', fileHashes: { 'app.js': 'h' } },
+      };
+      const record = {
+        id: 'com.nbosp.settings',
+        manifest: { system: true },
+        integrity: { method: 'blake3', payloadHash: 'p', fileHashes: { 'app.js': 'h' } },
+      };
+      window.NovaAppPackageStore = {
+        loadRegistry: () => [record],
+        hydrateApp: vi.fn(async (r) => ({ ...r, files: { 'app.js': 'TU9ESUZJRUQ=' } })),
+      };
+      const verdicts = [false, true];
+      globalThis.AppPackage = { verifyIntegrity: vi.fn(async () => verdicts.shift()) };
+      const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const flushAsync = () => new Promise((r) => setTimeout(r, 0));
+
+      expect(UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings')).toBe(true);
+      await flushAsync();
+      await flushAsync();
+      // Conclusive mismatch (stored files vs stored hashes) — revoked.
+      expect(UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings')).toBe(false);
+      expect(consoleErr).toHaveBeenCalledWith(
+        expect.stringContaining('unrestricted access revoked'),
+      );
+
+      // The next probe is throttled for 30s — advance the throttle window by
+      // spying on Date.now() (the throttle reads it at call time) without
+      // disturbing the real timers the probe chain itself uses.
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 31_000);
+      UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings');
+      nowSpy.mockRestore();
+      await flushAsync();
+      await flushAsync();
+      // Store verifies again — access restored without a reload.
       expect(UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings')).toBe(true);
     });
 

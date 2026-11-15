@@ -602,6 +602,13 @@ registerApp({
         const iconSpan = createEl('span', { 'aria-hidden': 'true' });
         iconSpan.innerHTML = svgIcon(s.icon, 16);
         btn.append(iconSpan, createEl('span', { textContent: _t(s.nameKey) }));
+        // 2026-11-15: admin-only sections show a lock glyph for standard
+        // accounts so the gating is visible from the sidebar itself.
+        if (s.id === 'root' && !isAdminUser()) {
+          const lockSpan = createEl('span', { 'aria-hidden': 'true', style: { display: 'inline-flex', alignItems: 'center', opacity: '0.55', marginLeft: '4px' } });
+          lockSpan.innerHTML = svgIcon('lock', 11);
+          btn.appendChild(lockSpan);
+        }
         btn.addEventListener('click', () => {
           currentSection = s.id;
           updateSidebarActive();
@@ -956,8 +963,14 @@ registerApp({
         location.reload();
       }, { signal: lifecycle.signal });
       recoveryRow.appendChild(recoveryBtn);
-      recoveryGroup.appendChild(recoveryRow);
-      mainContent.appendChild(recoveryGroup);
+      if (isAdminUser()) {
+        recoveryGroup.appendChild(recoveryRow);
+        mainContent.appendChild(recoveryGroup);
+      } else {
+        // 2026-11-15: Recovery boot is an administrator-only control;
+        // standard accounts see the lock panel instead.
+        mainContent.appendChild(adminLockPanel());
+      }
 
       // Developer Mode
       const devGroup = createEl('div', { className: 'nook-group' });
@@ -1574,6 +1587,62 @@ registerApp({
         mainContent.appendChild(createEl('p', { textContent: _t('settings.storage.unavailable') }));
       }
 
+      // 2026-11-15: per-account disk usage + quota (the Users app's numbers,
+      // for the signed-in account; administrators additionally get the
+      // machine total and a per-account breakdown). The group is created
+      // synchronously so section layout stays stable while it loads.
+      const accountGroup = createEl('div', { className: 'nook-group' });
+      accountGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.storage.accountUsage') }));
+      mainContent.appendChild(accountGroup);
+      (async () => {
+        let selfUsage = null;
+        let adminUsage = null;
+        try {
+          const sm = window.SessionManager;
+          if (typeof sm?.authFetch === 'function') {
+            const self = await sm.authFetch('/api/auth/usage');
+            if (self?.ok) selfUsage = self.json?.data?.usage ?? self.json?.usage ?? null;
+            if (isAdminUser()) {
+              const admin = await sm.authFetch('/api/auth/admin/usage');
+              if (admin?.ok) adminUsage = admin.json?.data?.usage ?? admin.json?.usage ?? null;
+            }
+          }
+        } catch (err) { devLog('account usage fetch failed:', err); }
+        if (!isAlive() || !selfUsage) return;
+
+        const usageRow = (label, used, quota, highlight) => {
+          const row = createEl('div', { className: 'nook-row', style: { flexDirection: 'column', alignItems: 'stretch', gap: '4px', background: highlight ? 'rgba(88,166,255,0.07)' : undefined, borderRadius: highlight ? '8px' : undefined, padding: highlight ? '6px 8px' : undefined } });
+          const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
+          top.appendChild(createEl('span', { className: 'nook-row-label', textContent: label }));
+          top.appendChild(createEl('span', { textContent: formatBytes(used) + (quota ? ' / ' + formatBytes(quota) : '') }));
+          row.appendChild(top);
+          if (quota) {
+            const ratio = Math.min(100, used / quota * 100);
+            const bar = createEl('div', { className: 'lens-bar', style: { width: '100%' } });
+            bar.appendChild(createEl('div', { className: 'lens-bar-fill', style: { width: ratio + '%' } }));
+            row.appendChild(bar);
+          }
+          return row;
+        };
+
+        if (Array.isArray(adminUsage) && adminUsage.length) {
+          const totalBytes = adminUsage.reduce((sum, u) => sum + (u.usageBytes || 0), 0);
+          accountGroup.appendChild(usageRow(_t('settings.storage.totalUsed'), totalBytes, 0, false));
+          for (const u of adminUsage) {
+            const isSelf = u.uid === selfUsage.uid;
+            accountGroup.appendChild(usageRow(
+              (u.displayName || u.username || u.uid) + (isSelf ? ' — ' + _t('settings.storage.yourUsage') : ''),
+              u.usageBytes || 0, u.quotaBytes || 0, isSelf
+            ));
+          }
+        } else {
+          accountGroup.appendChild(usageRow(
+            _t('settings.storage.yourUsage'),
+            selfUsage.usedBytes || 0, selfUsage.quotaBytes || 0, false
+          ));
+        }
+      })();
+
       // Per-app storage ledger (the "logical UID" accounting layer).
       // Settings reads AppSandbox.storageLedgerSnapshot() directly — trusted
       // host-tier access; apps can never see each other's numbers over IPC.
@@ -1676,6 +1745,7 @@ registerApp({
         ]);
         if (!isAlive()) return;
         if (wipeConfirm !== 'wipe') return;
+        if (!isAdminUser()) return; // unreachable in practice — the button is admin-gated below
         Notify.show({ title: _t('settings.storage.wiping'), body: _t('settings.storage.wipingBody'), type: 'warning', appName: 'Settings' });
         try {
           // BUG (2026-11-15 audit, finding L2 / AUDIT.md SEC-05): this called
@@ -1700,7 +1770,15 @@ registerApp({
           if (isAlive()) Notify.show({ title: _t('settings.storage.resetFailed'), body: err.message, type: 'error', appName: 'Settings' });
         }
       }, { signal: lifecycle.signal });
-      clearGroup.appendChild(wipeBtn);
+      if (isAdminUser()) {
+        clearGroup.appendChild(wipeBtn);
+      } else {
+        // 2026-11-15: the factory wipe is an administrator-only action.
+        const lockNote = createEl('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '8px', fontSize: '12px', color: 'var(--text-secondary, #8b949e)' } });
+        lockNote.innerHTML = svgIcon('lock', 12) + '<span></span>';
+        lockNote.lastElementChild.textContent = _t('settings.adminLock.title');
+        clearGroup.appendChild(lockNote);
+      }
       mainContent.appendChild(clearGroup);
     }
 
@@ -2823,13 +2901,43 @@ registerApp({
             version:    OS.version,
             exportDate: new Date().toISOString()
           };
-          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-          const url  = URL.createObjectURL(blob);
-          const a    = createEl('a', { href: url, download: 'novabyte-export.json' });
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
+          // 2026-11-15: pick the destination with the in-OS file dialog
+          // (the Windows-style one, which remembers the last directory per
+          // account) instead of the blob-anchor download — under NW.js a
+          // programmatic <a download> falls through to Chromium's NATIVE
+          // "Save As" picker, which is the platform call this flow was
+          // asked to stop using. Pure-web builds (no Node fs) keep the
+          // legacy blob download as the fallback.
+          const json = JSON.stringify(data, null, 2);
+          let delivered = false;
+          let cancelled = false;
+          if (typeof SystemDialogs !== 'undefined' && typeof SystemDialogs.save === 'function') {
+            const target = await SystemDialogs.save({
+              title: _t('settings.privacy.exportTo'),
+              suggestedName: 'novabyte-export.json',
+              accept: '.json,application/json'
+            });
+            if (!target) {
+              cancelled = true; // user closed the dialog — no export, no toast
+            } else {
+              let fsMod = null;
+              try { fsMod = (typeof require === 'function') ? require('fs') : null; } catch (_) { fsMod = null; }
+              if (fsMod && typeof fsMod.promises?.writeFile === 'function') {
+                await fsMod.promises.writeFile(target.path, json, 'utf8');
+                delivered = true;
+              }
+            }
+          }
+          if (cancelled) return;
+          if (!delivered) {
+            const blob = new Blob([json], { type: 'application/json' });
+            const url  = URL.createObjectURL(blob);
+            const a    = createEl('a', { href: url, download: 'novabyte-export.json' });
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          }
           Notify.show({ title: _t('settings.privacy.dataExported'), body: _t('settings.privacy.dataExportedBody'), type: 'success', appName: 'Nook' });
         } catch (err) {
           Notify.show({ title: _t('settings.privacy.exportFailed'), body: err?.message || _t('settings.privacy.couldNotExport'), type: 'error', appName: 'Nook' });
@@ -2912,6 +3020,12 @@ registerApp({
         textContent: _t('settings.privacy.adminAccessHint'),
         style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', marginBottom: '12px' }
       }));
+      if (!isAdminUser()) {
+        // 2026-11-15: the machine-wide admin-mode flag is administrator-only.
+        adminSection.appendChild(adminLockPanel());
+        mainContent.appendChild(adminSection);
+        return;
+      }
       const adminRow = createEl('div', { className: 'nook-toggle-row' });
       adminRow.appendChild(createEl('span', { textContent: _t('settings.privacy.enableAdminMode') }));
       const adminToggle = createEl('button', {
@@ -2997,12 +3111,47 @@ registerApp({
       }, { signal: lifecycle.signal });
     }
 
+    // ── Admin gating (2026-11-15) ────────────────────────────────────
+    // Root access, the Privacy admin-mode toggle, System's recovery-boot
+    // toggle and Storage's factory wipe are administrator-only surfaces:
+    // standard accounts get a lock panel with a sign-in affordance instead
+    // of the controls (mirrors the Users app's roleDeniedSplash pattern).
+    function isAdminUser() {
+      try {
+        return typeof SessionManager !== 'undefined'
+          && typeof SessionManager.isAdmin === 'function'
+          && SessionManager.isAdmin();
+      } catch (_) { return false; }
+    }
+
+    function adminLockPanel() {
+      const panel = createEl('div', { className: 'nook-group', style: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '26px 18px', gap: '8px', textAlign: 'center' } });
+      const icon = createEl('div', { 'aria-hidden': 'true', style: { opacity: '0.7' } });
+      icon.innerHTML = svgIcon('lock', 26);
+      panel.appendChild(icon);
+      panel.appendChild(createEl('div', { style: { fontSize: '14px', fontWeight: '600' }, textContent: _t('settings.adminLock.title') }));
+      panel.appendChild(createEl('div', { style: { fontSize: '12.5px', color: 'var(--text-secondary, #8b949e)', maxWidth: '440px', lineHeight: '1.5' }, textContent: _t('settings.adminLock.body') }));
+      const signIn = createEl('button', { className: 'btn btn-sm', style: { marginTop: '6px' }, textContent: _t('settings.adminLock.switchUser') });
+      signIn.addEventListener('click', () => {
+        try { window.LockScreenService?.showLoginPicker?.(); } catch (_) { /* lock screen unavailable in this context */ }
+      }, { signal: lifecycle.signal });
+      panel.appendChild(signIn);
+      return panel;
+    }
+
     function renderRootAccess() {
       mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.root'), style: { marginBottom: '8px' } }));
       mainContent.appendChild(createEl('p', {
         textContent: _t('settings.root.intro'),
         style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', lineHeight: '1.55', marginBottom: '18px' }
       }));
+
+      // 2026-11-15: Root access is an administrator-only surface — standard
+      // accounts see the lock panel instead of the controls.
+      if (!isAdminUser()) {
+        mainContent.appendChild(adminLockPanel());
+        return;
+      }
 
       const devMode = systemSettings.get('devMode') === true;
       const rootEnabled = systemSettings.get('rootAccessEnabled') === true;

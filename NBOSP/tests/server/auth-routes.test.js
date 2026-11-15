@@ -233,6 +233,39 @@ describe('server/security/auth-routes.js — /api/auth family', () => {
     expect(relogin.body.data.mustChangePin).toBe(false);
   });
 
+  it('GET /usage reports ONLY the session\'s own storage footprint (self service, no admin gate)', async () => {
+    // No session → the same 401 AUTH_REQUIRED envelope as the rest of the family.
+    const anon = await request(app).get('/api/auth/usage');
+    expect(anon.status).toBe(401);
+    expect(anon.body.code).toBe('AUTH_REQUIRED');
+
+    // A STANDARD session is enough — this is the account's own usage, not an
+    // admin-family read (contrast /api/auth/admin/usage's ADMIN_REQUIRED).
+    const login = await request(app).post('/api/auth/login').send({ username: 'sam', secret: '5678' });
+    const session = { token: login.body.data.sessionId, csrf: login.body.data.csrfToken };
+    const res = await request(app).get('/api/auth/usage').set(authHeaders(session));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // Contract consumed by Settings: usage is a single object for the signed-in
+    // account — never the array of every account the admin variant returns.
+    expect(Array.isArray(res.body.data.usage)).toBe(false);
+    expect(res.body.data.usage).toMatchObject({
+      uid: expect.any(String),
+      username: 'sam',
+      displayName: 'Sam',
+      quotaBytes: expect.any(Number),
+      usedBytes: expect.any(Number),
+    });
+    expect(res.body.data.usage.username).not.toBe('ada');
+
+    // A locked session is refused like every other active-session-gated route.
+    const lock = await request(app).post('/api/auth/lock').set(authHeaders(session));
+    expect(lock.status).toBe(200);
+    const locked = await request(app).get('/api/auth/usage').set(authHeaders(session));
+    expect(locked.status).toBe(403);
+    expect(locked.body.code).toBe('SESSION_LOCKED');
+  });
+
   it('a legacy-imported account whose 3.0.2 PIN is not digit-only can still log in', async () => {
     // The auto-detect used to only try the PIN branch for 4–6 digit secrets,
     // so a migrated machine with an alphanumeric lock PIN failed every login

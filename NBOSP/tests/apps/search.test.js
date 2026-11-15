@@ -160,25 +160,40 @@ describe("'Search' app (js/apps/search)", () => {
     expect(wm.calls).toContainEqual(['com.nbosp.downloads', { itemId: 'd1' }]);
   });
 
-  it('fetches web results, caches them per query, and falls back when offline', async () => {
+  it('fetches web results through the /api/proxy relay, caches them per query, and falls back when the relay fails', async () => {
     let ddgCalls = 0;
     const { content, window } = await loadSearch({
-      fetch: async (url) => {
+      // The app relays DuckDuckGo through POST /api/proxy (server-side CORS
+      // relay): JSON body { url, method, headers, body, bodyEncoding } →
+      // envelope { status, statusText, headers, body, bodyEncoding } with the
+      // target's JSON payload as a UTF-8 string in `body`.
+      fetch: async (url, init) => {
         const u = String(url);
-        if (u.startsWith('https://api.duckduckgo.com/') && u.includes('q=novabyte')) {
+        if (u !== '/api/proxy' || init?.method !== 'POST') {
+          return { ok: false, status: 404, json: async () => ({}) };
+        }
+        const req = JSON.parse(init.body || '{}');
+        if (req.url?.startsWith('https://api.duckduckgo.com/') && req.url.includes('q=novabyte')) {
           ddgCalls++;
           return {
             ok: true,
             status: 200,
             json: async () => ({
-              AbstractText: 'NovaByte is a desktop OS.',
-              Heading: 'NovaByte',
-              AbstractURL: 'https://novabyte.example/os',
-              RelatedTopics: [{ Text: 'NovaByte Docs - official documentation', FirstURL: 'https://docs.example' }],
+              status: 200,
+              statusText: 'OK',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                AbstractText: 'NovaByte is a desktop OS.',
+                Heading: 'NovaByte',
+                AbstractURL: 'https://novabyte.example/os',
+                RelatedTopics: [{ Text: 'NovaByte Docs - official documentation', FirstURL: 'https://docs.example' }],
+              }),
+              bodyEncoding: 'utf8',
             }),
           };
         }
-        return { ok: false, status: 404, json: async () => ({}) };
+        // Any other relayed query (e.g. 'zzz') — the proxy itself fails.
+        return { ok: false, status: 502, json: async () => ({ error: 'Network error' }) };
       },
     });
     const input = content.querySelector('input[placeholder="Search files, contacts, downloads…"]');

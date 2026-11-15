@@ -248,8 +248,8 @@ describe('NovaByte Registry engine (js/platform/core/nova-registry.js)', () => {
     bus.emit('settings:changed', { key: 'theme', value: 'dracula' });
     bus.emit('settings:changed', { key: 'wallpaperId', value: 'dark' });
     bus.emit('settings:changed', { key: 'clockFormat', value: '24h' }); // unmapped
-    expect(Reg.get('HKNS/shell/theme')).toBe('dracula');
-    expect(Reg.get('HKNS/shell/wallpaper')).toBe('dark');
+    expect(Reg.get('HKNU/shell/theme')).toBe('dracula');
+    expect(Reg.get('HKNU/shell/wallpaper')).toBe('dark');
     expect(Reg.stat('HKNS/clockFormat')).toBeNull();
   });
 
@@ -729,11 +729,19 @@ describe('NovaByte Registry engine v2 — settings schema & legacy adoption', ()
   });
 
   it('maps every OS settings key to its canonical hive path', () => {
-    expect(Reg.SETTINGS_KEY_TO_PATH.theme).toBe('HKNS/shell/theme');
+    // 2026-11-15 per-user redesign: theme/accentColor/wallpaperId moved to the
+    // mounted HKNU hive; devMode became a per-user opt-in; rootAccessEnabled
+    // is per-account; timezone is deliberately MACHINE-scoped; volume is new.
+    expect(Reg.SETTINGS_KEY_TO_PATH.theme).toBe('HKNU/shell/theme');
+    expect(Reg.SETTINGS_KEY_TO_PATH.accentColor).toBe('HKNU/shell/accentColor');
+    expect(Reg.SETTINGS_KEY_TO_PATH.wallpaperId).toBe('HKNU/shell/wallpaper');
     expect(Reg.SETTINGS_KEY_TO_PATH.pinnedApps).toBe('HKNU/desktop/pins');
     expect(Reg.SETTINGS_KEY_TO_PATH.defaultApps).toBe('HKNU/shell/defaultApps');
     expect(Reg.SETTINGS_KEY_TO_PATH.osVersion).toBe('HKNS/system/osVersion');
-    expect(Reg.SETTINGS_KEY_TO_PATH.devMode).toBe('HKNS/system/devMode');
+    expect(Reg.SETTINGS_KEY_TO_PATH.devMode).toBe('HKNU/settings/devMode');
+    expect(Reg.SETTINGS_KEY_TO_PATH.rootAccessEnabled).toBe('HKNU/security/rootAccessEnabled');
+    expect(Reg.SETTINGS_KEY_TO_PATH.timezone).toBe('HKNS/system/timezone');
+    expect(Reg.SETTINGS_KEY_TO_PATH.volume).toBe('HKNU/settings/volume');
     // Multi-user account redesign: credential keys left the settings map —
     // lockPin/pinSalt/biometricCredentialId live in the server's users.db and
     // the account record owns identity, so `username` is unmapped too.
@@ -746,7 +754,7 @@ describe('NovaByte Registry engine v2 — settings schema & legacy adoption', ()
   });
 
   it('resolves paths: mapped keys win, excluded keys return null, unknown keys file under HKNU/settings', () => {
-    expect(Reg.settingsPathFor('theme')).toBe('HKNS/shell/theme');
+    expect(Reg.settingsPathFor('theme')).toBe('HKNU/shell/theme');
     expect(Reg.settingsPathFor('pinnedApps')).toBe('HKNU/desktop/pins');
     // Retired credential keys are unmapped: they file under HKNU/settings/*
     // (empty by default — the migration deletes the legacy values) instead of
@@ -760,8 +768,12 @@ describe('NovaByte Registry engine v2 — settings schema & legacy adoption', ()
   });
 
   it('maps registry paths back to settings keys, including the generic areas', () => {
-    expect(Reg.pathToSettingsKey('HKNS/shell/theme')).toBe('theme');
-    expect(Reg.pathToSettingsKey('HKNS/shell/wallpaper')).toBe('wallpaperId');
+    expect(Reg.pathToSettingsKey('HKNU/shell/theme')).toBe('theme');
+    expect(Reg.pathToSettingsKey('HKNU/shell/wallpaper')).toBe('wallpaperId');
+    expect(Reg.pathToSettingsKey('HKNS/system/timezone')).toBe('timezone');
+    // The pre-2026-11-15 machine-scoped shell paths are retired — nothing
+    // maps them anymore (the settings shim migrates legacy values away).
+    expect(Reg.pathToSettingsKey('HKNS/shell/theme')).toBeNull();
     expect(Reg.pathToSettingsKey('HKNU/desktop/pins')).toBe('pinnedApps');
     expect(Reg.pathToSettingsKey('HKNU/settings/clockFormat')).toBe('clockFormat');
     expect(Reg.pathToSettingsKey('HKNS/system/osVersion')).toBe('osVersion');
@@ -780,7 +792,7 @@ describe('NovaByte Registry engine v2 — settings schema & legacy adoption', ()
 
     const adopted = Reg.adoptLegacySettings(get, [...store.keys()]);
     expect(adopted).toBe(3); // customWallpaper is excluded — never enters the hive
-    expect(Reg.get('HKNS/shell/theme')).toBe('dracula'); // adoption beats the seed
+    expect(Reg.get('HKNU/shell/theme')).toBe('dracula'); // adoption beats the seed
     expect(Reg.get('HKNU/settings/clockFormat')).toBe('24h');
     expect(Reg.get('HKNU/desktop/pins')).toEqual(['com.nbosp.files']);
     expect(Reg.stat('HKNU/settings/customWallpaper')).toBeNull();
@@ -789,7 +801,7 @@ describe('NovaByte Registry engine v2 — settings schema & legacy adoption', ()
     // Second boot: guard holds — later legacy edits are ignored.
     store.set('theme', 'gruvbox');
     expect(Reg.adoptLegacySettings(get, ['theme'])).toBe(0);
-    expect(Reg.get('HKNS/shell/theme')).toBe('dracula');
+    expect(Reg.get('HKNU/shell/theme')).toBe('dracula');
   });
 
   it('keeps adopting when one bad value throws — one key never aborts the batch', () => {

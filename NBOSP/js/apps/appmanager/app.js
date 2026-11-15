@@ -1885,7 +1885,10 @@ registerApp({
         function makeDetailDialog(title, description) {
           const overlay = createEl('div', {
             role: 'presentation',
-            style: 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.62);display:flex;align-items:center;justify-content:center;padding:24px;'
+            // backdrop-filter matches the system ModalService overlay
+            // (NBOSP/style.css .modal-overlay) so these in-app dialogs get
+            // the same dimmed-and-blurred treatment instead of a flat scrim.
+            style: 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px;'
           });
           const dialog = createEl('section', {
             role: 'dialog',
@@ -2381,7 +2384,11 @@ registerApp({
 
         try {
             let raw;
-            if (typeof file.path === 'string') {
+            // NB: synthetic File objects created via `new File(...)` under NW.js
+            // still carry a string `.path`, but it is '' — readFile('') throws
+            // ENOENT open ''. Only trust the native fast-path for non-empty paths;
+            // anything else falls through to the file.text() branch.
+            if (typeof file.path === 'string' && file.path) {
               if (typeof require !== 'function') throw new Error(_t('apps.appmanager.errorNativeAccess'));
               raw = await require('fs').promises.readFile(file.path, 'utf8');
             } else if (typeof file.text === 'function') {

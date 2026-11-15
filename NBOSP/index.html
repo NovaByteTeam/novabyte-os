@@ -69,7 +69,7 @@
   </div>
   <!-- Lock Screen -->
   <div id="lock-screen" role="dialog" aria-modal="true" aria-label="Lock screen" data-i18n-aria="shell.lock.screenAria">
-    <div class="lock-avatar" aria-hidden="true">U</div>
+    <div class="lock-avatar" id="lock-avatar" aria-hidden="true">U</div>
     <div class="lock-username" id="lock-username">user</div>
     <div class="lock-pin-input" id="lock-pin-dots"></div>
     <div class="lock-status" id="lock-status" aria-live="assertive"></div>
@@ -305,6 +305,14 @@
   <script src="/js/platform/security/app-permissions-bootstrap.js" defer></script>
   <script src="/js/platform/security/app-scheduler.js" defer></script>
   <script src="js/core/core/boot.js" defer></script>
+  <!-- Shell popup coordinator: one-flyout-at-a-time registry shared by the
+       tray flyouts (volume/wifi/calendar/power), the notification panel and
+       the taskbar window preview. Deliberately NOT part of the
+       com.nbosp.shell-ui service package (which SystemServiceLoader injects
+       below): loading it as a plain tag guarantees
+       window.ShellPopupCoordinator exists before any service script that
+       registers with it is evaluated. -->
+  <script src="js/apps/shell-ui/popup-coordinator.js" defer></script>
   <script src="js/core/services/system-service-loader.js" defer></script>
 </body>
 </html>

@@ -240,6 +240,33 @@ router.get('/session', (req, res) => {
     });
 });
 
+// Self usage: the session's OWN storage footprint against its quota — the
+// Settings surface every account can see about itself (the admin variant is
+// /admin/usage). Same computation, scoped to this session's uid only; no
+// other account's usage ever rides along.
+router.get('/usage', requireActiveSession, (req, res) => {
+    const s = req.session || {};
+    const user = usersDb.getUser(s.uid);
+    if (!user) {
+        return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'No such account' });
+    }
+    const usedBytes = userStorageDirs(user)
+        .filter(dir => fs.existsSync(dir))
+        .reduce((total, dir) => total + dirSizeBytes(dir), 0);
+    res.json({
+        success: true,
+        data: {
+            usage: {
+                uid: user.uid,
+                username: user.username,
+                displayName: user.display_name,
+                quotaBytes: user.quota_bytes,
+                usedBytes,
+            },
+        },
+    });
+});
+
 // Login: pin or passphrase for a picked account. The host always calls this
 // with credentials:'omit' so the browser's single cookie slot keeps pointing
 // at the anonymous page session; the returned bearer token (sessionId) is

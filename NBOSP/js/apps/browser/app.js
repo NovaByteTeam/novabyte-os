@@ -87,6 +87,13 @@ registerApp({
     const ZOOM_STEP           = 0.1;
     const OMNI_DEBOUNCE_MS    = 120;
     const OMNI_BLUR_CLOSE_MS  = 150;
+    // Live web suggestions: their own debounce (on top of OMNI_DEBOUNCE_MS),
+    // a hard timeout, a minimum query length and a row cap. Fetched through
+    // the server-side /api/proxy relay — see the omnibox section below.
+    const OMNI_WEB_DEBOUNCE_MS = 250;
+    const OMNI_WEB_TIMEOUT_MS  = 4000;
+    const OMNI_WEB_MIN_QUERY   = 2;
+    const OMNI_WEB_MAX         = 5;
     const MAX_DL_NAME_LEN     = 128;
 
     const SEARCH_ENGINES = Object.freeze({
@@ -4805,7 +4812,10 @@ registerApp({
     const stripHttps = (url) => url ? url.replace(/^https:\/\//, '') : '';
 
     // Omnibox dropdown — appears below the URL bar with bookmark/history
-    // matches as the user types.
+    // matches as the user types, plus live DuckDuckGo completions relayed
+    // through the server-side /api/proxy (direct egress to ac.duckduckgo.com
+    // is blocked at this deployment's network layer) and a trailing
+    // search-engine action row.
     const omniDrop = createEl('div', { className: 'omnibox-dropdown' });
     omniDrop.setAttribute('role', 'listbox');
     container.appendChild(omniDrop);
@@ -4814,6 +4824,8 @@ registerApp({
     let omniIdx = -1;
     let omniTimer = null;
     let omniGen = 0; // bumped per query + on close → stale renders bail out
+    let omniWebTimer = null; // debounce timer for the relayed autocomplete
+    let omniWebAbort = null; // AbortController for the in-flight relayed call
 
     function omniReposition() {
       const r = urlBar.getBoundingClientRect();
@@ -4824,9 +4836,12 @@ registerApp({
     }
     function omniClose() {
       // Invalidate any in-flight/queued work so a late async render can't
-      // reopen the dropdown after Enter / blur / Esc.
+      // reopen the dropdown after Enter / blur / Esc. This covers the local
+      // debounce timer AND the relayed web-suggestion request.
       omniGen++;
       clearTimeout(omniTimer);
+      clearTimeout(omniWebTimer);
+      omniWebAbort?.abort();
       omniDrop.style.display = 'none';
       omniDrop.replaceChildren();
       omniItems = [];
@@ -4892,9 +4907,144 @@ registerApp({
         .filter(h => h.url.toLowerCase().includes(lq) || (h.title || '').toLowerCase().includes(lq))
         .slice(0, 4)
         .map(h => ({ type: 'history', label: h.title || h.url, sub: h.url, url: h.url }));
+      const localItems = [...bkItems, ...hxItems];
 
       if (gen !== omniGen) return; // a newer query / close superseded us
-      omniRender([...bkItems, ...hxItems]);
+      // Local rows first, the search-engine action row last. Web completion
+      // rows merge in between once the relayed autocomplete responds (or
+      // never, on failure — local suggestions must survive that).
+      omniRender([...localItems, ...omniSearchRow(q)]);
+      omniScheduleWeb(q, localItems, gen);
+    }
+
+    // ── Live web suggestions (DuckDuckGo autocomplete via /api/proxy) ──────
+    // Same relay the Search app and sandboxed net:external fetches use
+    // (server/proxies.js setupAppNetworkProxy): POST /api/proxy with JSON
+    // { url, method, headers, body, bodyEncoding } → envelope
+    // { status, statusText, headers, body, bodyEncoding }. The route is
+    // session + CSRF protected; the host page's system-fetch.js HMAC
+    // signature exempts us from its rate limiter.
+
+    function omniCsrfToken() {
+      try {
+        // Multi-user: the CSRF token belongs to the active session (the one
+        // X-Nova-Session below authenticates as); the boot-injected meta tag
+        // belongs to the anonymous page session.
+        if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.() &&
+            window.SessionManager?.csrf) {
+          const active = window.SessionManager.csrf();
+          if (active) return active;
+        }
+        return document.querySelector('meta[name="csrf-token"]')?.content || '';
+      } catch { return ''; }
+    }
+
+    async function omniProxyFetchJson(url, signal) {
+      const headers = { 'Content-Type': 'application/json' };
+      const csrf = omniCsrfToken();
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+      try {
+        if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.() &&
+            window.SessionManager?.token) {
+          const token = window.SessionManager.token();
+          if (token) headers['X-Nova-Session'] = token;
+        }
+      } catch { /* bearer is best-effort */ }
+      const res = await fetch('/api/proxy', {
+        method: 'POST',
+        credentials: 'same-origin',
+        signal,
+        headers,
+        body: JSON.stringify({
+          url,
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          body: null,
+          bodyEncoding: 'utf8',
+        }),
+      });
+      if (!res.ok) throw new Error(`proxy ${res.status}`);
+      return res.json();
+    }
+
+    async function omniFetchCompletions(q, signal) {
+      const acUrl = 'https://ac.duckduckgo.com/ac/?' +
+        new URLSearchParams({ q, type: 'list' });
+      const envelope = await omniProxyFetchJson(acUrl, signal);
+      if (!envelope || typeof envelope.status !== 'number' ||
+          envelope.status < 200 || envelope.status >= 300) {
+        throw new Error(`ac ${envelope?.status ?? 'malformed envelope'}`);
+      }
+      let text = envelope.body;
+      if (envelope.bodyEncoding === 'base64' && typeof text === 'string') {
+        try {
+          text = new TextDecoder().decode(Uint8Array.from(atob(text), ch => ch.charCodeAt(0)));
+        } catch { throw new Error('ac body undecodable'); }
+      }
+      if (typeof text !== 'string') throw new Error('ac body missing');
+      const data = JSON.parse(text);
+      // type=list → [query, [completion, …]]; default shape → [{phrase}, …].
+      const raw = Array.isArray(data)
+        ? (Array.isArray(data[1]) ? data[1] : data)
+        : [];
+      return raw
+        .map(c => (c && typeof c === 'object') ? c.phrase : c)
+        .filter(c => typeof c === 'string' && c.trim())
+        .map(c => c.trim());
+    }
+
+    /** The trailing "Search <engine> for '<q>'" action row. */
+    function omniSearchRow(q) {
+      const engine = SEARCH_ENGINES[getSetting('searchEngine', 'brave')];
+      return [{
+        type: 'search',
+        label: _t('apps.browser.omnibox.searchWith', {
+          engine: engine?.label || 'Brave',
+          query: q,
+        }),
+        url: getSearchUrl(q),
+        barText: q,
+      }];
+    }
+
+    function omniScheduleWeb(q, localItems, gen) {
+      clearTimeout(omniWebTimer);
+      omniWebAbort?.abort();
+      if (q.length < OMNI_WEB_MIN_QUERY) return;
+      omniWebTimer = setTimeout(async () => {
+        omniWebAbort = new AbortController();
+        const timer = setTimeout(() => omniWebAbort.abort(), OMNI_WEB_TIMEOUT_MS);
+        let completions;
+        try {
+          completions = await omniFetchCompletions(q, omniWebAbort.signal);
+        } catch {
+          // Suggestions are strictly additive — a failed or superseded relay
+          // call must never disturb the local rows already on screen.
+          clearTimeout(timer);
+          return;
+        }
+        clearTimeout(timer);
+        if (gen !== omniGen) return; // newer query / close superseded us
+        // Keep web rows distinct from local rows, from the typed query and
+        // from each other (case-insensitive label comparison).
+        const seen = new Set([q.toLowerCase()]);
+        for (const item of localItems) seen.add(String(item.label || '').toLowerCase());
+        const webItems = [];
+        for (const completion of completions) {
+          const lc = completion.toLowerCase();
+          if (seen.has(lc)) continue;
+          seen.add(lc);
+          webItems.push({
+            type: 'web',
+            label: completion,
+            url: getSearchUrl(completion),
+            barText: completion,
+          });
+          if (webItems.length >= OMNI_WEB_MAX) break;
+        }
+        if (!webItems.length) return;
+        omniRender([...localItems, ...webItems, ...omniSearchRow(q)]);
+      }, OMNI_WEB_DEBOUNCE_MS);
     }
 
     // URL bar events
@@ -4903,13 +5053,15 @@ registerApp({
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           omniHighlight(Math.min(omniIdx + 1, omniItems.length - 1));
-          if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].url || omniItems[omniIdx].label;
+          // barText (web completions, search action) keeps the human-readable
+          // query in the bar; bookmarks/history fall back to their URL.
+          if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].barText ?? (omniItems[omniIdx].url || omniItems[omniIdx].label);
           return;
         }
         if (e.key === 'ArrowUp') {
           e.preventDefault();
           omniHighlight(Math.max(omniIdx - 1, 0));
-          if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].url || omniItems[omniIdx].label;
+          if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].barText ?? (omniItems[omniIdx].url || omniItems[omniIdx].label);
           return;
         }
         if (e.key === 'Escape') { omniClose(); return; }
@@ -4923,6 +5075,10 @@ registerApp({
 
     urlBar.addEventListener('input', () => {
       clearTimeout(omniTimer);
+      // A new keystroke supersedes any queued/in-flight web suggestion
+      // request — cancel it so stale completions can never render.
+      clearTimeout(omniWebTimer);
+      omniWebAbort?.abort();
       omniTimer = setTimeout(() => omniQuery(urlBar.value), OMNI_DEBOUNCE_MS);
     });
 
@@ -4932,8 +5088,12 @@ registerApp({
       urlBar.value = stripHttps(currentUrl || urlBar.value);
     });
 
-    // Clean up omnibox timer on app teardown.
-    state.cleanups.push(() => clearTimeout(omniTimer));
+    // Clean up omnibox timers and in-flight suggestion requests on teardown.
+    state.cleanups.push(() => {
+      clearTimeout(omniTimer);
+      clearTimeout(omniWebTimer);
+      omniWebAbort?.abort();
+    });
 
     // Global keyboard shortcuts
     const _onBrowserKeydown = e => {

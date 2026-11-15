@@ -458,6 +458,133 @@ describe('Browser app (js/apps/browser)', () => {
     expect(omniDrop.children).toHaveLength(0);
   });
 
+  // The omnibox relays DuckDuckGo autocomplete through POST /api/proxy (the
+  // server-side CORS relay — direct egress to ac.duckduckgo.com is blocked in
+  // this deployment). Mirrors the REAL envelope contract from
+  // server/proxies.js: { status, statusText, headers, body, bodyEncoding }.
+  const acEnvelope = (completions) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(['kitten', completions]),
+      bodyEncoding: 'utf8',
+    }),
+  });
+
+  it('merges relayed DuckDuckGo web suggestions between local rows and the search action row', async () => {
+    const proxyCalls = [];
+    const { app, window } = await loadWindowApp('browser', {
+      stubs: browserStubs({
+        fetch: async (url, init) => {
+          const u = String(url);
+          if (u === '/api/proxy' && init?.method === 'POST') {
+            const req = JSON.parse(init.body || '{}');
+            proxyCalls.push(req);
+            if (req.url?.startsWith('https://ac.duckduckgo.com/ac/') && req.url.includes('q=kitten')) {
+              // One completion duplicates the local bookmark title and one
+              // duplicates the typed query — both must be filtered out.
+              return acEnvelope(['kitten videos', 'Kitten Pics', 'kitten', 'kitten care']);
+            }
+            return { ok: false, status: 502, json: async () => ({ error: 'Network error' }) };
+          }
+          return { ok: false, status: 404, json: async () => ({}) };
+        },
+      }),
+    });
+    window.localStorage.setItem('nbosp_browser_bookmarks', JSON.stringify([
+      { url: 'https://cats.example.com/kittens', title: 'Kitten Pics', favicon: '', ts: 1 },
+    ]));
+    const content = initApp(app, { window });
+    const urlBar = content.querySelector('#browser-url-bar');
+    const omniDrop = content.querySelector('.omnibox-dropdown');
+
+    urlBar.value = 'kitten';
+    urlBar.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await settle(600); // 120ms local debounce + 250ms web debounce + relay
+
+    // Exactly one relayed autocomplete call, GET-shaped, query-encoded.
+    expect(proxyCalls).toHaveLength(1);
+    expect(proxyCalls[0].method).toBe('GET');
+    expect(proxyCalls[0].url).toBe('https://ac.duckduckgo.com/ac/?q=kitten&type=list');
+
+    // Merge order: local bookmark first, deduped web completions, search
+    // action row last.
+    const rows = [...omniDrop.querySelectorAll('.omni-row')];
+    expect(rows.length).toBe(4); // 1 bookmark + 2 deduped completions + 1 action row
+    expect(rows[0].textContent).toContain('Kitten Pics');
+    expect(rows[0].textContent).toContain('https://cats.example.com/kittens');
+    expect(rows[1].textContent).toContain('kitten videos');
+    expect(rows[2].textContent).toContain('kitten care');
+    expect(rows[3].textContent).not.toContain('https://cats.example.com'); // action row, not a local row
+    // Web rows carry the search icon (omniRender's non-bookmark/history icon).
+    expect(rows[1].querySelector('.omni-icon')).toBeTruthy();
+
+    // Selecting a web completion navigates through the app's search-engine
+    // path with the completion as the query (default engine: brave).
+    rows[1].dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    const wv = content.querySelector('webview');
+    expect(wv.src).toBe('https://search.brave.com/search?q=kitten%20videos');
+    // The dropdown closed on selection.
+    expect(omniDrop.style.display).toBe('none');
+  });
+
+  it('previews web completions in the URL bar and Enter navigates the highlighted suggestion', async () => {
+    const { app, window } = await loadWindowApp('browser', {
+      stubs: browserStubs({
+        fetch: async (url, init) => {
+          const u = String(url);
+          if (u === '/api/proxy' && init?.method === 'POST') {
+            const req = JSON.parse(init.body || '{}');
+            if (req.url?.startsWith('https://ac.duckduckgo.com/ac/')) return acEnvelope(['kitten videos', 'kitten care']);
+            return { ok: false, status: 502, json: async () => ({ error: 'Network error' }) };
+          }
+          return { ok: false, status: 404, json: async () => ({}) };
+        },
+      }),
+    });
+    const content = initApp(app, { window });
+    const urlBar = content.querySelector('#browser-url-bar');
+
+    urlBar.value = 'kitten';
+    urlBar.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await settle(600);
+
+    // No local rows: web completions first, search action row last.
+    urlBar.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    expect(urlBar.value).toBe('kitten videos'); // barText preview, not the raw search URL
+    urlBar.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    const wv = content.querySelector('webview');
+    expect(wv.src).toBe('https://search.brave.com/search?q=kitten%20videos');
+  });
+
+  it('keeps local-only omnibox suggestions working when the suggestion relay fails', async () => {
+    const { app, window } = await loadWindowApp('browser', {
+      stubs: browserStubs({
+        fetch: async () => ({ ok: false, status: 502, json: async () => ({ error: 'Network error' }) }),
+      }),
+    });
+    window.localStorage.setItem('nbosp_browser_bookmarks', JSON.stringify([
+      { url: 'https://docs.example.com/guide', title: 'Guide', favicon: '', ts: 1 },
+    ]));
+    const content = initApp(app, { window });
+    const urlBar = content.querySelector('#browser-url-bar');
+    const omniDrop = content.querySelector('.omnibox-dropdown');
+
+    urlBar.value = 'guide';
+    urlBar.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await settle(600); // debounce + the failed relay attempt
+    expect(omniDrop.style.display).toBe('block');
+    const rows = [...omniDrop.querySelectorAll('.omni-row')];
+    expect(rows.length).toBe(2); // bookmark + search action row — no web rows
+    expect(rows[0].textContent).toContain('Guide');
+    // Enter with no highlight still searches the typed query via the engine.
+    urlBar.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(content.querySelector('webview').src).toBe('https://search.brave.com/search?q=guide');
+  });
+
   it('strips chrome down to a read-only URL bar in popup mode', async () => {
     const { app, window } = await loadWindowApp('browser', { stubs: browserStubs() });
     const content = window.document.createElement('div');

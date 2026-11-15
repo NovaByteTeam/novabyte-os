@@ -26,7 +26,7 @@
     'highContrast', 'keyboardLayout', 'language', 'osVersion', 'prohibitWallpaperChange',
     'reduceMotion', 'region', 'removeTransparency', 'rootAccessEnabled',
     'showTaskbarClock', 'taskbarSize', 'theme', 'timezone', 'username',
-    'wallpaperId', 'customWallpaper', 'customWallpaperName', 'doNotDisturb',
+    'wallpaperId', 'customWallpaper', 'customWallpaperName', 'doNotDisturb', 'volume',
   ]);
   const protectedImportKeys = new Set([
     'devMode', 'rootAccessEnabled', 'lockPin', 'pinSalt',
@@ -81,6 +81,7 @@
     ['removeTransparency', value => typeof value === 'boolean'],
     ['highContrast', value => typeof value === 'boolean'],
     ['cursorSize', value => value === 'normal' || value === 'large' || value === 'xlarge'],
+    ['volume', value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100],
   ]);
 
   function get(key) {

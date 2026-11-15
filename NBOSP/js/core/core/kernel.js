@@ -209,6 +209,9 @@ const OS = {
       region: 'en-US',
       language: 'en',
       keyboardLayout: 'us',
+      // 2026-11-15: system audio volume — per-user preference (HKNU hive),
+      // applied by the tray on session mount and after each change.
+      volume: 80,
       timezone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
         ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
         : 'UTC',

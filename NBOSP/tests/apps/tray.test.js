@@ -61,9 +61,11 @@ describe('TrayService service (js/apps/tray)', () => {
     const svc = window.TrayService;
     expect(svc).toBeTruthy();
     expect(Object.isFrozen(svc)).toBe(true);
-    expect(Object.keys(svc)).toEqual(['applyVolumeToWebviews']);
+    expect(Object.keys(svc)).toEqual(['applyVolumeToWebviews', 'applySavedVolume']);
     expect(svc.applyVolumeToWebviews).toBe(os.applyVolumeToWebviews); // same function, defined by the volume section
     expect(typeof svc.applyVolumeToWebviews).toBe('function');
+    // Session-manager hook: per-user volume restore on user switch.
+    expect(typeof svc.applySavedVolume).toBe('function');
   });
 
   it('volume slider: updates OS volume, label, emits os:volumeChanged and pushes to webviews', async () => {
@@ -113,6 +115,85 @@ describe('TrayService service (js/apps/tray)', () => {
     apply(55, target);
     expect(target.calls).toEqual([expect.stringContaining('var v=0.55;')]);
     expect(webview.calls).toHaveLength(2); // broadcast not re-sent
+  });
+
+  it('init: restores the persisted volume onto OS.volume and the slider', async () => {
+    const { document, os } = await loadTray({
+      osOverrides: { settings: { get: (key) => (key === 'volume' ? 42 : undefined), set: vi.fn() } },
+    });
+    expect(os.volume).toBe(42);
+    expect(document.getElementById('volume-slider').value).toBe('42');
+    expect(document.getElementById('volume-value').textContent).toBe('42%');
+  });
+
+  it('slider input: persists the final volume through OS.settings.set after the debounce', async () => {
+    const set = vi.fn();
+    const { window, document } = await loadTray({
+      osOverrides: { settings: { get: () => 80, set } },
+    });
+    const slider = document.getElementById('volume-slider');
+    slider.value = '37';
+    slider.dispatchEvent(new window.Event('input', { bubbles: true }));
+    slider.value = '64';
+    slider.dispatchEvent(new window.Event('input', { bubbles: true }));
+    expect(set).not.toHaveBeenCalled(); // still inside the 500ms debounce window
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(set).toHaveBeenCalledTimes(1); // one trailing-edge commit of the final value
+    expect(set).toHaveBeenCalledWith('volume', 64);
+  });
+
+  it('applySavedVolume: clamps the persisted volume, updates OS.volume/slider/webviews and emits os:volumeChanged', async () => {
+    const webview = { executeScript: (args) => webview.calls.push(args.code) };
+    webview.calls = [];
+    const { window, document, os, emitted } = await loadTray({
+      osOverrides: {
+        settings: { get: (key) => (key === 'volume' ? 137 : undefined), set: vi.fn() },
+        windows: new Map([
+          ['w1', { appId: 'com.nbosp.browser', element: { querySelectorAll: (sel) => (sel === 'webview' ? [webview] : []) } }],
+        ]),
+      },
+    });
+
+    const applied = window.TrayService.applySavedVolume();
+    expect(applied).toBe(100); // clamped to 0-100
+    expect(os.volume).toBe(100);
+    expect(document.getElementById('volume-slider').value).toBe('100');
+    expect(document.getElementById('volume-value').textContent).toBe('100%');
+    expect(webview.calls.at(-1)).toContain('var v=1;');
+    expect(emitted.at(-1)).toEqual(['os:volumeChanged', { volume: 100 }]);
+  });
+
+  it('mirrors external settings:changed volume writes and ignores its own echo', async () => {
+    const emitted = [];
+    const listeners = [];
+    const { window, document, os } = await loadTray({
+      osOverrides: {
+        settings: { get: () => 80, set: vi.fn() },
+        events: {
+          emit: (...a) => emitted.push(a),
+          on: (name, fn) => { if (name === 'settings:changed') listeners.push(fn); },
+        },
+      },
+    });
+    const slider = document.getElementById('volume-slider');
+    expect(listeners).toHaveLength(1); // exactly one settings:changed subscription
+
+    // External write (e.g. the Music app): volume mirrored everywhere.
+    listeners[0]({ key: 'volume', value: 25 });
+    expect(os.volume).toBe(25);
+    expect(slider.value).toBe('25');
+    expect(document.getElementById('volume-value').textContent).toBe('25%');
+    expect(emitted.at(-1)).toEqual(['os:volumeChanged', { volume: 25 }]);
+
+    // Unrelated keys are ignored.
+    const count = emitted.length;
+    listeners[0]({ key: 'theme', value: 'nova-dark' });
+    expect(emitted.length).toBe(count);
+
+    // An echo of our own write (value equal to OS.volume) is skipped — no loop.
+    listeners[0]({ key: 'volume', value: 25 });
+    expect(emitted.length).toBe(count);
+    expect(os.volume).toBe(25);
   });
 
   it('volume popup: button toggles it, outside click closes it, right-click pins it', async () => {

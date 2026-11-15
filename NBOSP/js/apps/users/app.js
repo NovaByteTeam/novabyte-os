@@ -76,6 +76,7 @@ registerApp({
       .nbusers-event.error { border-left-color:var(--text-danger); }
       .nbusers-status { min-height:18px;font-size:12px;color:var(--text-danger);margin-top:10px; }
       .nbusers-ok { color:var(--text-muted); }
+      .nbusers-banner { display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 14px;margin-bottom:14px;border:1px solid var(--text-warning);border-radius:9px;background:var(--bg-elevated);color:var(--text-warning);font-size:12px; }
     `;
     content.appendChild(css);
 
@@ -130,7 +131,10 @@ registerApp({
       });
       if (!json || json.success !== true) {
         const code = status === 403 ? 'PERMISSION_DENIED' : (status === 404 ? 'NOT_FOUND' : 'UNAVAILABLE');
-        return { success: false, code, message: json?.message || error || `Account management request failed (${status})` };
+        // serverCode/status ride along so callers can tell an expired session
+        // (401 AUTH_REQUIRED) from a transport failure (status 0) from a role
+        // denial (403 ADMIN_REQUIRED) — the list renderer degrades each way.
+        return { success: false, code, serverCode: json?.code || null, status, message: json?.message || error || `Account management request failed (${status})` };
       }
       return { success: true, data: json.data };
     }
@@ -191,7 +195,7 @@ registerApp({
       for (const [tid, btn] of Object.entries(tabButtons)) {
         btn.classList.toggle('active', tid === id);
       }
-      renderTab();
+      return renderTab();
     }
 
     for (const tab of TABS) {
@@ -204,14 +208,71 @@ registerApp({
     // ── Users tab ─────────────────────────────────────────────────────────
     let usersCache = [];
     let usageCache = [];
+    // Outcome of the LAST accounts.list fetch for the renderer: null = clean;
+    // { kind: 'session' } = the admin session is gone (401 AUTH_REQUIRED);
+    // { kind: 'degraded', message } = any other fetch failure — the last
+    // known list stays on screen instead of silently collapsing to empty.
+    let listProblem = null;
+
+    function isAdminRoleDenied(result) {
+      // Only a genuine admin-role refusal replaces the console with the
+      // role-denied splash: the local gates (multi-user off / non-admin
+      // session) and the server's 403 ADMIN_REQUIRED. Session-state 403s
+      // (SUSPENDED/LOCKED) degrade with the last known list instead.
+      if (result?.code === 'MULTI_USER_DISABLED') return true;
+      if (/administrator account is required/i.test(String(result?.message || ''))) return true;
+      return result?.serverCode === 'ADMIN_REQUIRED';
+    }
 
     async function loadUsers() {
       const result = await adminUsers('accounts.list');
-      if (isPermissionDenied(result)) return { denied: true, message: result.message };
+      if (isPermissionDenied(result)) {
+        if (isAdminRoleDenied(result)) return { denied: true, message: result.message };
+        listProblem = { kind: 'degraded', message: result.message || _t('apps.users.degradedRefresh') };
+        return { denied: false, degraded: listProblem.message };
+      }
+      if (result?.success !== true) {
+        // A failed refresh (401 / network / UNAVAILABLE) must NEVER collapse
+        // the list to empty: keep the previous usersCache and surface the
+        // failure as a banner so the admin keeps working from the last
+        // known state.
+        if (result?.status === 401 || result?.serverCode === 'AUTH_REQUIRED') {
+          listProblem = { kind: 'session' };
+          return { denied: false, degraded: _t('apps.users.sessionExpired') };
+        }
+        listProblem = { kind: 'degraded', message: result?.message || _t('apps.users.degradedRefresh') };
+        return { denied: false, degraded: listProblem.message };
+      }
       usersCache = result.data?.users || result.users || [];
+      listProblem = null;
       const usageResult = await adminUsers('usage.get');
-      usageCache = usageResult.data?.usage || usageResult.usage || [];
+      if (usageResult?.success) {
+        usageCache = usageResult.data?.usage || usageResult.usage || [];
+      }
       return { denied: false };
+    }
+
+    /** Inline banner above the list when the last refresh failed. */
+    function buildListProblemBanner() {
+      const banner = createEl('div', { className: 'nbusers-banner', role: 'alert' });
+      const text = listProblem.kind === 'session'
+        ? _t('apps.users.sessionExpired')
+        : (listProblem.message && listProblem.message !== _t('apps.users.degradedRefresh')
+          ? `${_t('apps.users.degradedRefresh')} (${listProblem.message})`
+          : _t('apps.users.degradedRefresh'));
+      banner.appendChild(createEl('span', { style: 'flex:1;min-width:220px;', textContent: text }));
+      const action = createEl('button', { className: 'nbusers-btn' });
+      if (listProblem.kind === 'session') {
+        action.textContent = _t('shell.lock.signIn');
+        action.setAttribute('aria-label', _t('shell.lock.signIn'));
+        action.addEventListener('click', () => { window.LockScreenService?.showLoginPicker?.(); }, { signal });
+      } else {
+        action.textContent = _t('apps.users.retry');
+        action.setAttribute('aria-label', _t('apps.users.retry'));
+        action.addEventListener('click', () => { refresh(); }, { signal });
+      }
+      banner.appendChild(action);
+      return banner;
     }
 
     function usageFor(uid) {
@@ -220,6 +281,7 @@ registerApp({
 
     function renderUsers() {
       body.innerHTML = '';
+      if (listProblem) body.appendChild(buildListProblemBanner());
       const toolbar = createEl('div', { className: 'nbusers-toolbar' });
       toolbar.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600', textContent: _t('apps.users.accountsCount', { count: usersCache.length }) }));
       const addBtn = createEl('button', { className: 'nbusers-btn primary nbusers-add-btn' });
@@ -368,6 +430,7 @@ registerApp({
         { id: 'nu-username', label: _t('apps.users.fields.usernameLabel'), type: 'text', placeholder: _t('apps.users.fields.usernamePlaceholder') },
         { id: 'nu-role', label: _t('apps.users.fields.role'), type: 'select', options: [['standard', _t('apps.users.roles.standard')], ['admin', _t('apps.users.roles.admin')]] },
         { id: 'nu-pin', label: _t('apps.users.fields.pinLabel'), type: 'password', placeholder: '••••', maxlength: '6' },
+        { id: 'nu-pin2', label: _t('apps.users.confirmPin'), type: 'password', placeholder: '••••', maxlength: '6' },
         { id: 'nu-pass', label: _t('apps.users.fields.passphraseLabel'), type: 'password', placeholder: _t('apps.users.fields.passphrasePlaceholder') },
         { id: 'nu-quota', label: _t('apps.users.fields.quotaDefault'), type: 'number', placeholder: '2', min: '1', max: '32', step: '0.5' },
       ];
@@ -405,11 +468,13 @@ registerApp({
         const username = inputs['nu-username'].value.trim().toLowerCase();
         const role = inputs['nu-role'].value;
         const pin = inputs['nu-pin'].value;
+        const pinConfirm = inputs['nu-pin2'].value;
         const passphrase = inputs['nu-pass'].value;
         const quotaGB = parseFloat(inputs['nu-quota'].value);
         if (!displayName) { status.textContent = _t('apps.users.validation.displayNameRequired'); return; }
         if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)) { status.textContent = _t('apps.users.validation.usernameInvalid'); return; }
         if (!/^\d{4,6}$/.test(pin)) { status.textContent = _t('apps.users.validation.pinDigits'); return; }
+        if (pin !== pinConfirm) { status.textContent = _t('apps.users.pinMismatch'); return; }
         if (passphrase && passphrase.length < 8) { status.textContent = _t('apps.users.validation.passphraseTooShort'); return; }
         status.textContent = _t('apps.users.creating');
         const account = { displayName, username, role, pin };
@@ -484,7 +549,39 @@ registerApp({
       body.appendChild(row);
     }
 
+    /** Confirmation view for resetting the CURRENT account's PIN. */
+    function confirmResetPinSelf(user) {
+      return new Promise((resolve) => {
+        body.innerHTML = '';
+        body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: _t('apps.users.resetPinSelfWarning', { name: user.displayName || user.username }) }));
+        body.appendChild(createEl('div', {
+          style: 'font-size:12px;color:var(--text-warning);margin-bottom:16px;max-width:460px',
+          textContent: _t('apps.users.resetPinSelfWarningBody'),
+        }));
+        const row = createEl('div', { style: 'display:flex;gap:10px;margin-top:6px' });
+        const cancel = createEl('button', { className: 'nbusers-btn ghost', textContent: _t('common.cancel') });
+        cancel.addEventListener('click', () => { resolve(false); }, { signal });
+        const confirm = createEl('button', { className: 'nbusers-btn danger', textContent: _t('apps.users.resetPinSelfWarningConfirm') });
+        confirm.addEventListener('click', () => { resolve(true); }, { signal });
+        row.appendChild(cancel);
+        row.appendChild(confirm);
+        body.appendChild(row);
+      });
+    }
+
     async function resetCredential(user) {
+      // Resetting your OWN PIN revokes every session of the account
+      // server-side — including the admin session this console is riding,
+      // which used to make the whole account list "disappear" on the next
+      // fetch. Confirm the sign-out-everywhere consequence first.
+      const currentUid = window.SessionManager?.state?.()?.uid ?? null;
+      if (currentUid && currentUid === user.uid) {
+        const confirmed = await confirmResetPinSelf(user);
+        if (!confirmed) {
+          await refresh();
+          return;
+        }
+      }
       const result = await adminUsers('accounts.resetCredential', { uid: user.uid });
       if (!result?.success) {
         toast(result?.message || result?.error || _t('apps.users.resetFailed'), true);
@@ -494,7 +591,7 @@ registerApp({
       // The temporary PIN is shown exactly once.
       body.innerHTML = '';
       body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: _t('apps.users.temporaryPinTitle', { name: user.displayName || user.username }) }));
-      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px', textContent: _t('apps.users.temporaryPinBody') }));
+      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px;max-width:460px', textContent: currentUid === user.uid ? _t('apps.users.resetPinSelfWarningDone') : _t('apps.users.temporaryPinBody') }));
       const pinCard = createEl('div', {
         style: 'display:inline-block;padding:18px 26px;border-radius:12px;border:1px dashed var(--accent);font-size:26px;letter-spacing:6px;font-weight:700;color:var(--accent);background:var(--bg-overlay);',
         textContent: String(data.temporaryPin || ''),
@@ -502,9 +599,12 @@ registerApp({
       body.appendChild(pinCard);
       const back = createEl('button', { className: 'nbusers-btn', textContent: _t('apps.users.done') });
       back.style.marginTop = '16px';
-      back.addEventListener('click', () => selectTab('users'), { signal });
+      // Refresh is deferred to THIS click: awaiting refresh() straight after
+      // the reset wiped the temporary-PIN card before it was ever seen (and
+      // a self-reset just killed this session — the deferred refresh then
+      // lands on the session-expired banner instead of erasing the card).
+      back.addEventListener('click', () => { refresh(); }, { signal });
       body.appendChild(back);
-      await refresh();
     }
 
     function renderDeleteUser(user) {
@@ -720,17 +820,15 @@ registerApp({
       }
     }
 
-    // First paint: verify admin role + grant before any chrome renders.
+    // First paint: verify admin role + grant before any chrome renders, and
+    // light the Users tab by routing through selectTab — the same path every
+    // other tab takes — so the section is highlighted on launch (selectTab is
+    // the only code that owns the .active class; renderUsers stays the body
+    // builder renderTab calls for the 'users' tab).
     try {
-      const users = await loadUsers();
-      if (users.denied) {
-        roleDeniedSplash(users.message);
-        return;
-      }
+      await selectTab('users');
     } catch (err) {
       roleDeniedSplash(_t('apps.users.splash.unreachable', { message: err?.message || err }));
-      return;
     }
-    renderUsers();
   },
 });

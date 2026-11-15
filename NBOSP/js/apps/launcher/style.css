@@ -326,12 +326,16 @@
   }
 
   /* Window preview popup — shown when hovering an active taskbar button. */
+  /* Same glass treatment as the tray popups (backdrop blur + translucent */
+  /* background) instead of an opaque panel. */
   .taskbar-window-preview {
     position: fixed;
-    background: var(--bg-elevated);
+    background: var(--bg-overlay);
     border: 1px solid var(--border-default);
     border-radius: var(--r-md);
     box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     padding: 8px;
     min-width: 200px;
     max-width: 300px;
@@ -518,7 +522,12 @@
   .tray-menu-item:hover {
     background: var(--accent-muted);
   }
-  .tray-menu-item:focus {
+  /* :focus-visible (not plain :focus) — the power menu script-focuses the */
+  /* first item the moment it opens (tray/service.js toggle handler), and a */
+  /* plain :focus rule would highlight item 1 with zero user interaction. */
+  /* Arrow-key navigation still shows the ring: those .focus() calls follow */
+  /* a real keydown, which Chromium matches as :focus-visible. */
+  .tray-menu-item:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
   }

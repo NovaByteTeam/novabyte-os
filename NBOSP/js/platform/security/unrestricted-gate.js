@@ -75,32 +75,92 @@ const UnrestrictedGate = (() => {
    *     is pre-warmed at module load; the membership leg is not enforced
    *     during the pre-load window so boot-order stays stable — every
    *     other condition must still hold).
-   * And asynchronously, throttled: the integrity hash is re-verified in
-   * the background; a failure flips a sticky kill-switch that fails every
-   * subsequent check until reload — the same "tampered-since-install loses
-   * access immediately" posture the gate's own header promises.
+   * And asynchronously, throttled: the persisted store record's integrity
+   * is re-verified in the background; a CONCLUSIVE mismatch flips a
+   * kill-switch that fails every subsequent check until a later probe
+   * passes again (or reload) — the same "tampered-since-install loses
+   * access immediately" posture the gate's own header promises, without
+   * treating an unreadable store or a drifted in-memory entry as tamper.
    */
   let _settingsTamperFlag = false;
   let _settingsIntegrityProbeAt = 0;
 
-  function _probeSettingsIntegrityThrottled(entry) {
+  function _probeSettingsIntegrityThrottled() {
     const now = Date.now();
     if (now - _settingsIntegrityProbeAt < 30_000) return;
     _settingsIntegrityProbeAt = now;
-    // Only probe when verification is actually possible; an absent
-    // AppPackage yields no new signal, so the identity fields above remain
-    // the guard rather than manufacturing a false tamper flag.
-    if (typeof AppPackage === 'undefined' || typeof AppPackage.verifyIntegrity !== 'function') return;
-    _integrityStillHolds(entry).then(ok => {
-      if (!ok && !_settingsTamperFlag) {
+    _probeSettingsIntegrityFromStore().then(verdict => {
+      // null = inconclusive this round (no stored record / unreadable
+      // store) — leave the current state untouched; the synchronous
+      // identity checks above remain the gate either way.
+      if (verdict === null) return;
+      if (verdict === true && !_settingsTamperFlag) {
         console.error('[UnrestrictedGate] Settings package failed its call-time integrity re-check — unrestricted access revoked for this session.');
+      } else if (verdict === false && _settingsTamperFlag) {
+        console.warn('[UnrestrictedGate] Settings package integrity re-check now passes — unrestricted access restored.');
       }
-      _settingsTamperFlag = _settingsTamperFlag || !ok;
-    }).catch(() => { /* _integrityStillHolds already fails closed on throw */ });
+      _settingsTamperFlag = verdict === true;
+    }).catch(() => { /* inconclusive probes leave the current state untouched */ });
+  }
+
+  /**
+   * Verify the Settings package against its own PERSISTED store record.
+   * Resolves to true (tampered), false (clean) or null (inconclusive).
+   *
+   * The 2026-11-15 audit's first cut of this probe passed the live
+   * OS.apps entry straight to AppPackage.verifyIntegrity(). That entry is
+   * the launch config built at boot — a runtime artifact whose
+   * manifest/payload fields nothing guarantees stay byte-identical to the
+   * install-time signed payload, so a perfectly clean install could fail
+   * the probe and revoke Settings for the whole session (false positive
+   * seen in the field). The probe now loads the package store's own
+   * record + files and verifies that self-consistent pair — the same
+   * synthesized-payload shape boot.js's trust refresh uses — so a verdict
+   * of "tampered" means the stored files really do not match the stored
+   * install-time hashes. States where the package cannot be loaded
+   * conclusively (no record, unreadable store, missing files) yield null:
+   * missing data is not evidence of tampering, and the identity /
+   * provenance / revocation legs of isTrustedSettingsAppById still gate
+   * every single call synchronously.
+   */
+  async function _probeSettingsIntegrityFromStore() {
+    const store = typeof window !== 'undefined' ? window.NovaAppPackageStore : null;
+    if (!store || typeof store.hydrateApp !== 'function' ||
+        typeof AppPackage === 'undefined' || typeof AppPackage.verifyIntegrity !== 'function') {
+      return null;
+    }
+    let record = null;
+    try {
+      const registry = typeof store.loadRegistry === 'function' ? store.loadRegistry() : null;
+      record = Array.isArray(registry) ? registry.find(a => a && a.id === SETTINGS_APP_ID) : null;
+    } catch (_) { return null; }
+    if (!record || !record.integrity) return null;
+    let pkg = null;
+    try { pkg = await store.hydrateApp(record); } catch (_) { return null; }
+    if (!pkg || pkg._loadError || !pkg.files) return null;
+    try {
+      const ok = await AppPackage.verifyIntegrity({
+        novabyte_app: pkg.novabyte_app,
+        manifest: pkg.manifest,
+        files: pkg.files,
+        compiled_at: pkg.compiled_at,
+        integrity: record.integrity
+      });
+      return ok !== true;
+    } catch (_) {
+      return null; // verification itself threw — inconclusive, not tamper
+    }
   }
 
   function isTrustedSettingsAppById(appId) {
     if (appId !== SETTINGS_APP_ID) return false;
+    // Background integrity re-verification (throttled) against the persisted
+    // store record — deliberately invoked BEFORE the tamper-flag check so a
+    // later clean probe RESTORES access without requiring a reload (a
+    // revoked session that can never re-probe could never recover).
+    // See _probeSettingsIntegrityFromStore for why the probe does not use
+    // this in-memory entry directly.
+    _probeSettingsIntegrityThrottled();
     if (_settingsTamperFlag) return false;
     const entry = (typeof OS !== 'undefined' && OS.apps && OS.apps[appId]) || null;
     if (!(
@@ -124,8 +184,6 @@ const UnrestrictedGate = (() => {
     } catch (_) { /* TrustStore read failure: the identity fields above still gate */ }
     // First-party manifest membership (enforced once the manifest has loaded).
     if (_firstPartyIdsCache && !_firstPartyIdsCache.has(appId)) return false;
-    // Background integrity re-verification (throttled).
-    _probeSettingsIntegrityThrottled(entry);
     return true;
   }
 

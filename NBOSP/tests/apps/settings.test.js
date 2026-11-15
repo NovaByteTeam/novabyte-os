@@ -64,6 +64,11 @@ async function loadSettings({ system, os, wallpaperService, extra = {} } = {}) {
         OS: os ?? { username: 'nova', lockPin: null, version: '3.0.2', dnd: false, apps: {} },
         Notify: notify,
         WallpaperService: wallpaperService ?? { getPresets: () => WALLPAPERS },
+        // 2026-11-15: admin-gated surfaces (root, recovery boot, admin-mode
+        // toggle, factory wipe) render for an admin session by default so
+        // the legacy expectations keep exercising the full controls; the
+        // non-admin lock panels are covered by their own test below.
+        SessionManager: { isAdmin: () => true },
         ...extra,
       },
     },
@@ -273,6 +278,7 @@ describe("'Settings' app (js/apps/settings)", () => {
     const { content } = await loadSettings({
       extra: {
         SessionManager: {
+          isAdmin: () => true, // 2026-11-15: the admin-mode toggle is admin-gated
           authFetch: async (path, options = {}) => {
             calls.push({ path, ...options });
             return {
@@ -298,6 +304,32 @@ describe("'Settings' app (js/apps/settings)", () => {
       body: { enabled: true },
     });
     expect(toggle.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('locks admin-only sections behind an administrator account (2026-11-15)', async () => {
+    const { content } = await loadSettings({
+      extra: {
+        SessionManager: { isAdmin: () => false }, // standard account
+      },
+    });
+
+    // Root section: lock panel instead of the controls.
+    sidebarBtn(content, 'Root Access').click();
+    expect(content.textContent).toContain('Administrator required');
+    expect(content.textContent).toContain('Sign in with an administrator account');
+
+    // System section: the recovery-boot toggle is replaced by the lock panel.
+    sidebarBtn(content, 'System').click();
+    expect([...content.querySelectorAll('button')].some((b) => b.textContent === 'Boot to Recovery')).toBe(false);
+    expect(content.textContent).toContain('Administrator required');
+
+    // Privacy section: the admin-mode toggle is hidden; the rest renders.
+    sidebarBtn(content, 'Privacy').click();
+    expect(content.querySelector('[aria-label="Toggle admin mode"]')).toBeNull();
+
+    // Storage: the factory wipe is hidden for standard accounts.
+    sidebarBtn(content, 'Storage').click();
+    expect([...content.querySelectorAll('button')].some((b) => b.textContent === 'Wipe All Data')).toBe(false);
   });
 
   it('degrades connectivity, default-apps and storage sections without host services', async () => {

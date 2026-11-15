@@ -13,19 +13,34 @@ if (trayWifi) {
   trayWifi.addEventListener('click', (e) => {
     e.stopPropagation();
     const existing = document.getElementById('wifi-popup');
-    if (existing) { existing.remove(); return; }
+    if (existing) {
+      existing.remove();
+      window.ShellPopupCoordinator?.unregister('wifi');
+      return;
+    }
+
+    // One flyout at a time: opening the wifi popup closes every other
+    // shell popup (volume, calendar, power menu, notification panel, ...).
+    window.ShellPopupCoordinator?.closeAllExcept('wifi');
 
     const popup = document.createElement('div');
     popup.id = 'wifi-popup';
-    popup.style.cssText =
-      'position:fixed;bottom:60px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:var(--r-md);padding:16px;min-width:200px;z-index:9999;box-shadow:var(--shadow-md)';
+    popup.className = 'wifi-popup';
+    // Only positioning stays inline — the glass treatment (backdrop blur +
+    // translucent background, matching the volume/calendar popups) lives
+    // in the .wifi-popup rule in style.css.
+    popup.style.cssText = 'position:fixed;bottom:60px;z-index:9999';
     document.body.appendChild(popup);
+
+    const closeWifiPopup = () => {
+      document.getElementById('wifi-popup')?.remove();
+      window.ShellPopupCoordinator?.unregister('wifi');
+    };
+    window.ShellPopupCoordinator?.register('wifi', closeWifiPopup);
 
     // Dismiss on any outside click. Looked up by id inside the handler so
     // reopening the popup doesn't leave stale closures over a removed element.
-    document.addEventListener('click', () => {
-      document.getElementById('wifi-popup')?.remove();
-    }, { once: true });
+    document.addEventListener('click', closeWifiPopup, { once: true });
 
     const rect = trayWifi.getBoundingClientRect();
     popup.style.left = Math.max(0, rect.left - 80) + 'px';
@@ -81,15 +96,50 @@ const volumePopup = document.getElementById('volume-popup');
 const volumeSlider = document.getElementById('volume-slider');
 const volumeValue = document.getElementById('volume-value');
 
+// Restores the persisted per-user volume (settings key 'volume', registry
+// path HKNU/settings/volume, kernel default 80) into the live session:
+// OS.volume, the tray slider, every open browser webview, and an
+// 'os:volumeChanged' event so the Music app mirrors it. The session manager
+// calls this after every user switch / session mount; returns the applied
+// (clamped 0-100) volume, or null when settings are unavailable here.
+let applySavedVolume = null;
+
 if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
   let volumePopupPinned = false;
+
+  // ── Persisted volume ────────────────────────────────────────────────
+  // At service-eval time the registry cache is still empty (the tray loads
+  // before boot() hydrates settings), so this init mostly pins the default
+  // onto the hardcoded value="80" slider; the real per-user restore happens
+  // when the session manager calls TrayService.applySavedVolume() after
+  // mounting a user, and via the settings:changed mirror below.
+  const persistedVolume = Number(OS.settings?.get?.('volume'));
+  if (Number.isFinite(persistedVolume)) {
+    OS.volume = persistedVolume;
+    volumeSlider.value = String(persistedVolume);
+    volumeValue.textContent = persistedVolume + '%';
+  }
+
+  // Closes the volume popup through its regular close path and drops it
+  // from the shell popup coordinator. A pinned popup (tray right-click)
+  // deliberately survives — the pin exists to keep it open.
+  const closeVolumePopup = () => {
+    if (volumePopupPinned) return;
+    volumePopup.classList.remove('active');
+    window.ShellPopupCoordinator?.unregister('volume');
+  };
 
   volumeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const rect = volumeBtn.getBoundingClientRect();
     volumePopup.style.left = rect.left + 'px';
     volumePopup.style.bottom = '60px';
-    volumePopup.classList.toggle('active');
+    const opening = !volumePopup.classList.contains('active');
+    // One flyout at a time: opening this popup closes every other shell popup.
+    if (opening) window.ShellPopupCoordinator?.closeAllExcept('volume');
+    volumePopup.classList.toggle('active', opening);
+    if (opening) window.ShellPopupCoordinator?.register('volume', closeVolumePopup);
+    else window.ShellPopupCoordinator?.unregister('volume');
   });
 
   volumeBtn.addEventListener('contextmenu', (e) => {
@@ -142,6 +192,10 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
     }
   };
 
+  // Debounced persistence of slider moves — the settings write is a
+  // synchronous registry commit, so it must not ride every input tick.
+  let volumePersistTimer = null;
+
   volumeSlider.addEventListener('input', () => {
     // Number() returns NaN for garbage input; parseInt with radix works too but
     // Number() is stricter about rejecting trailing chars. NaN is rejected below.
@@ -153,13 +207,52 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
     OS.events?.emit?.('os:volumeChanged', { volume: newVolume });
 
     OS.applyVolumeToWebviews(newVolume);
+
+    // Per-user hive write (HKNU/settings/volume), trailing-edge debounced so
+    // a fast drag produces exactly one commit of the final value.
+    if (volumePersistTimer) clearTimeout(volumePersistTimer);
+    volumePersistTimer = setTimeout(() => {
+      volumePersistTimer = null;
+      try {
+        OS.settings?.set?.('volume', OS.volume);
+      } catch { /* settings unavailable — volume stays session-only */ }
+    }, 500);
   });
+
+  // Mirror 'volume' writes from OTHER surfaces (Music app, NovaReg, the
+  // reg CLI, remote settings sync): update OS.volume, the slider and every
+  // webview. Our own debounced set() above also emits settings:changed, so
+  // the equality guard short-circuits that echo — only genuinely external
+  // changes flow through here, which also breaks any feedback loop.
+  OS.events?.on?.('settings:changed', (event) => {
+    if (!event || event.key !== 'volume') return;
+    const incoming = Number(event.value);
+    if (!Number.isFinite(incoming) || incoming === Number(OS.volume)) return;
+    const applied = Math.min(100, Math.max(0, incoming));
+    OS.volume = applied;
+    volumeSlider.value = String(applied);
+    volumeValue.textContent = applied + '%';
+    OS.applyVolumeToWebviews(applied);
+    OS.events?.emit?.('os:volumeChanged', { volume: applied });
+  });
+
+  // Session-manager hook (user switch / session mount): see declaration
+  // above the element guard for the full contract.
+  applySavedVolume = function applySavedVolume() {
+    const saved = Number(OS.settings?.get?.('volume'));
+    if (!Number.isFinite(saved)) return null;
+    const applied = Math.min(100, Math.max(0, saved));
+    OS.volume = applied;
+    volumeSlider.value = String(applied);
+    volumeValue.textContent = applied + '%';
+    OS.applyVolumeToWebviews(applied);
+    OS.events?.emit?.('os:volumeChanged', { volume: applied });
+    return applied;
+  };
 
   volumePopup.addEventListener('click', (e) => { e.stopPropagation(); });
 
-  document.addEventListener('click', () => {
-    if (!volumePopupPinned) volumePopup.classList.remove('active');
-  });
+  document.addEventListener('click', closeVolumePopup);
 }
 
 // TRAY — Calendar
@@ -236,10 +329,20 @@ if (trayClock && calendarPopup && calendarPopupTitle && calendarPopupWeekdays &&
     }
   }
 
+  // Closes the calendar popup through its regular close path and drops it
+  // from the shell popup coordinator.
+  const closeCalendarPopup = () => {
+    calendarPopup.classList.remove('active');
+    window.ShellPopupCoordinator?.unregister('calendar');
+  };
+
   trayClock.addEventListener('click', (e) => {
     e.stopPropagation();
     const opening = !calendarPopup.classList.contains('active');
     if (opening) {
+      // One flyout at a time: opening the calendar closes every other
+      // shell popup (volume, wifi, power menu, notification panel, ...).
+      window.ShellPopupCoordinator?.closeAllExcept('calendar');
       const today = new Date();
       viewYear = today.getFullYear();
       viewMonth = today.getMonth();
@@ -248,6 +351,9 @@ if (trayClock && calendarPopup && calendarPopupTitle && calendarPopupWeekdays &&
       calendarPopup.style.left = 'auto';
       calendarPopup.style.right = (window.innerWidth - rect.right) + 'px';
       calendarPopup.style.bottom = (window.innerHeight - rect.top) + 'px';
+      window.ShellPopupCoordinator?.register('calendar', closeCalendarPopup);
+    } else {
+      window.ShellPopupCoordinator?.unregister('calendar');
     }
     calendarPopup.classList.toggle('active', opening);
   });
@@ -268,9 +374,7 @@ if (trayClock && calendarPopup && calendarPopupTitle && calendarPopupWeekdays &&
 
   calendarPopup.addEventListener('click', (e) => { e.stopPropagation(); });
 
-  document.addEventListener('click', () => {
-    calendarPopup.classList.remove('active');
-  });
+  document.addEventListener('click', closeCalendarPopup);
 }
 
 // TRAY — Battery
@@ -342,7 +446,16 @@ updateBattery();
   menu.addEventListener('toggle', (event) => {
     const open = event.newState === 'open';
     button.setAttribute('aria-expanded', String(open));
-    if (open) visibleItems()[0]?.focus();
+    if (open) {
+      // One flyout at a time: opening the power menu closes every other
+      // shell popup. hidePopover() is the menu's own close path; the
+      // matching 'toggle' (closed) event below unregisters it.
+      window.ShellPopupCoordinator?.closeAllExcept('power');
+      window.ShellPopupCoordinator?.register('power', () => menu.hidePopover?.());
+      visibleItems()[0]?.focus();
+    } else {
+      window.ShellPopupCoordinator?.unregister('power');
+    }
   });
 
   menu.addEventListener('keydown', (event) => {
@@ -418,4 +531,10 @@ updateBattery();
   }
 })();
 
-window.TrayService = Object.freeze({ applyVolumeToWebviews: OS.applyVolumeToWebviews });
+window.TrayService = Object.freeze({
+  applyVolumeToWebviews: OS.applyVolumeToWebviews,
+  // Per-user volume restore — called by the session manager on every user
+  // switch / session mount. No-op (returns null) when the tray markup (and
+  // therefore the volume section) is absent.
+  applySavedVolume: applySavedVolume ?? (() => null),
+});

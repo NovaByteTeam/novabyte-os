@@ -463,7 +463,9 @@ registerApp({
       body.replaceChildren(card);
       setButtons({ next: _t('setup.account.createAccount'), nextDisabled: true });
       validate();
-      display.focus();
+      // No explicit display.focus() here: wm.js's focusWindow already
+      // auto-focuses the first input of a fresh window (with the
+      // data-wm-autofocus focus-ring suppression applied).
     }
 
     async function createOwner(statusEl) {

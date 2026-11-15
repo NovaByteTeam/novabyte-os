@@ -1647,6 +1647,12 @@ const AppDirs = {
     // Permissions — event-log read cutoff
     'nbosp_permissions_log_cutoff': { pkg: 'com.nbosp.permissions', subdir: 'shared_prefs', file: 'log-cutoff.json' },
 
+    // Notifications — the visible feed (js/apps/notifications/service.js
+    // keeps this LS copy in sync). Bugfix: the key was missing from this map,
+    // so the feed never flushed/remounted with the account and stayed
+    // machine-global — every user saw every other user's notifications.
+    'novaOS_notifications': { pkg: 'com.nbosp.service.notifications', subdir: 'databases', file: 'notifications.json' },
+
     // Settings — custom keyboard shortcuts moved into the NovaByte Registry
     // (HKNU/shell/shortcuts via RegistryPrefs); no localStorage key to mirror.
   },
@@ -1875,6 +1881,13 @@ function openFileWithApp(fileNode, appId, rememberDefault = false, requireHandle
   }
 
   const options = { fileId: fileNode.id };
+  // Bugfix: clicking a desktop file opened TextEdit EMPTY on Linux. There the
+  // FS node id IS the absolute path (fs.js nodeForPath), but Linux TextEdit
+  // only understands options.path / options.filePath — fileId alone left it
+  // untitled. Forward the id as a path too when it is an absolute path.
+  if (typeof fileNode.id === 'string' && fileNode.id.startsWith('/')) {
+    options.path = fileNode.id;
+  }
   if (canHandle) {
     options.fileIntent = {
       action: 'open',

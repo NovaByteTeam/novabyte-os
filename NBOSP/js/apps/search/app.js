@@ -182,10 +182,80 @@ registerApp({
         new URLSearchParams({ q, format: 'json', no_html: '1', skip_disambig: '1' });
     }
 
+    // ── /api/proxy relay (server/proxies.js setupAppNetworkProxy) ──────────
+    // Direct egress to api.duckduckgo.com is blocked at this deployment's
+    // network layer (ERR_CONNECTION_RESET), so the web phase rides the same
+    // server-side CORS relay sandboxed apps use for net:external fetches.
+    // Contract: POST /api/proxy with JSON { url, method, headers, body,
+    // bodyEncoding } → JSON envelope { status, statusText, headers, body,
+    // bodyEncoding } (body is a UTF-8 string for textual targets, base64
+    // otherwise). The route is session + CSRF protected and rate limited
+    // (300/min; the host page's system-fetch.js HMAC signature exempts us).
+
+    function proxyCsrfToken() {
+      try {
+        // Multi-user: the CSRF token belongs to the active session, which is
+        // the one this host fetches with (X-Nova-Session below) — the
+        // boot-injected meta tag belongs to the anonymous page session.
+        if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.() &&
+            typeof window !== 'undefined' && window.SessionManager?.csrf) {
+          const active = window.SessionManager.csrf();
+          if (active) return active;
+        }
+        return document.querySelector('meta[name="csrf-token"]')?.content || '';
+      } catch { return ''; }
+    }
+
+    function proxyFetch(url, signal) {
+      const headers = { 'Content-Type': 'application/json' };
+      const csrf = proxyCsrfToken();
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+      try {
+        if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.() &&
+            typeof window !== 'undefined' && window.SessionManager?.token) {
+          const token = window.SessionManager.token();
+          if (token) headers['X-Nova-Session'] = token;
+        }
+      } catch { /* bearer is best-effort */ }
+      return fetch('/api/proxy', {
+        method: 'POST',
+        credentials: 'same-origin',
+        signal,
+        headers,
+        body: JSON.stringify({
+          url,
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          body: null,
+          bodyEncoding: 'utf8',
+        }),
+      });
+    }
+
+    function proxyBodyText(envelope) {
+      if (!envelope || typeof envelope.body !== 'string') return null;
+      if (envelope.bodyEncoding === 'base64') {
+        try {
+          const bytes = Uint8Array.from(atob(envelope.body), ch => ch.charCodeAt(0));
+          return new TextDecoder().decode(bytes);
+        } catch { return null; }
+      }
+      return envelope.body;
+    }
+
     async function fetchDDG(q, signal) {
-      const resp = await fetch(ddgUrl(q), signal ? { signal } : {});
-      if (!resp.ok) throw new Error(`DDG ${resp.status}`);
-      return parseDDGResponse(await resp.json());
+      const res = await proxyFetch(ddgUrl(q), signal);
+      if (!res.ok) throw new Error(`DDG proxy ${res.status}`);
+      const envelope = await res.json();
+      if (!envelope || typeof envelope.status !== 'number') {
+        throw new Error('DDG proxy returned a malformed envelope');
+      }
+      if (envelope.status < 200 || envelope.status >= 300) {
+        throw new Error(`DDG ${envelope.status}`);
+      }
+      const text = proxyBodyText(envelope);
+      if (text === null) throw new Error('DDG proxy returned an unreadable body');
+      return parseDDGResponse(JSON.parse(text));
     }
 
     // ════════════════════════════════════════════════════════════════════════

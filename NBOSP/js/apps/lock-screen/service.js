@@ -84,6 +84,19 @@ function handleLockScreenKeydown(e) {
     return;
   }
   if (surface === 'setup') return; // the wizard owns its own keyboard handling
+  if (surface === 'forced-pin') {
+    // The forced-PIN card owns the keyboard while it is up: digit keys must
+    // never fall through into the hidden sheet's enterPinDigit →
+    // verifySheetSecret → manager.unlock attempts. The card's own inputs
+    // take the keystrokes; Enter submits only from inside those inputs.
+    const card = document.getElementById('lock-forced-pin');
+    const activeId = document.activeElement?.id;
+    if (card && e.key === 'Enter' && (activeId === 'fp-pin' || activeId === 'fp-pin2')) {
+      e.preventDefault();
+      card.querySelector('.fw-submit')?.click();
+    }
+    return;
+  }
   if (sheetMode === 'passphrase') {
     if (e.key === 'Enter') { e.preventDefault(); verifySheetSecret(); }
     return; // the field handles its own input
@@ -410,7 +423,12 @@ async function attemptBiometricUnlock(statusEl) {
       const result = await manager.webauthnLogin({ uid: sheetAccount.uid });
       if (result.ok) {
         unlockFromLockScreen();
-        if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
+        if (result.mustChangePin) {
+          // A must-change account must land on the forced new-PIN card —
+          // biometric login skips the sheet, so route it here exactly the
+          // way verifySheetSecret does for PIN/passphrase logins.
+          showForcedPinChange();
+        } else if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
           Notify.show({ title: _t('shell.lock.welcomeBack'), body: _t('shell.lock.authenticatedViaBiometrics'), type: 'success', appName: 'System' });
         }
       } else {
@@ -473,8 +491,19 @@ function hideAllSurfaces() {
   document.getElementById('lock-passphrase-back')?.remove();
   document.getElementById('lock-switch-user')?.remove();
   document.getElementById('lock-passphrase-toggle')?.remove();
+  document.getElementById('lock-picker-back')?.remove();
+  document.getElementById('lock-forced-pin')?.remove();
   document.removeEventListener('keydown', handleLockScreenKeydown);
   surface = 'hidden';
+}
+
+/** Dev HUD comes down with every gate surface (see lockScreen/showLoginPicker). */
+function hideDebugOverlayAtGate() {
+  // The login/lock gate must never leak dev HUD info (memory, URLs, window
+  // geometry) to whoever is standing at the screen. mountUserScope() applies
+  // the signed-in account's own dev surface once the gate is past. hide()
+  // (not disable()) so the user's debugOverlayVisible preference survives.
+  try { if (window.DebugOverlay?.hide) window.DebugOverlay.hide(); else window.DebugOverlay?.disable?.(); } catch (_) { }
 }
 
 // ── Lock (the active session) ────────────────────────────────────────
@@ -489,6 +518,7 @@ async function lockScreen() {
     }
     OS.isLocked = true;
     surface = 'locked';
+    hideDebugOverlayAtGate();
     sheetAccount = {
       uid: manager.state().uid,
       displayName: manager.state().displayName || manager.state().uname,
@@ -512,6 +542,7 @@ async function lockScreen() {
 
   if (!OS.lockPin) { WM.minimizeAll(); return; }
   OS.isLocked = true;
+  hideDebugOverlayAtGate();
   document.getElementById('lock-screen')?.classList.add('active');
   renderLockScreen();
   EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'Screen locked' });
@@ -529,6 +560,7 @@ async function lockForUser(uid) {
   } catch (_) { }
   OS.isLocked = true;
   surface = 'locked';
+  hideDebugOverlayAtGate();
   document.getElementById('lock-screen')?.classList.add('active');
   showPinPadForAccount();
 }
@@ -551,6 +583,7 @@ async function showLoginPicker() {
   } catch (_) { /* state() unavailable in tests — keep legacy behaviour */ }
 
   surface = 'picker';
+  hideDebugOverlayAtGate();
   sheetAccount = null;
   sheetResumable = false;
   sheetMode = 'pin';
@@ -889,6 +922,17 @@ function showForcedPinChange() {
   const existing = document.getElementById('lock-forced-pin');
   existing?.remove();
 
+  // Hide the base sheet chrome while the forced-PIN card is up — the same
+  // element set showLoginPicker hides for the picker — so the card is the
+  // only visible surface (avatar/name/numpad underneath used to bleed
+  // through behind the card).
+  for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad', 'lock-passphrase', 'lock-passphrase-back', 'lock-switch-user', 'lock-passphrase-toggle', 'lock-picker-back']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+  lockScreenEl.querySelector('.biometric-btn')?.remove(); // sibling of the numpad, not hidden by the loop
+  lockScreenEl.querySelector('.lock-picker')?.remove();
+
   const card = createEl('div', { id: 'lock-forced-pin', className: 'lock-forced-pin', role: 'form', 'aria-label': _t('shell.lock.setNewPinAria') });
   card.appendChild(createEl('div', { className: 'lock-picker-title', textContent: _t('shell.lock.chooseNewPin'), role: 'heading', 'aria-level': 2 }));
   card.appendChild(createEl('div', { className: 'lock-wizard-sub', textContent: _t('shell.lock.pinResetNotice') }));
@@ -915,7 +959,18 @@ function showForcedPinChange() {
     if (!/^\d{4,6}$/.test(pin.value)) { status.textContent = _t('shell.lock.pinDigits'); return; }
     if (pin.value !== pin2.value) { status.textContent = _t('shell.lock.pinsNoMatch'); return; }
     const result = await manager.changePin(null, pin.value);
-    if (result.ok) card.remove();
+    if (result.ok) {
+      // Restore the sheet chrome's default visibility first — a later
+      // lockScreen() must not inherit the hidden state — then run the same
+      // teardown unlockFromLockScreen() performs, so the overlay cannot
+      // stick over the live desktop with a dead 'forced-pin' surface.
+      for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad']) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+      }
+      unlockFromLockScreen();
+      EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'New PIN saved (forced change)' });
+    }
     else status.textContent = result.message || _t('shell.lock.couldNotSavePin');
   });
   card.appendChild(submit);

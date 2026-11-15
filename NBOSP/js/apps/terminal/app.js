@@ -476,7 +476,9 @@ const COMMANDS = {
     const sections = [
       [_t('apps.terminal.helpSectionFilesystem'), 'ls  ll  la  l  cd  pwd  mkdir  rmdir  rm  touch  cp  mv  cat  head  tail  stat  chmod  find  tree  diff'],
       [_t('apps.terminal.helpSectionText'), 'echo  printf  grep  sort  uniq  cut  wc  base64'],
-      [_t('apps.terminal.helpSectionSystem'), 'clear  history  env  export  unset  alias  unalias  which  hostname  whoami  uname  uptime  date  ps  kill  sleep'],
+      // `help` itself was the only command missing from the curated sections
+      // (bug: `help` output listed 49 of 50 commands). Filed under System.
+      [_t('apps.terminal.helpSectionSystem'), 'clear  help  history  env  export  unset  alias  unalias  which  hostname  whoami  uname  uptime  date  ps  kill  sleep'],
       [_t('apps.terminal.helpSectionMath'), 'expr  seq'],
       [_t('apps.terminal.helpSectionFun'), 'neofetch  fastfetch  yes  true  false  exit']
     ];
@@ -486,7 +488,10 @@ const COMMANDS = {
     }
     writeHTML(tab, `  <span class="shell-yellow">${escapeHtml(_t('apps.terminal.helpAllCommands'))}</span> <span class="shell-dim">${[...BUILTINS].join('  ')}</span>`);
     writeHTML(tab, `  <span class="shell-yellow">${escapeHtml(_t('apps.terminal.helpAliases'))}</span> <span class="shell-dim">${Object.keys(DEFAULT_ALIASES).join('  ')}</span>`);
-    writeHTML(tab, `\n  <span class="shell-dim">${escapeHtml(_t('apps.terminal.shortcutsIntro'))}<span class="shell-green">Tab</span>${escapeHtml(_t('apps.terminal.shortcutsAutocomplete'))}<span class="shell-green">↑↓</span>${escapeHtml(_t('apps.terminal.shortcutsHistory'))}<span class="shell-green">Ctrl+L</span>${escapeHtml(_t('apps.terminal.shortcutsClear'))}<span class="shell-green">Ctrl+C</span>${escapeHtml(_t('apps.terminal.shortcutsCancel'))}</span>`);
+    // Bugfix: the shortcuts line omitted the readline bindings the input
+    // handler actually implements (Ctrl+U/A/E/V — see the keydown handler),
+    // so users had no way to discover line-clear / cursor / paste keys.
+    writeHTML(tab, `\n  <span class="shell-dim">${escapeHtml(_t('apps.terminal.shortcutsIntro'))}<span class="shell-green">Tab</span>${escapeHtml(_t('apps.terminal.shortcutsAutocomplete'))}<span class="shell-green">↑↓</span>${escapeHtml(_t('apps.terminal.shortcutsHistory'))}<span class="shell-green">Ctrl+L</span>${escapeHtml(_t('apps.terminal.shortcutsClear'))}<span class="shell-green">Ctrl+C</span>${escapeHtml(_t('apps.terminal.shortcutsCancel'))}  <span class="shell-green">Ctrl+U</span>${escapeHtml(_t('apps.terminal.shortcutsClearLine'))}<span class="shell-green">Ctrl+A</span>${escapeHtml(_t('apps.terminal.shortcutsLineStart'))}<span class="shell-green">Ctrl+E</span>${escapeHtml(_t('apps.terminal.shortcutsLineEnd'))}<span class="shell-green">Ctrl+V</span>${escapeHtml(_t('apps.terminal.shortcutsPaste'))}</span>`);
     return '';
   },
 

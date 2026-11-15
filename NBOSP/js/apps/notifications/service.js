@@ -956,7 +956,27 @@ const Notify = {
     const panel = document.getElementById('notification-panel');
     if (!panel) return;
     const opening = !panel.classList.contains('active');
-    panel.classList.toggle('active');
+    if (opening) {
+      // One flyout at a time: opening the panel closes every other shell
+      // popup (volume/wifi/calendar flyouts, power menu, window preview).
+      window.ShellPopupCoordinator?.closeAllExcept('notifications');
+      panel.classList.add('active');
+      // The closeFn mirrors the panel's regular close paths (#notif-close
+      // button / backdrop click, wired in system-events.js) and
+      // unregisters itself, so a coordinator sweep arriving after an
+      // independent close is a harmless no-op.
+      window.ShellPopupCoordinator?.register('notifications', () => {
+        panel.classList.remove('active');
+        if (typeof window.resetShellScroll === 'function') {
+          window.resetShellScroll();
+          requestAnimationFrame(window.resetShellScroll);
+        }
+        window.ShellPopupCoordinator?.unregister('notifications');
+      });
+    } else {
+      panel.classList.remove('active');
+      window.ShellPopupCoordinator?.unregister('notifications');
+    }
     if (typeof window.resetShellScroll === 'function') {
       window.resetShellScroll();
       requestAnimationFrame(window.resetShellScroll);
@@ -978,3 +998,30 @@ if (typeof Notify !== 'undefined') {
 } else {
   console.warn('Notify object was not found in the local scope of app-notifications.js');
 }
+
+// 2026-11-15: the notification feed is per-account — the storage key rides
+// the per-user AppDirs remount (shell-ui/desktop.js LS_MAP). Reload it
+// whenever the active session changes so a user switch swaps the feed
+// immediately instead of showing the previous account's notifications
+// until the next reload.
+try {
+  if (typeof OS !== 'undefined' && OS?.events?.on) {
+    let _notifFeedUid;
+    OS.events.on('session:changed', (event) => {
+      const nextUid = event && typeof event === 'object' && 'uid' in event ? event.uid : null;
+      if (nextUid === _notifFeedUid) return;
+      _notifFeedUid = nextUid;
+      // One tick of defer: the per-user LS remount completes right before
+      // this event fires; the hand-off must not interleave with callers.
+      setTimeout(() => {
+        try {
+          const saved = JSON.parse(localStorage.getItem(Notify._storageKey) || '[]');
+          OS.notifications = Array.isArray(saved) ? saved.slice(0, 100) : [];
+          OS.notifUnread = OS.notifications.filter(n => !n.read).length;
+          Notify.updateBadge();
+          if (typeof updateNotificationBadge === 'function') updateNotificationBadge();
+        } catch (_) { /* best-effort reload */ }
+      }, 0);
+    });
+  }
+} catch (_) { /* events bus unavailable in stripped hosts */ }

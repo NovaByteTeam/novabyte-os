@@ -114,15 +114,21 @@ const NovaRegistry = (() => {
   // multi-megabyte data URL would blow the per-value size quota, so it keeps
   // riding the legacy persistence channel.
   const SETTINGS_KEY_TO_PATH = Object.freeze({
-    // mapped shell & desktop keys
-    theme: 'HKNS/shell/theme',
-    accentColor: 'HKNS/shell/accentColor',
-    wallpaperId: 'HKNS/shell/wallpaper',
+    // mapped shell & desktop keys. 2026-11-15 redesign: theme, accent and
+    // wallpaper are personal preferences — they ride the mounted HKNU hive
+    // so each account configures its own look (legacy HKNS values are
+    // migrated once by the settings shim on load).
+    theme: 'HKNU/shell/theme',
+    accentColor: 'HKNU/shell/accentColor',
+    wallpaperId: 'HKNU/shell/wallpaper',
     pinnedApps: 'HKNU/desktop/pins',
     defaultApps: 'HKNU/shell/defaultApps',
     // system (machine-scoped) keys
     osVersion: 'HKNS/system/osVersion',
-    devMode: 'HKNS/system/devMode',
+    // 2026-11-15 redesign: Developer Mode is a per-user opt-in — each
+    // account enables its own developer surface; the legacy machine-wide
+    // HKNS/system location is migrated away by the settings shim.
+    devMode: 'HKNU/settings/devMode',
     // security keys — the multi-user account redesign removed the client-side
     // credential keys from the settings map: lockPin, pinSalt and
     // biometricCredentialId now live in the server's users.db (scrypt rows
@@ -132,7 +138,10 @@ const NovaRegistry = (() => {
     // import time, and machines that never enable multi-user keep the
     // single-user behaviour byte-for-byte through the generic-area scan.
     bootPassword: 'HKNS/security/bootPassword',
-    rootAccessEnabled: 'HKNS/security/rootAccessEnabled',
+    // 2026-11-15 redesign: root access is enabled per account (the root
+    // broker still requires an admin session for actual privileged
+    // operations, so this stays safe). Migrated from HKNS once.
+    rootAccessEnabled: 'HKNU/security/rootAccessEnabled',
     prohibitWallpaperChange: 'HKNS/security/policy/prohibitWallpaperChange',
     // per-user preferences
     clockFormat: 'HKNU/settings/clockFormat',
@@ -149,7 +158,13 @@ const NovaRegistry = (() => {
     region: 'HKNU/settings/region',
     language: 'HKNU/settings/language',
     keyboardLayout: 'HKNU/settings/keyboardLayout',
-    timezone: 'HKNU/settings/timezone',
+    // 2026-11-15 redesign: the timezone is deliberately MACHINE-scoped —
+    // one wall-clock for the whole machine (per-user legacy values are
+    // adopted into the system key once, by the first account to log in
+    // after the upgrade, then removed from the user hive).
+    timezone: 'HKNS/system/timezone',
+    // 2026-11-15: system-wide audio volume is a per-user preference.
+    volume: 'HKNU/settings/volume',
     highContrast: 'HKNU/settings/highContrast',
     removeTransparency: 'HKNU/settings/removeTransparency',
     reduceMotion: 'HKNU/settings/reduceMotion',

@@ -166,7 +166,15 @@
     defaultSize: [520, 520],
     minSize: [360, 380],
 
-    init(content, state) {
+    // WM passes launch options as the third init() argument; older hosts and
+    // the app tests inject the opened-file id directly into `state`. Prefer
+    // options (the real launch path) and keep state as the fallback so both
+    // callers work.
+    init(content, state, options = {}) {
+      // Bugfix: this used to read only state.fileId, but WM.createWindow
+      // hands launch options to init() via the `options` argument — files
+      // opened from Files/ desktop never reached the player.
+      const openedFileId = (options && options.fileId) || state.fileId;
       // The OS grants each app a private data directory. If it is
       // missing we cannot do anything useful, so fail loudly instead of
       // rendering a half-broken UI.
@@ -423,13 +431,27 @@
       on(audio, 'play', syncPlayPauseLabel);
       on(audio, 'pause', syncPlayPauseLabel);
       on(audio, 'ended', () => {
-        // repeat = loop the current track; otherwise advance, wrapping
-        // around the queue (preserves the original "loop-all" semantics).
+        // Bugfix: this used to advance with playIdx(queueIdx + 1)
+        // unconditionally, and playIdx wraps modulo — so after the last
+        // track the queue restarted from track 0 forever even with repeat
+        // OFF. Now: repeat loops the current track; shuffle jumps to a
+        // uniformly random OTHER track; otherwise advance sequentially and
+        // STOP at the end of the queue. (playIdx keeps its modulo wrap for
+        // the manual prev/next buttons, where wrapping is expected.)
         if (repeat) {
           audio.currentTime = 0;
           playAudio();
-        } else {
+        } else if (shuffle && queue.length > 1) {
+          // Uniform over "every track except the current one": draw from
+          // length-1 slots, then shift past queueIdx so the current track
+          // can never be re-picked.
+          let next = Math.floor(Math.random() * (queue.length - 1));
+          if (next >= queueIdx) next += 1;
+          playIdx(next);
+        } else if (queueIdx + 1 < queue.length) {
           playIdx(queueIdx + 1);
+        } else {
+          stopAtEnd();
         }
       });
       on(audio, 'error', () => {
@@ -614,6 +636,20 @@
         playTrack(queue[queueIdx]);
       }
 
+      // End-of-queue stop: pause, rewind to 0:00 and refresh the player
+      // chrome through the same helpers the play/pause path uses, so the
+      // button, scrub bar and row suffixes all settle on "paused at start".
+      function stopAtEnd() {
+        audio.pause();
+        audio.currentTime = 0;
+        trackSub.textContent = fmtTime(0);
+        timeCur.textContent = fmtTime(0);
+        scrubFill.style.width = '0%';
+        syncPlayPauseLabel();
+        syncScrubAria();
+        renderList();
+      }
+
       async function playTrack(track) {
         const generation = ++loadGeneration;
         const url = await getUrl(track);
@@ -670,7 +706,7 @@
 
           // A file opened from Files is a user-picked item and may live outside
           // Music; include only that explicit intent in addition to the library.
-          const openedFile = state.fileId ? FS?.files?.get(state.fileId) : null;
+          const openedFile = openedFileId ? FS?.files?.get(openedFileId) : null;
           if (isAudioFile(openedFile) && !found.some(file => file.id === openedFile.id)) {
             found.push(openedFile);
           }
@@ -696,16 +732,28 @@
 
         const n = tracks.length;
         libCount.textContent = n ? _t('apps.music.library.trackCount', { count: n, s: n > 1 ? 's' : '' }) : '';
-        // Keep the cursor on the current track if it is still in the
-        // library; otherwise queueIdx is left as-is and playIdx wraps
-        // to a valid index on the next interaction.
-        buildQueue(queue[queueIdx]?.id);
+        // Bugfix: every fs event re-ran scanLibrary, which rebuilt AND
+        // re-shuffled the queue mid-playback — the "up next" order kept
+        // changing under the user. Only rebuild (and re-shuffle) when the
+        // player is idle; while a track is playing, keep the queue order the
+        // user is listening through. The cursor still points at the current
+        // track; a vanished track is skipped on the next manual interaction.
+        if (!(!audio.paused && audio.src)) buildQueue(queue[queueIdx]?.id);
         renderList();
 
-        if (!initialFileHandled && state.fileId) {
+        if (!initialFileHandled && openedFileId) {
           initialFileHandled = true;
-          const openedIdx = tracks.findIndex(track => track.id === state.fileId);
-          if (openedIdx !== -1) playIdx(openedIdx);
+          // Bugfix: openedIdx was computed against the sorted `tracks` array
+          // but played from the (possibly shuffled) `queue`, so with shuffle
+          // on the WRONG track could autoplay. Look the id up IN the queue;
+          // fall back to the old tracks-index behavior if it is absent.
+          const openedIdx = queue.findIndex(track => track.id === openedFileId);
+          if (openedIdx !== -1) {
+            playIdx(openedIdx);
+          } else {
+            const trackIdx = tracks.findIndex(track => track.id === openedFileId);
+            if (trackIdx !== -1) playIdx(trackIdx);
+          }
         }
       }
 
