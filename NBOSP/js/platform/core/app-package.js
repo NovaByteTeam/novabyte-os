@@ -602,6 +602,28 @@ const AppPackage = (() => {
       }
       throw new Error(msg);
     }
+    // SECURITY (2026-11-15 audit, finding L5): every pkg.files key must pass
+    // the same shape gate as entry/guestEntry. NovaAppPackageStore.installApp
+    // already rejects bad keys (normalizePackagePath) — but its throw was
+    // caught right below and downgraded to a console.warn, so the app
+    // registered in-memory WITH its files while never persisting them: after
+    // a reload the install was silently broken (registry row, no bundle).
+    // Validating here turns a bad key into a rejected install up front, and
+    // the store write can no longer fail for a shape this gate passed.
+    if (pkg.files && typeof pkg.files === 'object') {
+      const UNSAFE_FILE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+      for (const fileKey of Object.keys(pkg.files)) {
+        if (UNSAFE_FILE_KEYS.has(fileKey)
+          || fileKey.includes('\\') || fileKey.includes(':') || /[\x00-\x1f\x7f]/.test(fileKey)
+          || fileKey.startsWith('/') || fileKey.split('/').some(seg => seg === '.' || seg === '..' || seg === '')) {
+          const msg = `Invalid package file key: ${JSON.stringify(fileKey)}`;
+          if (typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: `Install failed for ${pkg.manifest.id}: ${msg}`, data: { appId: pkg.manifest.id, reason: 'file-key' } });
+          }
+          throw new Error(msg);
+        }
+      }
+    }
     if (pkg.manifest.permissions?.includes('system:root')
       && typeof pkg.files?.[pkg.manifest.unrestrictedEntry] !== 'string') {
       const msg = `Root package is missing unrestrictedEntry file "${pkg.manifest.unrestrictedEntry}"`;
@@ -825,9 +847,23 @@ const AppPackage = (() => {
         warnings.push('Icon is neither a data: URI, a plain asset path, nor an emoji; it will be rendered as escaped text');
       }
     }
-    if (manifest.id && !manifest.id.startsWith('webapp_')) {
-      if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/.test(manifest.id))
+    if (manifest.id) {
+      // SECURITY (2026-11-15 audit, finding H5): the reverse-domain rule
+      // used to live inside a negated `!startsWith('webapp_')` branch — so
+      // ANY id beginning with `webapp_` skipped format validation entirely,
+      // and arbitrary characters (quotes, angle brackets) flowed into
+      // registry ids and privileged-shell templates (my-apps-manager
+      // interpolated the raw id into data-app-id attributes). Validate
+      // BOTH shapes: reverse-domain ids, and webapp_ shortcut ids with the
+      // same charset nova-app-launcher.js's serving-alias regex documents
+      // (lowercase alphanumerics, dot, underscore, dash; bounded length).
+      if (manifest.id.startsWith('webapp_')) {
+        if (!/^webapp_[a-z0-9._-]{1,112}$/.test(manifest.id)) {
+          errors.push(`Invalid app ID "${manifest.id}". webapp_ ids may only use lowercase letters, digits, dots, underscores and dashes.`);
+        }
+      } else if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/.test(manifest.id)) {
         errors.push(`Invalid app ID "${manifest.id}". Must be reverse domain format.`);
+      }
     }
     if (manifest.version && !/^\d+\.\d+\.\d+$/.test(manifest.version))
       warnings.push(`Version "${manifest.version}" doesn't follow semver (x.y.z)`);

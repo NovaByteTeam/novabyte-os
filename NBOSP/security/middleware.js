@@ -348,6 +348,17 @@ function inputSanitization(req, res, next) {
     // value"). The proxy route itself still validates URL/method/host.
     if (req.path === '/api/proxy') return next();
 
+    // SECURITY (2026-11-15 audit, finding L6): the same corruption applied to
+    // the whole email family — /api/email/send bodies were HTML-escaped before
+    // the controller saw them, so an outbound mail containing & < > " ' was
+    // literally rewritten ("AT&T" arrived as "AT&amp;T"), and IMAP search
+    // queries with ampersands silently matched nothing. None of it prevented
+    // anything: the email app escapes at render (textContent/escapeHtml) and
+    // the server re-sanitizes HTML previews through helpers.sanitizeEmailHtml
+    // before they are ever served back. The email API is JSON-in/JSON-out, not
+    // a server-rendered HTML surface, so exempt it like /api/proxy.
+    if (req.path === '/api/email' || req.path.startsWith('/api/email/')) return next();
+
     if (req.body && typeof req.body === 'object') {
         req.body = sanitizeObject(req.body);
     }

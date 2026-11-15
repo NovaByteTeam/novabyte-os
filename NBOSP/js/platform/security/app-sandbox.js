@@ -185,8 +185,13 @@ const AppSandbox = (() => {
           console.error(`[RootAccess] Could not instrument API namespace ${name}:`, error);
         }
       }
-      return existing?.entryLoaded === true;
     }
+    // BUG (2026-11-15 audit, finding L5): this return used to sit INSIDE the
+    // loop body, so the loop exited after the first name — only window.OS
+    // was ever audit-instrumented and FS/WM/Notify/... stayed unwrapped,
+    // leaving the "root API calls are recorded" guarantee ~1/9th
+    // implemented. The return belongs after the full loop.
+    return existing?.entryLoaded === true;
   }
 
   function reloadAfterRootRevocation(reason) {
@@ -1881,9 +1886,25 @@ const AppSandbox = (() => {
     return false;
   }
 
-  function confirmSharedFileChange(app, node, action) {
+  function confirmSharedFileChange(app, node, action, sandbox) {
+    // SECURITY (2026-11-15 audit, finding H2): a READ pick used to silently
+    // grant write/rename/move on the picked shared file — only 'delete' and
+    // 'overwrite' asked for confirmation, so an app holding zero fs grants
+    // could, at any later point in the sandbox's lifetime, modify/rename/
+    // move any file the user had once opened for READING in a picker
+    // (picker IDs land in sandbox.pickedFileIds and canMutateFile honors
+    // them). Every mutating action on a non-owned shared file now asks.
+    // The one exemption is content saves (action 'modify') of the
+    // ACTIVELY-handed document (sandbox.openFile) — that is the editor flow
+    // the user started by opening the file into the app, and a modal on
+    // every save would break it; the native-path twin (writePickedHostFile)
+    // and handleScopedFileSave ('overwrite') keep their own confirms.
     if (isOwnedByApp(node, app.id) || hasFsAccess(app.id)) return true;
-    if (action !== 'delete' && action !== 'overwrite') return true;
+    const MUTATING_ACTIONS = new Set(['delete', 'overwrite', 'modify', 'rename', 'move']);
+    if (!MUTATING_ACTIONS.has(action)) return true;
+    const isActiveDocument = !!sandbox
+      && sandbox.openFile?.id === node.id && sandbox.openFile.node === node;
+    if (action === 'modify' && isActiveDocument) return true;
     if (typeof window?.confirm !== 'function') return null;
     return window.confirm(`Allow ${app.name || app.id} to ${action} "${node.name}"?`);
   }
@@ -2453,7 +2474,7 @@ const AppSandbox = (() => {
       if (content === undefined || content === null) {
         return respondError(webview, 'nova:fs:write', requestId, 'INVALID_ARGS', 'content is required');
       }
-      const confirmed = confirmSharedFileChange(app, selectedFile, 'modify');
+      const confirmed = confirmSharedFileChange(app, selectedFile, 'modify', sandbox);
       if (confirmed === null) {
         return respondError(webview, 'nova:fs:write', requestId, 'UNAVAILABLE', 'User confirmation is required to modify a shared file');
       }
@@ -2483,7 +2504,7 @@ const AppSandbox = (() => {
       if (!canMutateFile(node, app.id, sandbox)) {
         return respondError(webview, 'nova:fs:write', requestId, 'PERMISSION_DENIED', 'Write app-owned files directly; shared files must be selected by the user or require fs:access');
       }
-      const confirmed = confirmSharedFileChange(app, node, 'modify');
+      const confirmed = confirmSharedFileChange(app, node, 'modify', sandbox);
       if (confirmed === null) {
         return respondError(webview, 'nova:fs:write', requestId, 'UNAVAILABLE', 'User confirmation is required to modify a shared file');
       }
@@ -2538,7 +2559,7 @@ const AppSandbox = (() => {
     if (!canMutateFile(node, app.id, sandbox)) {
       return respondError(webview, 'nova:fs:delete', requestId, 'PERMISSION_DENIED', 'Delete app-owned files directly; shared files must be selected by the user or require fs:access');
     }
-    const confirmed = confirmSharedFileChange(app, node, 'delete');
+    const confirmed = confirmSharedFileChange(app, node, 'delete', sandbox);
     if (confirmed === null) {
       return respondError(webview, 'nova:fs:delete', requestId, 'UNAVAILABLE', 'User confirmation is required to delete a shared file');
     }
@@ -2669,7 +2690,7 @@ const AppSandbox = (() => {
     if (!canMutateFile(node, app.id, sandbox)) {
       return respondError(webview, 'nova:fs:rename', requestId, 'PERMISSION_DENIED', 'Rename app-owned files directly; shared files must be selected by the user or require fs:access');
     }
-    const confirmed = confirmSharedFileChange(app, node, 'rename');
+    const confirmed = confirmSharedFileChange(app, node, 'rename', sandbox);
     if (confirmed === null) {
       return respondError(webview, 'nova:fs:rename', requestId, 'UNAVAILABLE', 'User confirmation is required to rename a shared file');
     }
@@ -2688,7 +2709,7 @@ const AppSandbox = (() => {
     if (!canMutateFile(node, app.id, sandbox)) {
       return respondError(webview, 'nova:fs:move', requestId, 'PERMISSION_DENIED', 'Move app-owned files directly; shared files must be selected by the user or require fs:access');
     }
-    const confirmed = confirmSharedFileChange(app, node, 'move');
+    const confirmed = confirmSharedFileChange(app, node, 'move', sandbox);
     if (confirmed === null) {
       return respondError(webview, 'nova:fs:move', requestId, 'UNAVAILABLE', 'User confirmation is required to move a shared file');
     }
@@ -3181,7 +3202,18 @@ const AppSandbox = (() => {
       return regAclDenied(app, parsed, 'write');
     }
     if (parsed.hive === 'HKNS') {
-      if (app.system !== true) return 'writing HKNS requires a system app';
+      // SECURITY (2026-11-15 audit, finding H4, defense in depth): the
+      // caller's `app` object used to be trusted on `system` alone. The
+      // launcher now derives that flag from the verified identity triple,
+      // but this gate is the system hive's last line of defense, so it
+      // re-asserts the same triple itself: a self-proclaimed system app
+      // (unsigned manifest with system:true) can never write HKNS, whatever
+      // path smuggled the flag through.
+      const trustedSystemApp = app.system === true
+        && app.verified === true
+        && app.signer === 'NovaByte System'
+        && app.manifest?.system === true;
+      if (!trustedSystemApp) return 'writing HKNS requires a trusted NovaByte System app';
       if (parsed.segments[0] === 'security') return 'HKNS/security is only writable with registry.system';
       return regAclDenied(app, parsed, 'write');
     }
@@ -4072,7 +4104,7 @@ const AppSandbox = (() => {
     }
   }
 
-  async function handleOpenUrl({ payload, requestId, webview }) {
+  async function handleOpenUrl({ payload, requestId, app, webview }) {
     let url;
     try {
       url = new URL(payload?.url);
@@ -4082,6 +4114,20 @@ const AppSandbox = (() => {
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
       return respondError(webview, 'nova:open-url', requestId, 'INVALID_ARGS', 'Only credential-free HTTP(S) links can be opened');
     }
+    // SECURITY (2026-11-15 audit, finding L2): this surface is deliberately
+    // ungated (user-mediated browser window), but unlike every comparable
+    // surface (app launch 30/min, share 5/min) it had NO rate limit — an
+    // unprivileged app could spawn unlimited browser windows, each a
+    // separate renderer process (memory-exhaustion DoS). Same 30/min
+    // sliding window the app-launch handler uses, shared map.
+    const now = Date.now();
+    const openTimes = (crossAppLaunchRateLimits.get(app.id) || []).filter(time => time > now - 60_000);
+    if (openTimes.length >= 30) {
+      crossAppLaunchRateLimits.set(app.id, openTimes);
+      return respondError(webview, 'nova:open-url', requestId, 'RATE_LIMITED', 'Max 30 browser windows per minute');
+    }
+    openTimes.push(now);
+    crossAppLaunchRateLimits.set(app.id, openTimes);
     if (typeof OS?.openUrl !== 'function') {
       return respondError(webview, 'nova:open-url', requestId, 'UNAVAILABLE', 'OS URL service not available');
     }
@@ -6439,6 +6485,38 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted(netPerm, app.id)) {
       return respondError(webview, 'nova:net:fetch', requestId, 'PERMISSION_DENIED', `${netPerm} permission required`);
     }
+    // SECURITY (2026-11-15 audit, finding H3): the internal branch below
+    // executes this fetch in the HOST page. Same-origin /api/ URLs would
+    // therefore ride the host's express-session cookie (the entire
+    // authenticated server surface — /api/email/*, /api/auth/*, the admin
+    // family), and the window.fetch wrapper installed by system-fetch.js
+    // signs EVERY same-origin /api fetch made in this document, so the
+    // server's isTrustedSystemAppRequest() would exempt these calls from the
+    // API rate limiters too. An app holding only net:internal could
+    // otherwise read the user's mailbox, send mail as them, and drive every
+    // cookie-authenticated route at unlimited rate — bypassing the mail:* /
+    // admin:* permission model the IPC bridge otherwise enforces (its own
+    // header comment says sandboxed apps' direct server calls stay
+    // rate-limited "by design").
+    //
+    // The one sanctioned same-origin /api surface is the app's own served
+    // bundle content (/api/apps/serve/<sandbox>/...) — public, per-sandbox,
+    // no authenticated server state — which keeps relative bundle fetches
+    // (fetch('manifest.json') inside a sandboxed app) working. Every other
+    // /api path must go through the permission-checked IPC handlers.
+    if (classified.isInternal) {
+      let sameOriginApiPath = null;
+      try {
+        const u = new URL(classified.url);
+        if (u.origin === window.location.origin && u.pathname.startsWith('/api/')) {
+          sameOriginApiPath = u.pathname;
+        }
+      } catch (_) { /* resolveAndClassifyUrl already validated the URL */ }
+      if (sameOriginApiPath && !sameOriginApiPath.startsWith('/api/apps/serve/')) {
+        return respondError(webview, 'nova:net:fetch', requestId, 'PERMISSION_DENIED',
+          'Direct access to host API routes is not available to apps — use the nova IPC bridge instead');
+      }
+    }
     StorageLedger.noteRequest(app.id);
     // Normalize headers to a plain object — apps can pass a Headers instance,
     // an array of pairs, or a plain object. Same conversion the shim does
@@ -6484,10 +6562,20 @@ const AppSandbox = (() => {
       if (classified.isInternal) {
         // Same-origin requests don't hit CORS, so go direct.
         Object.assign(headerObj, systemAppRateLimitHeaders(app));
+        // SECURITY (2026-11-15 audit, finding H3, cont.): credentials stay
+        // off this fetch so an app-directed request can never ambiently
+        // attach the host's session cookie. Cookie scoping ignores the port,
+        // so without this a request to any OTHER localhost service would
+        // also have transmitted the host's connect.sid — a cookie the app's
+        // JS can't read but the receiving process could capture and replay
+        // against the OS server as a fully authenticated session. The
+        // sanctioned internal targets (the app's own served bundle) need
+        // no cookies, so nothing legitimate loses anything.
         const res = await fetch(classified.url, {
           method: safeMethod,
           headers: headerObj,
           body: requestBody,
+          credentials: 'omit',
         });
         resStatus = res.status;
         resStatusText = res.statusText;
@@ -8760,7 +8848,12 @@ const AppSandbox = (() => {
       // object directly. Expose the username through the authenticated ready
       // handshake instead of leaving the guest-side compatibility facade at
       // its fallback value of `user`. Non-system apps do not receive it.
-      username: app.system === true ? OS?.username : undefined,
+      // SECURITY (2026-11-15 audit, finding H4, defense in depth): require
+      // the full identity triple, not the bare (manifest-forgeable) system
+      // flag — same posture as regWriteDeniedReason's HKNS gate.
+      username: (app.system === true && app.verified === true
+        && app.signer === 'NovaByte System' && app.manifest?.system === true)
+        ? OS?.username : undefined,
     };
     // Some apps (see the capability shim / createDefaultAppShell) read the
     // handshake fields directly off the top-level response object rather

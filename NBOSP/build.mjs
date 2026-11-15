@@ -37,7 +37,15 @@ const EXCLUDE_NAMES = new Set([
   ".build-stage",
   "build",
   "build.mjs",
-  "test"
+  "test",
+  // SECURITY (2026-11-15 audit, finding M14): root/ is the RUNTIME
+  // secrets store (app-secrets.js resolves process.cwd()/root — the live
+  // ciphertext lives there, and only the *.key extension filter stopped the
+  // master key file). It was never excluded, so every desktop bundle — and
+  // via build/linux-x64 the kiosk ISO — shipped the dev machine's store.
+  // gitignore gets the same entry so a real store never lands in a commit
+  // (AUDIT.md SEC-29's recommendation, never applied).
+  "root"
 ]);
 // Exact relative paths (from NBOSP root) to exclude — for files that share a
 // common name and shouldn't be blanket-excluded everywhere, only at this spot.
@@ -212,6 +220,49 @@ async function main() {
     fs.writeFileSync(stagedPkgPath, JSON.stringify(stagedPkg, null, 2));
     console.log(`Patched staged package.json window icon -> ${winIconRel} (Windows only)`);
   }
+
+  // SECURITY (2026-11-15 audit, findings MED-3/SEC-02 escalation): the staged
+  // package.json shipped the DEV manifest verbatim — "dev_tools": true plus
+  // chromium-args containing --remote-debugging-port=9222 (an unauthenticated
+  // CDP port on every end-user machine), --auto-open-devtools-for-tabs,
+  // --disable-web-security and --allow-file-access-from-files. Only
+  // window.icon was ever patched. Strip the dangerous flags for release
+  // builds; set NBOSP_KEEP_DEV_FLAGS=1 to keep them for local debugging.
+  if (process.env.NBOSP_KEEP_DEV_FLAGS !== "1") {
+    const stagedPkgPath = path.join(stageDir, "package.json");
+    const stagedPkg = JSON.parse(fs.readFileSync(stagedPkgPath, "utf8"));
+    const DEV_ONLY_FLAGS = [
+      "--remote-debugging-port=9222",
+      "--auto-open-devtools-for-tabs",
+      "--disable-web-security",
+      "--allow-file-access-from-files"
+    ];
+    let stripped = false;
+    if (stagedPkg.window?.["chromium-args"]) {
+      const kept = String(stagedPkg.window["chromium-args"])
+        .split(" ")
+        .filter((arg) => {
+          const drop = DEV_ONLY_FLAGS.some((flag) => arg.startsWith(flag));
+          if (drop) stripped = true;
+          return !drop && arg !== "";
+        });
+      // Rejoin plain args; preserve the quoted --js-flags form untouched (it
+      // was split on spaces, so rebuild by re-quoting any arg starting with
+      // --js-flags=" and missing its closing quote).
+      const rebuilt = kept
+        .map((arg) => (arg.startsWith('--js-flags="') && !arg.endsWith('"') ? `${arg}"` : arg))
+        .join(" ");
+      stagedPkg.window["chromium-args"] = rebuilt;
+    }
+    if (stagedPkg.window && stagedPkg.window.dev_tools === true) {
+      stagedPkg.window.dev_tools = false;
+      stripped = true;
+    }
+    if (stripped) {
+      fs.writeFileSync(stagedPkgPath, JSON.stringify(stagedPkg, null, 2));
+      console.log("Stripped dev-only chromium-args + dev_tools from staged package.json (release hardening)");
+    }
+  }
   // macOS/Linux keep the original PNG-based window.icon unpatched: Linux
   // already expects PNG (iconExt resolves to "png" there, so there'd be
   // nothing to change anyway), and whether NW.js's macOS runtime path even
@@ -268,10 +319,19 @@ async function main() {
   const icon = path.join(stageDir, "assets", `icon.${iconExt}`);
 
   console.log(`Building ${def.platform}-${def.arch}...`);
+  // SECURITY (2026-11-15 audit, finding MED-3): release bundles used to ship
+  // the NW.js SDK flavor — the devtools-enabled runtime — which compounds
+  // the dev chromium-args above (only the kiosk compensated, with
+  // --disable-devtools). "regular" is the production runtime; keep "sdk"
+  // available behind NBOSP_NW_FLAVOR=sdk for local debugging builds.
+  const nwFlavor = process.env.NBOSP_NW_FLAVOR === "sdk" ? "sdk" : "regular";
+  if (nwFlavor === "sdk") {
+    console.warn("[build] NBOSP_NW_FLAVOR=sdk — building the DEV runtime; do not ship this bundle.");
+  }
   await nwbuild({
     mode: "build",
     version: nwVersion,
-    flavor: "sdk",
+    flavor: nwFlavor,
     srcDir: stageDir,
     glob: false,
     platform: def.platform,

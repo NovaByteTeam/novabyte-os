@@ -1057,6 +1057,7 @@
         "noPathBody": "另存为未返回文件路径。",
         "tooManyRedirects": "重定向太多",
         "unsupportedRedirect": "不支持重定向",
+        "localAddressBlocked": "无法下载本地及内部网络地址。",
         "interrupted": "下载响应被中断",
         "closedEarly": "下载文件在完成之前已关闭",
         "timedOut": "连接超时",

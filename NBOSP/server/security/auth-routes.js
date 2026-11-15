@@ -121,6 +121,32 @@ function establishSession(req, res, account, cb) {
     });
 }
 
+/** Role gate for WebAuthn enrollment (2026-11-15 audit, finding M3).
+ *
+ * The routes' own comments always described self-enrollment ("Admins may
+ * enroll on behalf of another account; self-enrollment for standard
+ * users is their own uid") — but both register routes were gated by
+ * requireAdminRole, so a standard user could never reach them and could
+ * never enroll their own authenticator (only an admin could enroll one
+ * FOR them, which is not the documented flow and leaves standard users
+ * without passwordless login). This gate allows any active, non-suspended,
+ * non-locked signed-in session; enrolling for ANOTHER account still
+ * requires the admin family (checked per-route against the requested
+ * target uid). */
+function requireActiveSession(req, res, next) {
+    const s = req.session || {};
+    if (!s.uid) {
+        return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', message: 'Sign in first' });
+    }
+    if (s.suspended) {
+        return res.status(403).json({ success: false, code: 'SESSION_SUSPENDED', message: 'This session is suspended — resume it first' });
+    }
+    if (s.lockedAt) {
+        return res.status(403).json({ success: false, code: 'SESSION_LOCKED', message: 'This session is locked — unlock it first' });
+    }
+    next();
+}
+
 /** Role gate for the admin family — re-checked on every route. */
 function requireAdminRole(req, res, next) {
     const s = req.session || {};
@@ -156,15 +182,26 @@ function actorUid(req) {
 
 // Picker account list: public-safe fields only — no credential material,
 // no last-login, no quota. Tiles render from this.
+// SECURITY (2026-11-15 audit, finding M2): the showUsernamesOnPicker
+// policy was previously enforced only client-side — the UI hid the
+// usernames, but the raw JSON still carried them, so any local HTTP
+// caller could enumerate account names regardless of the policy. The
+// server now redacts usernames (and falls back to a derived display
+// label) whenever the policy is off, so the wire response honours the
+// policy the same way the rendered picker does.
 router.get('/users', (req, res) => {
     const policies = usersDb.getPolicyBlock();
+    const showUsernames = !!policies.showUsernamesOnPicker;
+    const users = usersDb.listPublicUsers().map(user => showUsernames
+        ? user
+        : { ...user, username: undefined });
     res.json({
         success: true,
         data: {
-            users: usersDb.listPublicUsers(),
+            users,
             policies: {
                 guestAccess: !!policies.guestAccess,
-                showUsernames: !!policies.showUsernamesOnPicker,
+                showUsernames,
             },
         },
     });
@@ -569,11 +606,15 @@ function verifyAssertionSignature({ alg, publicKeyJwk, authenticatorDataB64u, cl
 }
 
 // Registration, step 1: challenge + user entity + policy.
-router.post('/webauthn/register/options', requireAdminRole, (req, res) => {
+router.post('/webauthn/register/options', requireActiveSession, (req, res) => {
     // Admins may enroll on behalf of another account; self-enrollment for
     // standard users is their own uid.
     let targetUid = req.session.uid;
-    if (typeof req.body?.uid === 'string' && req.body.uid && usersDb.ADMIN_ROLES.has(req.session.role)) {
+    if (typeof req.body?.uid === 'string' && req.body.uid && req.body.uid !== req.session.uid) {
+        // Enrolling for someone else is the admin-only path.
+        if (!usersDb.ADMIN_ROLES.has(req.session.role)) {
+            return res.status(403).json({ success: false, code: 'ADMIN_REQUIRED', message: 'Only administrators may enroll authenticators for another account' });
+        }
         targetUid = req.body.uid;
     }
     const user = usersDb.getUser(targetUid);
@@ -607,7 +648,7 @@ router.post('/webauthn/register/options', requireAdminRole, (req, res) => {
 });
 
 // Registration, step 2: verify clientData + store the public key.
-router.post('/webauthn/register/finish', requireAdminRole, (req, res) => {
+router.post('/webauthn/register/finish', requireActiveSession, (req, res) => {
     const { credentialId, publicKey, alg, clientDataJSON, label } = req.body || {};
     if (typeof credentialId !== 'string' || !credentialId || !Array.isArray(publicKey) || typeof clientDataJSON !== 'string') {
         return res.status(400).json({ success: false, code: 'INVALID_ARGS', message: 'credentialId, publicKey and clientDataJSON are required' });
@@ -619,6 +660,11 @@ router.post('/webauthn/register/finish', requireAdminRole, (req, res) => {
     const entry = takeChallenge(json.challenge, 'register');
     if (!entry) {
         return res.status(400).json({ success: false, code: 'WEBAUTHN_INVALID', message: 'Unknown or expired challenge' });
+    }
+    // Self-enrollment: the challenge must belong to this session's account
+    // unless the session is admin-tier (admin-enrolls-for-other flow).
+    if (entry.uid !== req.session.uid && !usersDb.ADMIN_ROLES.has(req.session.role)) {
+        return res.status(403).json({ success: false, code: 'ADMIN_REQUIRED', message: 'Only administrators may enroll authenticators for another account' });
     }
     const jwk = coseToJwk(publicKey);
     if (!jwk) {
@@ -710,6 +756,24 @@ router.post('/webauthn/login/finish', (req, res) => {
     }
     // Sign counter: monotonic per credential — a regression means a clone.
     const authData = Buffer.from(authenticatorData, 'base64url');
+    // SECURITY (2026-11-15 audit, finding M3b): verify the authenticator's
+    // RP ID hash — the first 32 bytes of authenticatorData must be
+    // sha256(rpId). The clientDataJSON origin check already constrains the
+    // request to our allowed origins, but the RP ID hash is what binds the
+    // assertion to THIS relying party per the WebAuthn spec; every reference
+    // implementation verifies it, and skipping it means a credential whose
+    // authData attests a different rpId would still verify if its key
+    // happened to sign our message. authData shorter than 32 bytes cannot
+    // carry a hash at all — reject those outright too.
+    if (authData.length < 37) {
+        return res.status(400).json({ success: false, code: 'WEBAUTHN_INVALID', message: 'Authenticator data too short' });
+    }
+    const expectedRpIdHash = crypto.createHash('sha256').update('localhost').digest();
+    const actualRpIdHash = authData.subarray(0, 32);
+    if (!crypto.timingSafeEqual(actualRpIdHash, expectedRpIdHash)) {
+        usersDb.logEvent(uid, 'auth.webauthn.rpid', usersDb.getUser(uid)?.username || uid, 'warn', null);
+        return res.status(401).json({ success: false, code: 'WEBAUTHN_INVALID', message: 'Authenticator data RP ID hash mismatch' });
+    }
     const counter = authData.length >= 37 ? authData.readUInt32BE(authData.length - 4) : 0;
     if (counter > 0 && counter <= (credential.sign_count || 0)) {
         usersDb.logEvent(uid, 'auth.webauthn.clone', usersDb.getUser(uid)?.username || uid, 'error', { credentialId: credentialId.slice(0, 12) + '…' });

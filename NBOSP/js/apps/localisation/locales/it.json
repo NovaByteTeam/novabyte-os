@@ -1057,6 +1057,7 @@
         "noPathBody": "Salva con nome non ha restituito un percorso file.",
         "tooManyRedirects": "Troppi reindirizzamenti",
         "unsupportedRedirect": "Reindirizzamento non supportato",
+        "localAddressBlocked": "Gli indirizzi locali e di rete interna non possono essere scaricati.",
         "interrupted": "La risposta al download è stata interrotta",
         "closedEarly": "Il file di download è stato chiuso prima del completamento",
         "timedOut": "Connessione scaduta",

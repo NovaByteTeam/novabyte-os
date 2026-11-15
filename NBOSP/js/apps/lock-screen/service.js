@@ -540,6 +540,16 @@ async function showLoginPicker() {
   const manager = sessionManager();
   if (!manager) return;
 
+  // BUG (2026-11-15 audit, finding M10): a guest (or active) session must
+  // never have the picker re-activated over it. showLoginPicker() is async
+  // and suspends on listAccounts(); when it resumes it used to rebuild the
+  // gate unconditionally, even when the session it was invoked for had
+  // already been replaced by a successful sign-in. Bail here instead.
+  try {
+    const st = manager.state?.();
+    if (st && (st.status === 'guest' || st.status === 'active')) return;
+  } catch (_) { /* state() unavailable in tests — keep legacy behaviour */ }
+
   surface = 'picker';
   sheetAccount = null;
   sheetResumable = false;
@@ -996,7 +1006,13 @@ try {
       if (surface !== 'forced-pin') unlockFromLockScreen();
       setupRapidCloses = 0;
     }
-    if (event?.name === 'session:loggedout' || (event?.name === 'session:changed' && event.uid === null && event.phase !== 'picker' && event.phase !== 'setup')) {
+    if (event?.name === 'session:loggedout' || (event?.name === 'session:changed' && event.uid === null && event.phase !== 'picker' && event.phase !== 'setup' && event.phase !== 'guest')) {
+      // BUG (2026-11-15 audit, finding M10): guestLogin()'s session:changed
+      // (uid:null, no phase) used to match this "signed out" condition, so
+      // the picker re-appeared over every live guest session. The emit now
+      // carries phase:'guest' (excluded above) — and showLoginPicker()
+      // itself re-checks the session state, so any future event-shape
+      // regression cannot resurrect the gate over an active/guest desktop.
       showLoginPicker().catch(() => { });
     }
   });

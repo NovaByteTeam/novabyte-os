@@ -287,7 +287,15 @@
         }
       }
     }, 2000);
-    setTimeout(() => clearInterval(interval), 300_000);
+    // BUG (2026-11-15 audit, finding M5): this interval used to be cleared
+    // after 300 seconds, so any web app installed LATER than five minutes
+    // after boot never got its init() wrapped — no launch-time prompts for
+    // the device trio, no auto-grant of the low-risk net permissions —
+    // making the permission gate depend on install time. The diff is a
+    // keyed Set comparison every 2 s (no allocation per tick beyond the
+    // Object.entries view), so keeping it alive for the session is cheap;
+    // it is also unref-equivalent in the page context (timers do not block
+    // anything here). Removing the cutoff makes the gate time-independent.
   }
 
   // Expose permission map for Settings UI

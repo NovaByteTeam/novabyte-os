@@ -231,7 +231,14 @@ const NovaRegFile = (() => {
         }
         section = root;
         for (const seg of segments.slice(rootSegments.length)) {
-          if (!section.keys[seg]) section.keys[seg] = { keys: {}, values: {} };
+          // SECURITY (2026-11-15 audit, finding M2): '__proto__' etc. would
+          // resolve section.keys['__proto__'] to Object.prototype (truthy)
+          // and land the parser on a foreign object. Same reserved-name rule
+          // as NovaRegistry.parsePath.
+          if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') {
+            throw regError('INVALID_VALUE', `line ${no}: key name '${seg}' is reserved`);
+          }
+          if (!Object.hasOwn(section.keys, seg)) section.keys[seg] = { keys: {}, values: {} };
           section = section.keys[seg];
         }
         continue;
@@ -242,6 +249,9 @@ const NovaRegFile = (() => {
         const name = line.slice(1, eq).trim();
         const target = line.slice(eq + 1).trim().replace(/\\+/g, '/');
         if (!name || !target) throw regError('INVALID_VALUE', `line ${no}: link needs a name and a target`);
+        if (name === '__proto__' || name === 'constructor' || name === 'prototype') {
+          throw regError('INVALID_VALUE', `line ${no}: link name '${name}' is reserved`);
+        }
         section.keys[name] = { keys: {}, values: {}, link: target };
         continue;
       }
@@ -264,6 +274,9 @@ const NovaRegFile = (() => {
         throw regError('INVALID_VALUE', `line ${no}: expected a section, @, quoted name, or link`);
       }
       try {
+        if (name === '__proto__' || name === 'constructor' || name === 'prototype') {
+          throw regError('INVALID_VALUE', `line ${no}: value name '${name}' is reserved`);
+        }
         section.values[name] = parseValueLine(name, rest);
       } catch (err) {
         if (err && /line \d+/.test(err.message)) throw err;

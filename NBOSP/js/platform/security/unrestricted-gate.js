@@ -60,21 +60,80 @@ const UnrestrictedGate = (() => {
    * that only have an appId (AppPermissionManager.isGranted, below) can
    * consult it without plumbing app records around.
    *
-   * The verified/signer flags this reads were themselves set by install-time
-   * and boot-time verification against the trust store, so this transitively
-   * inherits all of that cryptography — nothing here re-trusts anything on
-   * its own say-so. Fail-closed on any missing piece.
+   * SECURITY (2026-11-15 audit, finding M7): this path previously checked
+   * ONLY the install-time registry flags, contradicting the header
+   * contract (conditions 3+4, "re-checked live on every call") — a package
+   * tampered after install kept its all-permissions status forever, and a
+   * trust-store revocation never touched OS.apps[id].verified. The call now
+   * also enforces, synchronously:
+   *   * provenance — entry.source must be 'system-bundle' (same rule
+   *     checkUnrestrictedApp applies; nothing user-installed qualifies);
+   *   * presence of an integrity record — a first-party system package
+   *     has no legitimate reason to omit one;
+   *   * live trust-store revocation of the entry's signature;
+   *   * first-party manifest membership once the manifest has loaded (it
+   *     is pre-warmed at module load; the membership leg is not enforced
+   *     during the pre-load window so boot-order stays stable — every
+   *     other condition must still hold).
+   * And asynchronously, throttled: the integrity hash is re-verified in
+   * the background; a failure flips a sticky kill-switch that fails every
+   * subsequent check until reload — the same "tampered-since-install loses
+   * access immediately" posture the gate's own header promises.
    */
+  let _settingsTamperFlag = false;
+  let _settingsIntegrityProbeAt = 0;
+
+  function _probeSettingsIntegrityThrottled(entry) {
+    const now = Date.now();
+    if (now - _settingsIntegrityProbeAt < 30_000) return;
+    _settingsIntegrityProbeAt = now;
+    // Only probe when verification is actually possible; an absent
+    // AppPackage yields no new signal, so the identity fields above remain
+    // the guard rather than manufacturing a false tamper flag.
+    if (typeof AppPackage === 'undefined' || typeof AppPackage.verifyIntegrity !== 'function') return;
+    _integrityStillHolds(entry).then(ok => {
+      if (!ok && !_settingsTamperFlag) {
+        console.error('[UnrestrictedGate] Settings package failed its call-time integrity re-check — unrestricted access revoked for this session.');
+      }
+      _settingsTamperFlag = _settingsTamperFlag || !ok;
+    }).catch(() => { /* _integrityStillHolds already fails closed on throw */ });
+  }
+
   function isTrustedSettingsAppById(appId) {
     if (appId !== SETTINGS_APP_ID) return false;
+    if (_settingsTamperFlag) return false;
     const entry = (typeof OS !== 'undefined' && OS.apps && OS.apps[appId]) || null;
-    return !!(
+    if (!(
       entry &&
       entry.system === true &&
       entry.verified === true &&
       entry.signer === 'NovaByte System' &&
       entry.manifest?.system === true
-    );
+    )) return false;
+    // Provenance: bundled first-party package, never a user install.
+    if (entry.source !== 'system-bundle') return false;
+    // First-party system packages must carry an integrity record.
+    if (!entry.integrity) return false;
+    // Live revocation: a signature added to the trust store's revoked list
+    // must cut this off immediately, not at next boot.
+    try {
+      if (typeof TrustStore !== 'undefined' && typeof TrustStore.isRevoked === 'function'
+        && entry.signature && TrustStore.isRevoked(entry.signature)) {
+        return false;
+      }
+    } catch (_) { /* TrustStore read failure: the identity fields above still gate */ }
+    // First-party manifest membership (enforced once the manifest has loaded).
+    if (_firstPartyIdsCache && !_firstPartyIdsCache.has(appId)) return false;
+    // Background integrity re-verification (throttled).
+    _probeSettingsIntegrityThrottled(entry);
+    return true;
+  }
+
+  // Pre-warm the first-party manifest as early as possible so the
+  // membership leg of isTrustedSettingsAppById is enforced for essentially
+  // the whole session, not just after the first nova:system:* call.
+  if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+    window.setTimeout(() => { _getFirstPartyAppIds(); }, 0);
   }
 
   // Cached the same way the App Manager package's install-time impersonation check

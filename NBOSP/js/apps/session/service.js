@@ -447,7 +447,15 @@
     // Guests now mount their own volatile tree/hives/app roots through the
     // same sequence every other session uses.
     await mountUserScope({ uid: 'guest', username: '', role: 'guest' }, { volatile: true });
-    emit('session:changed', { uid: null, role: 'guest', via: 'guest' });
+    // BUG (2026-11-15 audit, finding M10): this event carries uid:null and
+    // no phase, and the lock screen's listener treats exactly that shape as
+    // "user signed out" — so the login picker re-appeared over every guest
+    // session (the listener resumes after its await listAccounts(), by which
+    // time unlockFromLockScreen() has already torn the gate down, and it
+    // re-appends the picker + re-activates the lock screen over the live
+    // guest desktop; every retry re-runs the full mountUserScope). The
+    // phase discriminator keeps the picker down for guest sign-in.
+    emit('session:changed', { uid: null, role: 'guest', via: 'guest', phase: 'guest' });
     return { ok: true, guest: true };
   }
 

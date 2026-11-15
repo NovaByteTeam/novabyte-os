@@ -107,7 +107,10 @@ describe('server/security/auth-routes.js — /api/auth family', () => {
 
   it('POST /login verifies the PIN server-side; a bad secret is a normal outcome (200 + code), not an HTTP error', async () => {
     const users = (await request(app).get('/api/auth/users')).body.data.users;
-    const owner = users.find(u => u.username === 'ada');
+    // showUsernamesOnPicker defaults to false, and the 2026-11-15 fix makes
+    // the server honour it on the wire — the picker list carries no
+    // username field at all in that mode (displayName is always present).
+    const owner = users.find(u => u.displayName === 'Ada');
 
     const bad = await request(app).post('/api/auth/login').send({ uid: owner.uid, secret: '999999' });
     // Credential outcomes ride HTTP 200 with success:false + a machine code —
@@ -152,6 +155,10 @@ describe('server/security/auth-routes.js — /api/auth family', () => {
       expect(user).not.toHaveProperty('lastLoginAt');
     }
     const admin = (await request(app).get('/api/auth/admin/users').set(authHeaders(ownerSession))).body.data.users;
+    // 2026-11-15 fix (finding M2): with showUsernamesOnPicker=false (the
+    // default), the public picker list must not carry usernames at all —
+    // the policy is enforced server-side now, not just by the rendered UI.
+    expect(pub.every(u => u.username === undefined)).toBe(true);
     expect(admin.some(u => u.username === 'sam')).toBe(true);
     expect(admin.every(u => 'lastLoginAt' in u && 'quotaBytes' in u)).toBe(true);
   });
@@ -187,7 +194,7 @@ describe('server/security/auth-routes.js — /api/auth family', () => {
   it('force-logout revokes a user\u2019s sessions from the express-session store', async () => {
     const login = await request(app).post('/api/auth/login').send({ username: 'sam', secret: '4321' });
     const users = (await request(app).get('/api/auth/users')).body.data.users;
-    const sam = users.find(u => u.username === 'sam');
+    const sam = users.find(u => u.displayName === 'Sam');
     const sid = login.body.data.sessionId;
 
     // The real revoker deletes express-session rows from sessions.db —
@@ -209,7 +216,7 @@ describe('server/security/auth-routes.js — /api/auth family', () => {
 
   it('credential reset: temporary PIN authenticates once, forces mustChangePin; change-pin clears it', async () => {
     const users = (await request(app).get('/api/auth/users')).body.data.users;
-    const sam = users.find(u => u.username === 'sam');
+    const sam = users.find(u => u.displayName === 'Sam');
     const reset = await request(app).post(`/api/auth/admin/users/${sam.uid}/reset-credential`).set(authHeaders(ownerSession));
     expect(reset.status).toBe(200);
     const temporaryPin = reset.body.data.temporaryPin;

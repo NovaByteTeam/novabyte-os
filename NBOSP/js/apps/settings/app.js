@@ -1678,7 +1678,23 @@ registerApp({
         if (wipeConfirm !== 'wipe') return;
         Notify.show({ title: _t('settings.storage.wiping'), body: _t('settings.storage.wipingBody'), type: 'warning', appName: 'Settings' });
         try {
-          await window.performFactoryReset();
+          // BUG (2026-11-15 audit, finding L2 / AUDIT.md SEC-05): this called
+          // window.performFactoryReset() — a function that does not exist
+          // anywhere (grep: only NovaFactoryReset does). "Wipe All Data"
+          // always threw before wiping anything; the fixed Linux runtime
+          // reset in js/core/services/factory-reset.js was never wired up.
+          // Call it through its real global, and surface a clear error on
+          // non-Linux runtimes (where it deliberately returns false) instead
+          // of silently doing nothing.
+          if (typeof window.NovaFactoryReset !== 'undefined'
+            && typeof window.NovaFactoryReset.performLinuxFactoryReset === 'function') {
+            const wiped = await window.NovaFactoryReset.performLinuxFactoryReset();
+            if (!wiped) {
+              throw new Error('Factory reset is only available on the NBOSP Linux runtime (/home/nbosp)');
+            }
+          } else {
+            throw new Error('Factory reset service is unavailable');
+          }
         } catch (err) {
           devLog('Factory reset failed:', err);
           if (isAlive()) Notify.show({ title: _t('settings.storage.resetFailed'), body: err.message, type: 'error', appName: 'Settings' });
@@ -3449,7 +3465,7 @@ registerApp({
       secRowLeft.appendChild(createEl('span', { textContent: _t('settings.about.securityPatchLevel'), style: 'color:var(--text-secondary);' }));
       secRow.appendChild(secRowLeft);
       const secRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
-      const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;', textContent: '\uD83D\uDD12 ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-12') });
+      const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;', textContent: '\uD83D\uDD12 ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-15') });
       secRowRight.appendChild(secBadge);
       secRow.appendChild(secRowRight);
       swRows.appendChild(secRow);
@@ -3534,7 +3550,7 @@ registerApp({
           'Operating System: ' + linuxInfo.distribution,
           'Linux Kernel: ' + linuxInfo.kernel,
           'Architecture: ' + linuxInfo.architecture,
-          'Security Update: ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-12'),
+          'Security Update: ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-15'),
           'Platform Signature: ' + ((typeof TrustStore !== 'undefined' && TrustStore?.systemSignatureTier) ? TrustStore.systemSignatureTier() : 'test-keys'),
           'Browser: '   + detectBrowser(),
           'Platform: '  + navigator.platform,

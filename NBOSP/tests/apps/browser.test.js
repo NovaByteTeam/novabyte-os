@@ -12,7 +12,7 @@ import nodeFs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import nodeHttp from 'node:http';
 import nodePath from 'node:path';
-import nodeHttps from 'node:https';
+
 import nodeCrypto from 'node:crypto';
 
 // The real host svgIcon (from js/core/utils/base-utils.js, loaded by the
@@ -128,6 +128,19 @@ describe('Browser app (js/apps/browser)', () => {
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 
+    // 2026-11-15 fix (finding M11): saveDownloadViaDialog now refuses
+    // local-address download URLs (same policy navigate() already enforces).
+    // To keep exercising the REAL captured-header network flow, the app is
+    // handed a transport whose public example hostname resolves to this
+    // test's loopback server — the app still builds and forwards headers for
+    // the original URL, only the socket is remapped.
+    const publicToLoopback = (url) => (typeof url === 'string'
+      ? url.replace(/^https:\/\/public\.example\.test/, `http://127.0.0.1:${server.address().port}`)
+      : url);
+    const transport = {
+      get: (url, options, callback) => nodeHttp.get(publicToLoopback(url), options, callback),
+    };
+
     const outputPrefix = `.browser-download-${nodeCrypto.randomUUID()}`;
     const outputFor = (name) => nodePath.join(process.cwd(), 'tests', outputPrefix + '-' + name);
     const httpFile = outputFor('http.bin');
@@ -141,13 +154,14 @@ describe('Browser app (js/apps/browser)', () => {
             Notify: notifications,
             Downloads: downloads,
             Buffer: { from: (...args) => Buffer.from(...args) },
-            require: (name) => ({
-              fs: nodeFs,
-              http: nodeHttp,
-              https: nodeHttps,
-              crypto: nodeCrypto,
-              path: nodePath,
-            })[name],
+            require: (name) => {
+              if (name === 'https' || name === 'http') return transport;
+              return ({
+                fs: nodeFs,
+                crypto: nodeCrypto,
+                path: nodePath,
+              })[name];
+            },
             SystemDialogs: {
               save: async ({ suggestedName }) => {
                 const filePath = suggestedName === 'data.txt' ? dataFile : httpFile;
@@ -177,7 +191,7 @@ describe('Browser app (js/apps/browser)', () => {
       };
       webview.dispatchEvent(new window.Event('loadcommit'));
 
-      const url = `http://127.0.0.1:${server.address().port}/protected.bin`;
+      const url = 'https://public.example.test/protected.bin';
       listeners.beforeSendHeaders({
         url,
         type: 'other',
@@ -217,6 +231,23 @@ describe('Browser app (js/apps/browser)', () => {
       expect(await fsPromises.readFile(dataFile, 'utf8')).toBe('Hello data');
       expect(savedPaths.has('protected.bin')).toBe(true);
       expect(notifications.calls.some((item) => item.title === 'Download complete')).toBe(true);
+
+      // 2026-11-15 fix (finding M11): a download aimed at a local/internal
+      // address is refused before any fetch — guest content must not be able
+      // to make the trusted host stream internal-server responses to disk.
+      const localPermission = new window.Event('permissionrequest');
+      Object.defineProperties(localPermission, {
+        permission: { value: 'download' },
+        request: {
+          value: { url: `http://127.0.0.1:${server.address().port}/internal.bin`, filename: 'internal.bin', deny() {}, allow() {} },
+        },
+      });
+      webview.dispatchEvent(localPermission);
+      await settle(50);
+      const blocked = notifications.calls.find((item) => item.title === 'Download failed');
+      expect(blocked).toBeTruthy();
+      expect(blocked.body.toLowerCase()).toContain('local');
+      expect(savedPaths.has('internal.bin')).toBe(false);
     } finally {
       await Promise.all([
         fsPromises.rm(httpFile, { force: true }),

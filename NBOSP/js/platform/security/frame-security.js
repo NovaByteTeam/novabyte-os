@@ -226,6 +226,14 @@
     const frameType = getFrameType(iframe);
     const iframeUrl = iframe.src || '';
     const hasSandbox = hasSandboxAttribute(iframe);
+    // SECURITY (2026-11-15 audit, finding M9): srcdoc and src-less frames
+    // used to escape validation entirely — the `else if (iframeUrl)` branch
+    // only fired for frames with a src, so an attacker with DOM write
+    // access could insert <iframe srcdoc="<script>…"> (or an about:blank
+    // frame) that reported VALID with no sandbox/nwdisable at all. In
+    // NW.js, same-origin/srcdoc content without nwdisable inherits Node
+    // access — precisely this module's threat model (see header).
+    const hasSrcdoc = !!(iframe.hasAttribute && typeof iframe.hasAttribute === 'function' && iframe.hasAttribute('srcdoc'));
 
     if (frameType === 'node') {
       // Node frames must NOT be sandboxed — the sandbox would block
@@ -233,10 +241,11 @@
       if (hasSandbox) {
         issues.push('Node frame should not have sandbox restrictions');
       }
-    } else if (iframeUrl) {
-      // Normal frames with a src must be sandboxed. nwdisable alone
-      // is not enough — it blocks Node.js access but does not restrict
-      // script execution, so a third-party script could still run.
+    } else if (iframeUrl || hasSrcdoc) {
+      // Normal frames with a src (or srcdoc content) must be sandboxed.
+      // nwdisable alone is not enough — it blocks Node.js access but does
+      // not restrict script execution, so a third-party script could
+      // still run.
       if (!hasSandbox) {
         if (hasNwDisable(iframe)) {
           issues.push('nwdisable frame has no sandbox — scripts run unrestricted');
@@ -249,6 +258,19 @@
         // via parent.document, removing all restrictions.
         issues.push('Sandbox includes allow-same-origin — sandbox escape risk');
       }
+    } else {
+      // Source-less (about:blank) frame: it inherits the EMBEDDING
+      // origin, and in NW.js that means Node access unless nwdisable is
+      // present. A bare <iframe> with no attributes at all was previously
+      // reported as valid.
+      if (!hasSandbox && !hasNwDisable(iframe)) {
+        issues.push('Source-less frame must carry sandbox and nwdisable — it inherits the embedding origin (and its Node access in NW.js) otherwise');
+      }
+    }
+
+    // A srcdoc frame must never keep Node access, whatever its src says.
+    if (hasSrcdoc && !hasNwDisable(iframe)) {
+      issues.push('srcdoc frame must carry nwdisable — srcdoc content executes in this origin without it');
     }
 
     return { valid: issues.length === 0, frameType, issues };
@@ -617,10 +639,13 @@
 
     const root = document.documentElement;
     if (!root) {
-      // Document not ready — retry on DOMContentLoaded. Wrapped to
-      // drop the event arg so startObserver doesn't misinterpret it
-      // as an options bag.
-      document.addEventListener('DOMContentLoaded', () => startObserver({}), {
+      // Document not ready — retry on DOMContentLoaded, forwarding the
+      // CALLER's options (2026-11-15 audit, finding M9: the retry used to
+      // call startObserver({}), silently downgrading an autoSecurify:true
+      // request to audit-only mode whenever boot raced DOM readiness).
+      // The handler is still wrapped so the event object itself never
+      // reaches startObserver as an options bag.
+      document.addEventListener('DOMContentLoaded', () => startObserver({ autoSecurify, mode, exclude }), {
         once: true,
       });
       return;
@@ -644,10 +669,12 @@
           mutation.target &&
           mutation.target.tagName === 'IFRAME'
         ) {
-          // src / nwdisable / sandbox changed on an existing iframe.
-          // The original observer missed this — an attacker could
-          // swap an iframe's src to a node-remote URL after the boot
-          // audit and never be flagged.
+          // src / nwdisable / sandbox (and srcdoc — 2026-11-15 audit,
+          // finding M9: an attacker could retrofit srcdoc onto an
+          // already-"validated" frame and the observer never fired)
+          // changed on an existing iframe. The original observer missed
+          // this — an attacker could swap an iframe's src to a
+          // node-remote URL after the boot audit and never be flagged.
           scheduleValidation(mutation.target);
         }
       }
@@ -657,7 +684,7 @@
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['src', 'nwdisable', 'sandbox'],
+      attributeFilter: ['src', 'nwdisable', 'sandbox', 'srcdoc'],
     });
   }
 

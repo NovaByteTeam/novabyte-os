@@ -15,7 +15,13 @@ case "$1" in
     mounted /sys || mount -t sysfs sysfs /sys
     mounted /dev/pts || mount -t devpts -o gid=5,mode=620,noexec,nosuid devpts /dev/pts
     mounted /dev/shm || mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /dev/shm
-    mounted /tmp || mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp
+    # SECURITY (2026-11-15 audit, finding LOW-12): /tmp gains noexec. It kept
+    # nosuid,nodev but executables dropped there could still be executed —
+    # the standard drop-and-execute staging area the moment sudo is ever
+    # narrowed from the current blanket rule. Nothing in the OS needs to
+    # execute from /tmp (X sockets live in /tmp/.X11-unix, which is a socket
+    # dir, not a binary dir).
+    mounted /tmp || mount -t tmpfs -o mode=1777,nosuid,nodev,noexec tmpfs /tmp
     mounted /run || mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
     chmod 1777 /tmp /dev/shm
     mkdir -p /run/lock/subsys /var/lock/subsys

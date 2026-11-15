@@ -10,7 +10,8 @@ describe('NBOSP VMware kiosk device configuration', () => {
     const procMount = 'mounted /proc || mount -t proc proc /proc';
     const sysfsMount = 'mounted /sys || mount -t sysfs sysfs /sys';
     const deviceMount = 'mounted /dev/pts || mount -t devpts';
-    const tmpMount = 'mounted /tmp || mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp';
+    // 2026-11-15 fix (finding LOW-12): /tmp gains noexec.
+    const tmpMount = 'mounted /tmp || mount -t tmpfs -o mode=1777,nosuid,nodev,noexec tmpfs /tmp';
 
     expect(mounts).toContain('mkdir -p /proc /sys /dev/pts /dev/shm /tmp /run');
     expect(mounts.indexOf(procMount)).toBeGreaterThanOrEqual(0);

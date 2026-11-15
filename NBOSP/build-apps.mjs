@@ -486,6 +486,17 @@ async function buildOne(
     pkg.manifest.id ??
     appDirName;
 
+  // SECURITY (2026-11-15 audit, finding LOW-8): the manifest id is
+  // package-controlled and flows into the output filename and the
+  // novaapp-manifest registry. A manifest with "id": "../../evil" wrote the
+  // signed package outside js/apps (and planted a traversal path in the
+  // registry list). The install-time validator was never applied here.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(appId)) || String(appId).includes('..')) {
+    throw new Error(
+      `Invalid app id in ${manifestPath}: ${JSON.stringify(appId)} — must be [A-Za-z0-9._-] with no path separators or traversal`
+    );
+  }
+
   /*
    * Sign the package before writing it. Every build signs now — default
    * builds with the committed AOSP-style test pair (tier 'test'), env-

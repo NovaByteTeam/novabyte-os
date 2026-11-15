@@ -953,24 +953,39 @@ async function startConfiguredHomeApp() {
       // Bundled system packages are re-trusted by provenance, but integrity
       // still has to match the package before the trusted runtime metadata is
       // restored. A modified bundle therefore cannot become unrestricted.
-      try {
-        const ok = !appData.integrity || await AppPackage.verifyIntegrity({
-          novabyte_app: appData.novabyte_app,
-          manifest: appData.manifest,
-          files: appData.files || {},
-          compiled_at: appData.compiled_at,
-          integrity: appData.integrity,
-        });
-        if (ok) {
-          appData.verified = true;
-          appData.signer = 'NovaByte System';
-          appData.revoked = false;
-          appData.tampered = false;
-          appData.system = true;
-          return { changed: true, app: appData };
+      // SECURITY (2026-11-15 audit, finding M1): a record with NO integrity
+      // block used to be unconditionally re-trusted (`!appData.integrity ||`
+      // short-circuit) — and this path deliberately bypasses
+      // AppRegistry.registerApp(), so the F2 system-bundle downgrade never
+      // saw these records either. Combined with a fabricated registry entry
+      // (HKNS/apps/installed write) that meant "system:true + no integrity"
+      // re-materialized as verified/NovaByte System on every boot. A
+      // first-party system package always carries an integrity record
+      // (build-apps.mjs stamps one) — its absence is proof the record did
+      // not come from the build, so refuse to restore trust and let the
+      // record stand as the unverified row it effectively is.
+      if (!appData.integrity) {
+        console.warn('[BOOT] Bundled system record for', appData.id, 'has no integrity block — refusing to restore NovaByte System trust.');
+      } else {
+        try {
+          const ok = await AppPackage.verifyIntegrity({
+            novabyte_app: appData.novabyte_app,
+            manifest: appData.manifest,
+            files: appData.files || {},
+            compiled_at: appData.compiled_at,
+            integrity: appData.integrity,
+          });
+          if (ok) {
+            appData.verified = true;
+            appData.signer = 'NovaByte System';
+            appData.revoked = false;
+            appData.tampered = false;
+            appData.system = true;
+            return { changed: true, app: appData };
+          }
+        } catch (e) {
+          console.warn('[BOOT] Bundled system integrity refresh failed for', appData.id, e);
         }
-      } catch (e) {
-        console.warn('[BOOT] Bundled system integrity refresh failed for', appData.id, e);
       }
     }
     if (!appData?.signature) return { changed: false, app: appData };

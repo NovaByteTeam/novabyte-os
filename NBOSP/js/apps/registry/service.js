@@ -12,6 +12,19 @@ const APP_REGISTRY = [];
           getAllApps() { return load(); },
           getApp(id) { return load().find(a => a.id === id) || null; },
           addApp(data) {
+            // SECURITY (2026-11-15 audit, finding M12): the URL is the launch
+            // src of a <webview>/iframe (buildWebAppEntry → guest.navigate /
+            // iframe.src). Anything other than http(s) — data:, file:,
+            // javascript:-adjacent junk — must not be persistable here: the
+            // properly-validating module (js/platform/ui/web-app-manager.js,
+            // isValidHttpUrl) is never loaded at runtime, so this store is
+            // the only live gate. Empty urls keep their legacy bare-defaults
+            // behavior (they never navigate anywhere).
+            if (data && typeof data.url === 'string' && data.url !== '') {
+              let parsed;
+              try { parsed = new URL(data.url); } catch { return null; }
+              if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+            }
             const apps = load();
             const app = { id: genId(), name: data.name || 'Web App', url: data.url || '', icon: data.icon || '🌐', addedAt: Date.now(), launchCount: 0 };
             apps.push(app); save(apps); return app;

@@ -1057,6 +1057,7 @@
         "noPathBody": "Save As did not return a file path.",
         "tooManyRedirects": "Too many redirects",
         "unsupportedRedirect": "Unsupported redirect",
+        "localAddressBlocked": "Local and internal network addresses cannot be downloaded.",
         "interrupted": "Download response was interrupted",
         "closedEarly": "Download file was closed before completion",
         "timedOut": "Connection timed out",

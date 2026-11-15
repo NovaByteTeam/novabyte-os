@@ -1057,6 +1057,7 @@
         "noPathBody": "Lưu dưới dạng không trả về đường dẫn tệp.",
         "tooManyRedirects": "Quá nhiều chuyển hướng",
         "unsupportedRedirect": "Chuyển hướng không được hỗ trợ",
+        "localAddressBlocked": "Không thể tải xuống các địa chỉ cục bộ và mạng nội bộ.",
         "interrupted": "Phản hồi tải xuống bị gián đoạn",
         "closedEarly": "Tệp tải xuống đã bị đóng trước khi hoàn thành",
         "timedOut": "Đã hết thời gian kết nối",

@@ -89,11 +89,20 @@ const AppSecrets = (() => {
   }
 
   function validSecretKey(key) {
+    // BUG (2026-11-15 audit, finding L1): '__proto__' (and 'constructor'/
+    // 'prototype') previously passed validation, then record[key] = … on a
+    // plain object invoked the __proto__ SETTER — the app got {ok:true}
+    // while nothing was stored (prototype reassignment instead), and
+    // get()/keys() misbehaved afterwards: silent data loss. Reject the
+    // dangerous names outright.
     return typeof key === 'string'
       && key.length >= 1
       && key.length <= MAX_KEY_LEN
       && !/[\x00-\x1f\x7f]/.test(key)
-      && key === key.trim();
+      && key === key.trim()
+      && key !== '__proto__'
+      && key !== 'constructor'
+      && key !== 'prototype';
   }
 
   // ── Per-user namespace (multi-user) ───────────────────────────────────

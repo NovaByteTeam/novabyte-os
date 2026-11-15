@@ -97,9 +97,9 @@ the GRUB bootloader is unsigned.
 
 Use [NovaByte Studio](https://github.com/NovaByteOfficial/novapack-studio) to
 create and test `.novaapp` packages. Install apps only from sources you trust:
-packages can contain executable code. The Linux image is adding experimental
-per-app process isolation; do not treat it as a proven security boundary until
-the image and ordinary apps have been validated at runtime.
+packages can contain executable code. App isolation on the Linux image is
+permission-based inside one runtime; do not treat it as a proven security
+boundary until the image and ordinary apps have been validated at runtime.
 
 ## Security
 
@@ -108,10 +108,14 @@ the image and ordinary apps have been validated at runtime.
   safe. Review package source and permissions before installing.
 - The built-in file scanner uses heuristics; it is not antivirus and can miss
   malicious content.
-- The experimental x86_64 Linux runtime launches installed apps in separate
-  NW.js processes under stable per-app Linux UIDs, with private app data,
-  brokered APIs, network egress restrictions, seccomp filters, and cgroup
-  resource limits.
+- The x86_64 Linux image runs the whole desktop as one unprivileged user
+  (`nbosp`) and isolates apps through the in-OS permission system (sandboxed
+  webviews, IPC permission gates, per-app data roots). It does NOT run apps
+  in separate processes with per-app Linux UIDs, and it has no seccomp,
+  cgroup, or network-egress isolation — see the
+  [NBOSP OS build guide](./NBOSP/os/README.md) for exactly what the image
+  contains. (2026-11-15 correction: this section previously claimed a
+  per-app-UID/seccomp/cgroup supervisor that is not part of this codebase.)
 - SELinux policy loading and labeling are being integrated, but the policy is
   currently permissive and does not enforce denials. The sandbox has not yet
   been verified end to end in a booted image, so it is not an Android-equivalent

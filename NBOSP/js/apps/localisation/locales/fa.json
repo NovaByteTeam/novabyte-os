@@ -1057,6 +1057,7 @@
         "noPathBody": "Save As مسیر فایلی را برنگرداند.",
         "tooManyRedirects": "تغییر مسیرهای بسیار زیاد",
         "unsupportedRedirect": "تغییر مسیر پشتیبانی نشده",
+        "localAddressBlocked": "آدرس‌های محلی و شبکه داخلی قابل دانلود نیستند.",
         "interrupted": "پاسخ دانلود قطع شد",
         "closedEarly": "فایل دانلود قبل از تکمیل بسته شد",
         "timedOut": "زمان اتصال تمام شد",

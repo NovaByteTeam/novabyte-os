@@ -718,7 +718,14 @@
   // ---------------------------------------------------------------------------
   const trustedGuests = new Map(); // appId -> Set<handle>
   const TRUSTED_ID_PATTERN = /^com\.nbosp\.[a-z0-9._-]+$/;
-  const BLOCKED_NAV_SCHEMES = /^\s*(javascript|vbscript):/i;
+  // SECURITY (2026-11-15 audit, finding M12): data: and file: join the
+  // blocklist. Web-app launch URLs flow straight into guest.navigate() —
+  // the App Manager form and WebAppManager.addApp now reject non-http(s)
+  // schemes at add time, but this is the last line of defense for whatever
+  // a stale/legacy localStorage record (or any future caller) still holds.
+  // A data: URL as a webview src executes its payload in the guest; file:
+  // exposes local disk to the guest document.
+  const BLOCKED_NAV_SCHEMES = /^\s*(javascript|vbscript|data|file):/i;
 
   function isFirstParty(app) {
     if (!app || typeof app.id !== 'string') return false;

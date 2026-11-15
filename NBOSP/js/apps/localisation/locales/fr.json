@@ -1057,6 +1057,7 @@
         "noPathBody": "Enregistrer sous n'a pas renvoyé de chemin de fichier.",
         "tooManyRedirects": "Trop de redirections",
         "unsupportedRedirect": "Redirection non prise en charge",
+        "localAddressBlocked": "Les adresses locales et internes ne peuvent pas être téléchargées.",
         "interrupted": "La réponse au téléchargement a été interrompue",
         "closedEarly": "Le fichier de téléchargement a été fermé avant la fin",
         "timedOut": "La connexion a expiré",

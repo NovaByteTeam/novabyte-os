@@ -5,6 +5,59 @@
 **Method:** full read of `NBOSP/js/platform/security/app-sandbox.js` (14,895 lines) plus all platform, server, and OS-image files via the audited subsystem notes (Appendix B); 1,139 doc claims extracted and checked claim-by-claim (verdicts-1…4); test suites executed (vitest: 1,757 tests; integration: 9 suites). Every reference below was re-verified against the tree at `ccc4305`.
 **Follow-up:** after the rewrite, the open-sourced Studio repo `dirazcoder/novapack-studio` @ `7236672` (v1.2.34) was audited to resolve the five Studio-external UNVERIFIABLEs — results in [Part VIII](#part-viii--post-audit-addendum-novabyte-studio-cross-check).
 
+---
+
+# Part IX — Security patch 2026-11-15 (gl-debug full-code audit)
+
+**Repo state audited:** `NovaByteTeam/novabyte-os`, branch `gl-debug` @ `529a21c`. **Scope:** everything except `supabase/` and top-level `src/` — the full `NBOSP/` tree (Express server, security middleware, auth/users-db, email stack, app sandbox + IPC bridge, platform core/registry, all built-in apps, scripts, Buildroot OS layer, build tooling) and root docs; ~142k lines. **Method:** line-by-line read of the security-critical server files plus four parallel deep-dive passes over the sandbox/platform/apps/OS-build surfaces; every finding below was verified against the actual code path before reporting. Issues already fixed by the 2026-11-12 pass (comments `SECURITY (2026-11-12 audit…)`) and the known-open Part I items were excluded. **Tests after fixes:** vitest 1,804/1,804 pass; integration 5/9 pass (the same 4 failures as at `ccc4305` — the pre-existing `tests/helpers/fake-idb.js` mixed-key harness crash, Part VII, NOT caused by this patch). **Security patch level raised to `2026-11-15`** (`js/core/core/kernel.js`; Settings About fallbacks; `tests/core/core/kernel.test.js`; `docs/internals.md`).
+
+## IX.1 Findings fixed in this patch (all verified, all remediated in the same commit)
+
+| # | Sev | File(s) | Finding (short) |
+|---|-----|---------|------------------|
+| H1 | HIGH | `NBOSP/security/routes.js` | Admin-mode role guard required `./security/users-db` — a path that does not exist from there; the MODULE_NOT_FOUND was swallowed so the multi-user guard never fired (defeated the 2026-11-12 L1 fix). → fixed to `../server/security/users-db`. |
+| H2 | HIGH | `js/platform/security/app-sandbox.js` | Read picks (`sandbox.pickedFileIds`) silently granted modify/rename/move on shared files — only delete/overwrite asked. → every mutating action on a non-owned shared file confirms; content-saves of the actively-handed `openFile` document stay modal-free (editor flow). |
+| H3 | HIGH | `app-sandbox.js` + `js/platform/security/system-fetch.js` | `net:internal` direct same-origin `/api/*` fetch ran in the host page with session cookies, arbitrary app headers, and system-fetch HMAC trust (rate-limit exemption) — mailbox read/send/delete bypassing `mail:*`. → `/api/*` (except the app's own served bundle) rejected from `handleNetFetch`; `credentials:'omit'` on the direct internal branch. |
+| H4 | HIGH | `js/platform/core/nova-app-launcher.js` + `app-sandbox.js` | `sandboxApp.system = manifest?.system` — manifest self-claim reached the HKNS-write gate and the ready-handshake username disclosure. → launcher derives `system` from the verified triple; HKNS gate and username disclosure re-assert the full triple (defense in depth). |
+| H5 | HIGH | `js/platform/core/app-package.js` + `js/platform/ui/my-apps-manager.js` | Any id starting `webapp_` skipped format validation, and `app.id` was interpolated raw into `data-app-id` attributes of a privileged-shell `innerHTML` template. → both shapes validated; id escaped at every sink. |
+| M1 | MED | `NBOSP/security/routes.js` | `/api/security/sessions` read a hard-coded `NBOSP/data/sessions.db` instead of the runtime data dir. → resolved via `getRuntimeDataDir()`. |
+| M2 | MED | `NBOSP/server/security/auth-routes.js` | `showUsernamesOnPicker=false` was UI-only — `/api/auth/users` still shipped usernames. → server redacts when the policy is off. |
+| M3 | MED | `NBOSP/server/security/auth-routes.js` | WebAuthn enrollment was admin-gated though documented as self-enrollment (standard users could never enroll); assertion verification skipped the RP-ID hash. → `requireActiveSession` + admin-only cross-account enrollment + RP-ID hash check. |
+| M4 | MED | `js/core/core/boot.js` | `refreshInstalledAppTrust()` re-trusted `system-bundle` records with NO integrity block (short-circuit), on a path bypassing AppRegistry's F2 downgrade. → integrity block required and verified. |
+| M5 | MED | `nova-registry.js`, `nova-reg-file.js`, `app-config.js` | `__proto__`/`constructor`/`prototype` accepted as key/value names → TypeError crashes, silent data loss, builtin pollution, prototype swaps on import. → reserved-name rejection in `parsePath`/`NovaRegFile.parse`/`assertAppId`/`validateSubtreeNode`; `Object.hasOwn` walkers. |
+| M6 | MED | `nova-app-package-store.js` | `toMetadata()` copied package JSON via plain assignment — own `__proto__` key invoked the prototype setter. → dangerous names skipped. |
+| M7 | MED | `js/platform/security/unrestricted-gate.js` | Settings identity bypass checked install-time flags only (no provenance/integrity/revocation re-check) despite its documented live-re-check contract. → provenance + integrity record + TrustStore revocation + first-party manifest membership + throttled background integrity probe (sticky kill-switch). |
+| M8 | MED | `js/platform/security/root-broker.js` | `requestSession()` coalescing let a second host-tier app piggyback another app's pending root authorization. → the caller's own grant is re-checked after the shared prompt resolves. |
+| M9 | MED | `js/platform/security/frame-security.js` | `srcdoc`/src-less iframes escaped validation; observer ignored `srcdoc`; deferred start dropped caller options. → validated + `srcdoc` in attributeFilter + options forwarded. |
+| M10 | MED | `js/apps/session/service.js` + `js/apps/lock-screen/service.js` | `guestLogin()`'s `session:changed` (uid:null, no phase) was treated as logout — picker re-appeared over every live guest session. → `phase:'guest'` discriminator + session-state guard in `showLoginPicker()`. |
+| M11 | MED | `js/apps/browser/app.js` | Download pipeline skipped the local-address policy navigation enforces (also unchecked on redirect hops). → blocked at Save-As entry and every redirect hop; new `localAddressBlocked` string in all 19 locales. |
+| M12 | MED | `js/apps/appmanager/app.js`, `js/apps/registry/service.js`, `js/apps/system-webview/service.js` | Web-app URLs accepted `data:`/`file:` (form validated parse only; `BLOCKED_NAV_SCHEMES` missed them; the validating `web-app-manager.js` module is never loaded). → http(s) enforced at add time in both stores; `data:`/`file:` added to the nav blocklist. |
+| M13 | MED | `js/apps/browser/app.js` | Popup-blocker bypass: any URL with `?client_id=` (etc.) counted as an auth popup, exempt from block-popups. → param heuristic removed; path heuristic now https-only. |
+| M14 | MED | `NBOSP/build.mjs` + `.gitignore` | Release bundles shipped the runtime secrets-store dir `root/` (only `*.key` filtered). → excluded from staging and gitignored (skeleton stays tracked). |
+| M15 | MED | `NBOSP/os/board/nbosp/nbosp-recovery` | Backup tarred the whole home — `.env` (SESSION_SECRET, NBOSP_CRED_KEY), CA/TLS private keys — unencrypted to any removable drive with no typed confirmation. → secret stash during archive + `BACKUP` confirmation word. |
+| MED-3 | MED | `NBOSP/build.mjs` | Release builds shipped the NW.js **SDK flavor** + dev `chromium-args` (`--remote-debugging-port=9222`, `--disable-web-security`, `--allow-file-access-from-files`, `--auto-open-devtools-for-tabs`) and `dev_tools:true`. → `flavor:"regular"` default (`NBOSP_NW_FLAVOR=sdk` escape hatch) + dev flags stripped unless `NBOSP_KEEP_DEV_FLAGS=1`. |
+| MED-4 | MED | `README.md` | Security section claimed per-app Linux UIDs/seccomp/cgroups that `NBOSP/os/README.md` says are not in the image. → corrected to the actual single-user + permission-model posture. |
+| L1 | LOW | `app-sandbox.js` | Root-API audit loop `return` inside the namespace loop — only `OS` ever instrumented. → moved out. |
+| L2 | LOW | `app-sandbox.js` | `nova:open-url` had no rate limit (browser-window flood). → 30/min sliding window (shared with app-launch). |
+| L3 | LOW | `js/platform/security/app-permission-manager.js` | `consentLog` unbounded. → capped at 500. |
+| L4 | LOW | `js/platform/security/app-scheduler.js` | Unguarded `Temporal` — every scheduled background wake silently failed on runtimes without it. → Date fallback. |
+| L5 | LOW | `js/platform/security/app-secrets.js` | `'__proto__'` as a secret key silently corrupted the store. → reserved names rejected. |
+| L6 | LOW | `NBOSP/security/middleware.js` | Global input "sanitization" HTML-escaped `/api/email/*` bodies — outbound mail containing `& < > " '` was rewritten. → email family exempted (like `/api/proxy`). |
+| L7 | LOW | `NBOSP/scripts/certs.js` | Atomic writer temp name PID-only, plain `'w'` open (predictable, symlink-following). → random suffix + `'wx'`. |
+| L8 | LOW | `NBOSP/build-apps.mjs` | `manifest.id` flowed into output path unsanitized (`"id":"../../evil"`). → charset gate. |
+| L9 | LOW | `NetworkManager.conf` | Wi-Fi probe MAC randomization explicitly disabled. → `wifi.scan-rand-mac-address=yes`. |
+| L11 | LOW | `NBOSP/os/board/nbosp/S99nbosp` | Kernel-cmdline `NBOSP_GL_STRACE` substituted unvalidated into a root-generated script. → 0/1 allowlist. |
+| L12 | LOW | `etc/init.d/S01mounts` | `/tmp` lacked `noexec`. → added. |
+| LOW-5/6 | LOW | `nbosp-recovery`, `post-image.sh` + `nbosp-install-system` | PID-predictable recovery tempdir (`mktemp -d` now); installer verified no payload digests (ISO now carries `nbosp/SHA256SUMS`, installer verifies before erasing). |
+| SEC-05 | LOW | `js/apps/settings/app.js` | "Wipe All Data" called nonexistent `window.performFactoryReset()` — wipe always failed. → wired to `NovaFactoryReset.performLinuxFactoryReset()`. |
+| — | LOW | `js/apps/terminal/app.js` | Leftover dev rant comment ("[DELETE THIS LINE IN PRODUCTION]") shipped in the bundle. → removed. |
+
+## IX.2 Verified clean (no new findings)
+
+Email protocol clients (TLS mandatory + `rejectUnauthorized`), `email/credentials.js` (AES-GCM-SIV, bounded caches), `email/helpers.js` sanitizer, `server/proxies.js` (DNS pinning, per-hop SSRF revalidation), `server/core/push-*`, `users-db.js` (scrypt, lockout ladder, parameterized SQL, CSV formula guard), `favicons.js`, `admin-state.js`, env bootstrap (`scripts/env.js`), OS C binaries (`nbosp-install.c`, `nbosp-power.c`), `.mk/.hash` package pins, `nbosp-vmusr`, `post-build.sh`/`device_table.txt`, connectivity/exec surfaces. The pre-existing Part I register (SEC-01 committed test key, SEC-02/03/04 image hardening, etc.) remains open as documented there.
+
+---
+
 **Path aliases used throughout** (all repo-relative, under `NBOSP/` unless noted):
 `AS` = `js/platform/security/app-sandbox.js` · `APM` = `js/platform/security/app-permission-manager.js` · `AR` = `js/platform/core/app-registry.js` · `AP` = `js/platform/core/app-package.js` · `NAL` = `js/platform/core/nova-app-launcher.js` · `NREG` = `js/platform/core/nova-registry.js` · `MED` = `js/apps/media-store/service.js` · `PR` = `server/core/push-routes.js`.
 Doc references are `NOVAAPP.md:<line>`. Items are marked **[confirmed]** (read in code) or **[suspected]** (inferred; needs runtime confirmation).

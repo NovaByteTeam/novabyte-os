@@ -389,6 +389,19 @@ const NovaRegistry = (() => {
       const seg = parts[i].trim();
       if (!seg) return { error: 'INVALID_ARGS', message: 'path contains an empty segment' };
       if (seg === '.' || seg === '..') return { error: 'INVALID_ARGS', message: "path segments may not be '.' or '..'" };
+      // SECURITY (2026-11-15 audit, finding M2): '__proto__' as a segment
+      // resolves node.keys['__proto__'] to Object.prototype (truthy), landing
+      // the walker on Object.prototype and crashing every later access with
+      // a TypeError; as a VALUE name it invokes the __proto__ setter on
+      // node.values and silently drops the entry (own-props-only JSON
+      // persistence never sees it). 'constructor'/'prototype' similarly
+      // collide with inherited properties or pollute builtins. All three
+      // are rejected as segments — which covers key names AND value names,
+      // since get/set/stat/delete/rename derive the value name from the
+      // final path segment.
+      if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') {
+        return { error: 'INVALID_ARGS', message: `path segment '${seg}' is reserved` };
+      }
       if (seg.length > LIMITS.MAX_SEG_LENGTH) {
         return { error: 'INVALID_ARGS', message: `path segment exceeds ${LIMITS.MAX_SEG_LENGTH} characters` };
       }
@@ -420,7 +433,10 @@ const NovaRegistry = (() => {
   function walk(hives, hive, segments, create) {
     let node = ensureHive(hives, hive);
     for (const seg of segments) {
-      if (!node.keys[seg]) {
+      // Object.hasOwn guard (2026-11-15 fix, M2): a plain {} inherits
+      // __proto__/constructor from Object.prototype, so the old truthiness
+      // probe treated them as existing child keys.
+      if (!Object.hasOwn(node.keys, seg)) {
         if (!create) return undefined;
         node.keys[seg] = emptyNode();
       }
@@ -447,7 +463,7 @@ const NovaRegistry = (() => {
     let lastLink = null;
     const visited = new Set([curHive]);
     for (let i = 0; i < segs.length; i++) {
-      if (!node.keys[segs[i]]) {
+      if (!Object.hasOwn(node.keys, segs[i])) {
         if (!create) return null;
         node.keys[segs[i]] = emptyNode();
       }
@@ -1077,13 +1093,25 @@ const NovaRegistry = (() => {
         throw regError('INVALID_VALUE', 'a link node must be empty');
       }
     }
+    // SECURITY (2026-11-15 audit, finding M2): names arriving from imported
+    // JSON are own-property keys (JSON.parse uses CreateDataProperty, so an
+    // own '__proto__' survives) — applying them through plain assignment
+    // invokes the __proto__ setter and swaps the target node's prototype,
+    // with the entry then silently dropped on persist. Reject the dangerous
+    // names for both values and child keys.
+    const UNSAFE_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
     const values = node.values && typeof node.values === 'object' ? node.values : {};
     const keys = node.keys && typeof node.keys === 'object' ? node.keys : {};
-    for (const [name, entry] of Object.entries(values)) {
+    for (const name of Object.keys(values)) {
+      if (UNSAFE_NAMES.has(name)) throw regError('INVALID_VALUE', `value name '${name}' is reserved`);
+      const entry = values[name];
       if (name.length > LIMITS.MAX_NAME_LENGTH) throw regError('INVALID_VALUE', `value name too long: ${name}`);
       if (!entry || typeof entry !== 'object') throw regError('INVALID_VALUE', `value '${name}' is malformed`);
       const type = entry.type && TYPE_SET.has(entry.type) ? entry.type : detectType(entry.data);
       coerceValue(type, entry.data);
+    }
+    for (const name of Object.keys(keys)) {
+      if (UNSAFE_NAMES.has(name)) throw regError('INVALID_VALUE', `key name '${name}' is reserved`);
     }
     for (const child of Object.values(keys)) validateSubtreeNode(child, depth + 1);
   }

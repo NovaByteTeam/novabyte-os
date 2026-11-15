@@ -37,3 +37,10 @@ supabase/.temp/
 /NBOSP/keys/*
 !/NBOSP/keys/test-system-key.json
 !/NBOSP/keys/README.md
+
+# SECURITY (2026-11-15 audit, finding M14 / AUDIT.md SEC-29 P3): NBOSP/root/
+# is the runtime app-secrets store (app-secrets.js writes live ciphertext
+# there). A dev machine's real store must never be committed — the committed
+# skeleton stays tracked via the negation below.
+/NBOSP/root/*
+!/NBOSP/root/app-secrets.json

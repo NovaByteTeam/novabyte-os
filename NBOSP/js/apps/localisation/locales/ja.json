@@ -1057,6 +1057,7 @@
         "noPathBody": "[名前を付けて保存] ではファイル パスが返されませんでした。",
         "tooManyRedirects": "リダイレクトが多すぎる",
         "unsupportedRedirect": "サポートされていないリダイレクト",
+        "localAddressBlocked": "ローカルおよび内部ネットワークアドレスはダウンロードできません。",
         "interrupted": "ダウンロード応答が中断されました",
         "closedEarly": "ダウンロード ファイルが完了する前に閉じられました",
         "timedOut": "接続がタイムアウトしました",

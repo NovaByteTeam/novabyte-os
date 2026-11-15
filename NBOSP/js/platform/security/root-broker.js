@@ -363,7 +363,20 @@
 
   async function requestSession(opts = {}) {
     const appId = resolveCallerId(opts.appId);
-    if (inFlightSession) return inFlightSession;
+    // SECURITY (2026-11-15 audit, finding M8): a shared in-flight promise
+    // previously answered EVERY concurrent caller with the first caller's
+    // authorization result — ensureAuthorized (the only place
+    // callerHasRootGrant is checked) never ran for the piggybacking
+    // caller, so a second host-tier app could execute privileged argv
+    // while the FIRST app's confirmation prompt was still open. Coalesce
+    // the prompt itself (one dialog at a time), but re-check the actual
+    // caller's own grant after the shared authorization resolves.
+    if (inFlightSession) {
+      // The first caller's rejection belongs to the first caller — swallow
+      // it here and let THIS caller's own authorization decide the outcome.
+      await inFlightSession.catch(() => {});
+      return ensureAuthorized(appId, opts.reason || '');
+    }
     inFlightSession = (async () => {
       return ensureAuthorized(appId, opts.reason || '');
     })().finally(() => { inFlightSession = null; });

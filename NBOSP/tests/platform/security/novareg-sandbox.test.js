@@ -81,7 +81,17 @@ describe('nova:reg:* sandbox handlers', () => {
   }
 
   const plainApp = { id: 'com.probe.app', system: false };
-  const systemApp = { id: 'com.nbosp.shell', system: true };
+  // 2026-11-15 fix (finding H4, defense in depth): the HKNS write gate now
+  // requires the full trusted-system identity triple, not a bare system
+  // flag — a manifest self-claim is no longer enough to write the system
+  // hive. The fixture carries the triple real system apps always have.
+  const systemApp = {
+    id: 'com.nbosp.shell',
+    system: true,
+    verified: true,
+    signer: 'NovaByte System',
+    manifest: { system: true },
+  };
 
   it('denies reads without registry.read (MAC front door)', async () => {
     const r = await call('nova:reg:get', { path: 'HKNU/probe/color' }, plainApp);

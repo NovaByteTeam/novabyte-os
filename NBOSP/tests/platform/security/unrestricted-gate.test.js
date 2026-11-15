@@ -66,13 +66,38 @@ describe('UnrestrictedGate (js/platform/security/unrestricted-gate.js)', () => {
 
   describe('isTrustedSettingsAppById — the Settings-only identity bypass', () => {
     it('accepts the real Settings app only when every identity field matches', () => {
+      // 2026-11-15 fix (finding M7): the identity check now also requires
+      // provenance (source: 'system-bundle') and an integrity record, both
+      // of which the real bundled Settings package always carries.
       globalThis.OS.apps['com.nbosp.settings'] = {
         system: true,
         verified: true,
         signer: 'NovaByte System',
         manifest: { system: true },
+        source: 'system-bundle',
+        integrity: { method: 'blake3', fileHashes: { 'index.html': 'abc' } },
       };
       expect(UnrestrictedGate.isTrustedSettingsAppById('com.nbosp.settings')).toBe(true);
+    });
+
+    it('denies a registry entry without provenance or an integrity record (2026-11-15 fix)', () => {
+      const id = 'com.nbosp.settings';
+      globalThis.OS.apps[id] = {
+        system: true,
+        verified: true,
+        signer: 'NovaByte System',
+        manifest: { system: true },
+      };
+      expect(UnrestrictedGate.isTrustedSettingsAppById(id)).toBe(false);
+      globalThis.OS.apps[id] = {
+        system: true,
+        verified: true,
+        signer: 'NovaByte System',
+        manifest: { system: true },
+        source: 'file',
+        integrity: { method: 'blake3', fileHashes: { 'index.html': 'abc' } },
+      };
+      expect(UnrestrictedGate.isTrustedSettingsAppById(id)).toBe(false);
     });
 
     it('denies any other app id outright — even a legitimately signed system app', () => {

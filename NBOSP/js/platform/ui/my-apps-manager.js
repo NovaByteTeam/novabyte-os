@@ -250,7 +250,14 @@ const MyAppsManager = (() => {
       const mergedOptions = {
         trustStore: (typeof TrustStore !== 'undefined' && TrustStore.list) ? TrustStore.list() : [],
         revocationCheck: (typeof TrustStore !== 'undefined' && TrustStore.isRevoked) ? TrustStore.isRevoked : undefined,
-        ...options,
+        // SECURITY (2026-11-15 audit, finding M4): caller options used to be
+        // spread verbatim, so any future caller forwarding untrusted input
+        // could overwrite the security switches above (e.g. pass
+        // source:'system-bundle' and mint verified/NovaByte System trust with
+        // no signature check at all — app-package.js's system-bundle branch
+        // ignores the trustStore it is handed). Whitelist the benign,
+        // documented install knobs instead of trusting the whole bag.
+        force: options.force === true,
       };
       const result = AppPackage?.installPackage(pkg, mergedOptions);
       return result;
@@ -280,7 +287,9 @@ const MyAppsManager = (() => {
       const mergedOptions = {
         trustStore: (typeof TrustStore !== 'undefined' && TrustStore.list) ? TrustStore.list() : [],
         revocationCheck: (typeof TrustStore !== 'undefined' && TrustStore.isRevoked) ? TrustStore.isRevoked : undefined,
-        ...options,
+        // SECURITY (2026-11-15 audit, finding M4): same whitelist as
+        // installFromFile — see the comment there.
+        force: options.force === true,
       };
       const result = AppPackage?.installPackage(pkg, mergedOptions);
       return result;
@@ -473,7 +482,7 @@ const MyAppsManager = (() => {
                 </p>
                 
                 <div style="display: flex; gap: 8px;">
-                  <button class="launch-app-btn" data-app-id="${app.id}" style="
+                  <button class="launch-app-btn" data-app-id="${escapeHtml(app.id)}" style="
                     flex: 1;
                     background: #58a6ff;
                     color: white;
@@ -484,7 +493,7 @@ const MyAppsManager = (() => {
                     cursor: pointer;
                   ">${t('apps.myApps.launch', 'Launch')}</button>
                   
-                  <button class="app-details-btn" data-app-id="${app.id}" style="
+                  <button class="app-details-btn" data-app-id="${escapeHtml(app.id)}" style="
                     background: transparent;
                     color: #8b949e;
                     border: 1px solid var(--border-default);
@@ -494,7 +503,7 @@ const MyAppsManager = (() => {
                     cursor: pointer;
                   ">${t('apps.myApps.details', 'Details')}</button>
                   
-                  <button class="uninstall-app-btn" data-app-id="${app.id}" style="
+                  <button class="uninstall-app-btn" data-app-id="${escapeHtml(app.id)}" style="
                     background: transparent;
                     color: #f85149;
                     border: 1px solid #f8514944;

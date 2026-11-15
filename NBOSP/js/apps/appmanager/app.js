@@ -3070,7 +3070,18 @@ registerApp({
             errEl.textContent = '';
 
             if (!url) { errEl.textContent = _t('apps.appmanager.urlRequiredError'); return; }
-            try { new URL(url); } catch { errEl.textContent = _t('apps.appmanager.invalidUrlError'); return; }
+            // SECURITY (2026-11-15 audit, finding M12): parse alone accepted
+            // data:/file:/any-scheme URLs, which become the webview src at
+            // launch (only javascript:/vbscript: were blocked downstream).
+            // Enforce http(s) here — WebAppManager.addApp now rejects them
+            // too, so the form's error message is the user-facing half of
+            // the same gate.
+            let parsedUrl;
+            try { parsedUrl = new URL(url); } catch { errEl.textContent = _t('apps.appmanager.invalidUrlError'); return; }
+            if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+              errEl.textContent = _t('apps.appmanager.invalidUrlError');
+              return;
+            }
             if (!name) { errEl.textContent = _t('apps.appmanager.nameRequiredError'); return; }
 
             const addedApp = wam ? wam.addApp({ name, url, icon: customIconDataUrl || undefined }) : null;

@@ -33,12 +33,19 @@
 
   // HKNA paths are `HKNA/<appId>/<relPath>` — the appId becomes a key name,
   // so it must not contain path separators or whitespace-only content.
+  // SECURITY (2026-11-15 audit, finding M2): '__proto__'/'constructor'/
+  // 'prototype' are also rejected — an appId is used as a registry key
+  // name, and those names collide with inherited properties (or invoke the
+  // __proto__ setter on assignment).
   function assertAppId(appId) {
     if (typeof appId !== 'string' || appId.trim().length === 0) {
       throw new TypeError('NovaAppConfig: appId must be a non-empty string');
     }
     if (/[/\\\s]/.test(appId)) {
       throw new TypeError(`NovaAppConfig: invalid appId "${appId}" — no separators or whitespace allowed`);
+    }
+    if (appId === '__proto__' || appId === 'constructor' || appId === 'prototype') {
+      throw new TypeError(`NovaAppConfig: appId "${appId}" is reserved`);
     }
     return appId;
   }

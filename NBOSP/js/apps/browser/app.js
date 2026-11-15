@@ -1995,6 +1995,13 @@ registerApp({
             if (redirectsLeft <= 0) return reject(new Error(_t('apps.browser.downloads.tooManyRedirects')));
             const next = new URL(headers.location, url).href;
             if (!/^https?:/i.test(next)) return reject(new Error(_t('apps.browser.downloads.unsupportedRedirect')));
+            // SECURITY (2026-11-15 audit, finding M11): redirect hops must
+            // re-apply the local-address policy the initial URL already
+            // passed — a public URL 302-ing at 127.0.0.1/RFC-1918 used to
+            // stream the internal response straight to the user's disk.
+            if (isLocalAddress(next)) {
+              return reject(new Error(_t('apps.browser.downloads.localAddressBlocked')));
+            }
             const nextHeaders = { ...requestHeaders };
             if (new URL(url).origin !== new URL(next).origin) {
               for (const name of Object.keys(nextHeaders)) {
@@ -2077,6 +2084,17 @@ registerApp({
       const isDataUrl = /^data:/i.test(url || '');
       if (!url || (!/^https?:\/\//i.test(url) && !isDataUrl)) {
         Notify.show({ title: _t('apps.browser.downloads.failed'), body: _t('apps.browser.downloads.onlyHttpBody'), type: 'error', appName: 'Downloads' });
+        return;
+      }
+      // SECURITY (2026-11-15 audit, finding M11): navigation enforces the
+      // local-address policy (isLocalAddress, comment above it: "prevents
+      // SSRF-style attacks from guest content") but the download path never
+      // did — a guest page could hand this trusted host handler an
+      // http://127.0.0.1:3003/... (or RFC-1918) URL and have the response
+      // written to a user-picked path. The user confirms the Save As, but
+      // the policy the browser itself states should hold here too.
+      if (!isDataUrl && isLocalAddress(url)) {
+        Notify.show({ title: _t('apps.browser.downloads.failed'), body: _t('apps.browser.downloads.localAddressBlocked'), type: 'error', appName: 'Downloads' });
         return;
       }
       const rawName = sanitizeDownloadName(requestedName || url);
@@ -2552,9 +2570,15 @@ registerApp({
             const host = parsed.hostname.toLowerCase();
             const path = parsed.pathname.toLowerCase();
             if (AUTH_HOSTS.some(h => host === h || host.endsWith('.' + h))) return true;
-            if (AUTH_PATHS.some(p => path.startsWith(p) || path.includes(p + '/'))) return true;
-            const params = parsed.searchParams;
-            if (params.has('client_id') || params.has('response_type') || params.has('redirect_uri')) return true;
+            // SECURITY (2026-11-15 audit, finding M13): the query-param
+            // heuristic used to fire on ANY host — `https://anyhost/?client_id=1`
+            // was enough to exempt a popup from the user's block-popup-windows
+            // setting. Known auth hosts are handled above; the path heuristic
+            // (custom IdP domains hosting /authorize, /callback, …) still
+            // applies, but only over https, so it can't be trivially abused
+            // by plain-http pages either.
+            if (parsed.protocol === 'https:'
+              && AUTH_PATHS.some(p => path.startsWith(p) || path.includes(p + '/'))) return true;
           } catch { /* ignore */ }
           return false;
         }
