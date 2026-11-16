@@ -42,6 +42,9 @@ if (typeof globalThis.TextDecoder === 'undefined') {
 
 const _ls = new Map();
 Object.defineProperty(globalThis, 'localStorage', {
+  // configurable so the cover-loader can mirror each JSDOM window's real
+  // storage over this shim for coverage-attributed app loads.
+  configurable: true,
   value: {
     getItem: (key) => _ls.get(key) ?? null,
     setItem: (key, value) => _ls.set(key, String(value)),
@@ -55,6 +58,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 const _ss = new Map();
 Object.defineProperty(globalThis, 'sessionStorage', {
+  configurable: true,
   value: {
     getItem: (key) => _ss.get(key) ?? null,
     setItem: (key, value) => _ss.set(key, String(value)),

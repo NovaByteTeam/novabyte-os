@@ -158,8 +158,12 @@ const EventLog = {
 EventLog.patchConsole();
 
 // ── EXPOSE TO GLOBAL RUNTIME SCOPE ───────────────────────────────────────────
+/* v8 ignore start — defensive tail: `EventLog` is a module-scope const, so
+   the typeof guard is always true and the else arm is unreachable in any
+   host that loads this file. */
 if (typeof EventLog !== 'undefined') {
   window.EventLog = EventLog;
 } else {
   console.warn('EventLog object was not found in the local scope of event-log.js');
 }
+/* v8 ignore stop */
