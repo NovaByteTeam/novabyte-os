@@ -63,7 +63,9 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^5.1.0",
+    "csstree-validator": "^4.0.1",
     "happy-dom": "^21.0.4",
+    "html-validate": "^11.21.1",
     "jsdom": "^31.0.1",
     "nw": "^0.120.0",
     "nw-builder": "^4.25.0",

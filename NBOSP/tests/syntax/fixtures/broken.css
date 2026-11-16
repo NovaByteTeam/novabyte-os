@@ -1,0 +1,5 @@
+/* Deliberately broken CSS: declaration without a value. Must be reported
+   by csstree-validator with a line:column position. */
+.broken {
+  color: ;
+}

@@ -1864,8 +1864,10 @@
 
   /* Textareas — opt into field-sizing: content where supported so they */
   /* grow to fit their content without JS auto-resize handlers. */
-  textarea {
-    @supports (field-sizing: content) {
+  /* (Hoisted to top level of the media block — semantically identical to the */
+  /* previous nested form, but parsable by css-tree-based validators.) */
+  @supports (field-sizing: content) {
+    textarea {
       field-sizing: content;
     }
   }
