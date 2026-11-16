@@ -40,6 +40,7 @@
     "@noble/hashes": "^2.4.0",
     "@noble/post-quantum": "^0.7.1",
     "@peculiar/x509": "^3.1.0",
+    "ast-v8-to-istanbul": "^1.0.7",
     "better-sqlite3": "^13.2.0",
     "better-sqlite3-session-store": "^0.1.0",
     "cookie-parser": "^1.4.7",
