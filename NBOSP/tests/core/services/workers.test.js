@@ -348,5 +348,43 @@ describe('workers.js (js/core/services/workers.js)', () => {
         message: 'Terminated fs worker',
       }));
     });
+
+    it('defaults the worker name to "worker" and tolerates replies for unknown ids', async () => {
+      vi.stubGlobal('Worker', FakeWorker);
+      FakeWorker.instances = [];
+      const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // no name argument → the `name || 'worker'` fallback
+      const worker = window.createWorker('code');
+      expect(FakeWorker.instances).toHaveLength(1);
+      // a reply for an id we never issued is dropped silently
+      expect(() => FakeWorker.instances[0].onmessage({ data: { id: 42, result: 'orphan' } })).not.toThrow();
+      // and an uncaught error still reports the fallback name
+      FakeWorker.instances[0].onerror({ message: 'no name worker died' });
+      expect(consoleErr).toHaveBeenCalledWith('[Workers] Uncaught error in worker worker:', 'no name worker died');
+      worker.terminate();
+    });
+
+    it('works end-to-end without an EventLog global installed', async () => {
+      vi.stubGlobal('Worker', FakeWorker);
+      FakeWorker.instances = [];
+      delete globalThis.EventLog;
+      const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const worker = window.createWorker('code', 'fs');
+
+      // rejection path: no EventLog → the optional log is skipped entirely
+      const p = worker.call('putSetting', 'theme');
+      FakeWorker.instances[0].onmessage({ data: { id: 1, error: 'idb unavailable' } });
+      await expect(p).rejects.toThrow('idb unavailable');
+
+      // onerror path: console only, no throw
+      expect(() => FakeWorker.instances[0].onerror({ message: 'worker crashed' })).not.toThrow();
+      expect(consoleErr).toHaveBeenCalled();
+
+      // terminate path: still silent without EventLog
+      expect(() => worker.terminate()).not.toThrow();
+      expect(FakeWorker.instances[0].terminated).toBe(true);
+    });
   });
 });

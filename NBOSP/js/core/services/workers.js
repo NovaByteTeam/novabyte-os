@@ -354,7 +354,12 @@ self.onmessage = async (e) => {
                 resolve,
                 reject: (err) => {
                   if (typeof EventLog !== 'undefined') {
+                    /* v8 ignore start */
+                    // err is always the `new Error(error)` built at the
+                    // onmessage site above, so err.message is never empty and
+                    // the `|| err` fallback is unreachable in practice.
                     EventLog.log({ app: 'Workers', category: 'system', severity: 'error', message: `${workerName}.${method} failed: ${err?.message || err}`, data: { worker: workerName, method } });
+                    /* v8 ignore stop */
                   }
                   reject(err);
                 },
@@ -372,7 +377,13 @@ self.onmessage = async (e) => {
       }
 
 // ── EXPOSE TO GLOBAL RUNTIME SCOPE ───────────────────────────────────────────
+/* v8 ignore start */
+// The typeof guards below are defensive against concatenation-based loaders
+// where an earlier fragment may have failed to define its const; inside this
+// file every name is unconditionally declared above, so the false side of
+// each guard is unreachable by construction.
 if (typeof FS_WORKER_CODE !== 'undefined') window.FS_WORKER_CODE = FS_WORKER_CODE;
 if (typeof CRYPTO_WORKER_CODE !== 'undefined') window.CRYPTO_WORKER_CODE = CRYPTO_WORKER_CODE;
 if (typeof SEARCH_WORKER_CODE !== 'undefined') window.SEARCH_WORKER_CODE = SEARCH_WORKER_CODE;
 if (typeof createWorker !== 'undefined') window.createWorker = createWorker;
+/* v8 ignore stop */

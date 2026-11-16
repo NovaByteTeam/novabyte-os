@@ -182,6 +182,85 @@ describe('push service — bus', () => {
     // Drained — a second drain sends nothing (at-most-once per entry).
     expect(pushBus.drainForDevice(DEVICE, () => {})).toBe(0);
   });
+
+  it('caps the per-token backlog at 16 entries, dropping the oldest', () => {
+    pushBus.subscribe(DEVICE, [{ token: TOKEN, appId: APP_ID }]);
+    for (let i = 0; i < 20; i++) pushBus.publish(TOKEN, { id: `m${i}`, data: {} });
+    const frames = [];
+    const sent = pushBus.drainForDevice(DEVICE, (f) => frames.push(f));
+    expect(sent).toBe(16);
+    expect(JSON.parse(frames[0].replace(/^data: /, '').trim()).id).toBe('m4'); // m0–m3 pruned
+  });
+
+  it('expires backlog entries older than 24 hours', async () => {
+    vi.useFakeTimers();
+    try {
+      pushBus.subscribe(DEVICE, [{ token: TOKEN, appId: APP_ID }]);
+      pushBus.publish(TOKEN, { id: 'stale', data: {} });
+      vi.advanceTimersByTime(24 * 60 * 60 * 1000 + 60_000); // past the TTL
+      pushBus.publish(TOKEN, { id: 'fresh', data: {} });
+      const frames = [];
+      const sent = pushBus.drainForDevice(DEVICE, (f) => frames.push(f));
+      expect(sent).toBe(1);
+      expect(JSON.parse(frames[0].replace(/^data: /, '').trim()).id).toBe('fresh');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects non-array subscription lists at the bus level', () => {
+    expect(pushBus.subscribe(DEVICE, 'not-an-array')).toBe(0);
+    expect(pushBus.subscribe(DEVICE, null)).toBe(0);
+    expect(pushBus.subscribe(DEVICE, { token: TOKEN, appId: APP_ID })).toBe(0);
+    // and a malformed device id is rejected before the list is even looked at
+    expect(pushBus.subscribe('short', [])).toBe(0);
+    expect(pushBus.subscribe(42, [{ token: TOKEN, appId: APP_ID }])).toBe(0);
+  });
+
+  it('publish to a well-formed but unmapped token reports unknown-token', () => {
+    expect(pushBus.publish(TOKEN3, { data: {} })).toEqual({ delivered: false, reason: 'unknown-token' });
+    // and a malformed token never reaches the index at all
+    expect(pushBus.publish('not-a-token', { data: {} })).toEqual({ delivered: false, reason: 'invalid-token' });
+  });
+
+  it('a throwing stream write degrades to device-offline', () => {
+    pushBus.subscribe(DEVICE, [{ token: TOKEN, appId: APP_ID }]);
+    const detach = pushBus.attachStream(DEVICE, {
+      write: () => { throw new Error('EPIPE: stream broken'); },
+    });
+    expect(pushBus.publish(TOKEN, { data: {} })).toEqual({ delivered: false, reason: 'device-offline' });
+    detach();
+  });
+
+  it('drainForDevice guards bad device ids and non-function writers', () => {
+    pushBus.subscribe(DEVICE, [{ token: TOKEN, appId: APP_ID }]);
+    pushBus.publish(TOKEN, { id: 'x', data: {} });
+    expect(pushBus.drainForDevice('short', () => {})).toBe(0);
+    expect(pushBus.drainForDevice(DEVICE, 'not-a-function')).toBe(0);
+  });
+
+  it('drainForDevice stops writing at the first failed write (entries already spliced)', () => {
+    pushBus.subscribe(DEVICE, [{ token: TOKEN, appId: APP_ID }]);
+    pushBus.publish(TOKEN, { id: 'a', data: {} });
+    pushBus.publish(TOKEN, { id: 'b', data: {} });
+    let calls = 0;
+    const sent = pushBus.drainForDevice(DEVICE, () => { calls += 1; throw new Error('socket gone'); });
+    expect(calls).toBe(1);
+    expect(sent).toBe(0);
+    // the splice already drained the backlog — nothing replays a second time
+    expect(pushBus.drainForDevice(DEVICE, () => {})).toBe(0);
+  });
+
+  it('drainForDevice only replays tokens mapped to the draining device', () => {
+    pushBus.subscribe(DEVICE, [{ token: TOKEN, appId: APP_ID }]);
+    pushBus.subscribe('device-9999000011112222', [{ token: TOKEN2, appId: 'com.other.app' }]);
+    pushBus.publish(TOKEN, { id: 'mine', data: {} });
+    pushBus.publish(TOKEN2, { id: 'theirs', data: {} });
+    const frames = [];
+    const sent = pushBus.drainForDevice(DEVICE, (f) => frames.push(f));
+    expect(sent).toBe(1);
+    expect(JSON.parse(frames[0].replace(/^data: /, '').trim()).id).toBe('mine');
+  });
 });
 
 describe('push service — routes', () => {

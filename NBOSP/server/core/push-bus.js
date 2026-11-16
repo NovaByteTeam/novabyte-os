@@ -60,8 +60,12 @@ function pruneBacklog(entries, now) {
  * stops being mapped. Returns the number of tokens now mapped.
  */
 function subscribe(deviceId, subscriptions) {
-  if (!isValidDeviceId(deviceId)) return 0;
-  if (!Array.isArray(subscriptions)) return 0;
+  if (!isValidDeviceId(deviceId)) {
+    return 0;
+  }
+  if (!Array.isArray(subscriptions)) {
+    return 0;
+  }
   // Drop this device's old mappings first so re-syncs actually prune.
   for (const [token, mapped] of tokenIndex.entries()) {
     if (mapped.deviceId === deviceId) tokenIndex.delete(token);
@@ -94,9 +98,13 @@ function attachStream(deviceId, res) {
  * backlog.
  */
 function publish(token, message) {
-  if (!isValidPushToken(token)) return { delivered: false, reason: 'invalid-token' };
+  if (!isValidPushToken(token)) {
+    return { delivered: false, reason: 'invalid-token' };
+  }
   const mapping = tokenIndex.get(token);
-  if (!mapping) return { delivered: false, reason: 'unknown-token' };
+  if (!mapping) {
+    return { delivered: false, reason: 'unknown-token' };
+  }
   const deviceId = mapping.deviceId;
 
   const now = Date.now();
@@ -123,7 +131,9 @@ function publish(token, message) {
  * live mapping keep their backlog untouched (they may come back).
  */
 function drainForDevice(deviceId, write) {
-  if (!isValidDeviceId(deviceId) || typeof write !== 'function') return 0;
+  if (!isValidDeviceId(deviceId) || typeof write !== 'function') {
+    return 0;
+  }
   const now = Date.now();
   let sent = 0;
   for (const [token, mapped] of tokenIndex.entries()) {

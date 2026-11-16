@@ -77,12 +77,24 @@
       (typeof value === 'string' && value.length > 0 && value.length <= 255 &&
         !/[\u0000-\u001f\u007f]/.test(value))],
     ['doNotDisturb', value => typeof value === 'boolean'],
-    ['showTaskbarClock', value => typeof value === 'boolean'],
-    ['taskbarSize', value => value === 'compact' || value === 'normal' || value === 'large'],
-    ['reduceMotion', value => typeof value === 'boolean'],
-    ['removeTransparency', value => typeof value === 'boolean'],
-    ['highContrast', value => typeof value === 'boolean'],
-    ['cursorSize', value => value === 'normal' || value === 'large' || value === 'xlarge'],
+    ['showTaskbarClock', value => {
+      return typeof value === 'boolean';
+    }],
+    ['taskbarSize', value => {
+      return value === 'compact' || value === 'normal' || value === 'large';
+    }],
+    ['reduceMotion', value => {
+      return typeof value === 'boolean';
+    }],
+    ['removeTransparency', value => {
+      return typeof value === 'boolean';
+    }],
+    ['highContrast', value => {
+      return typeof value === 'boolean';
+    }],
+    ['cursorSize', value => {
+      return value === 'normal' || value === 'large' || value === 'xlarge';
+    }],
     ['volume', value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100],
   ]);
 
@@ -264,8 +276,9 @@
     } catch (error) {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
         return null;
+      } else {
+        throw error;
       }
-      throw error;
     }
   }
 
@@ -316,19 +329,20 @@
   function getVmwareToolsStatus(isVmware) {
     if (!isVmware) {
       return { installed: false, running: false, displayResize: false };
+    } else {
+      const installed = fs.existsSync('/usr/bin/vmtoolsd') &&
+        fs.existsSync('/usr/bin/vmware-checkvm');
+      const pid = readOptionalFile('/run/vmtoolsd.pid');
+      const processName = pid && /^\d+$/.test(pid)
+        ? readOptionalFile(`/proc/${pid}/comm`)
+        : null;
+      const running = processName === 'vmtoolsd';
+      const graphics = getGraphicsDevices();
+      return {
+        installed,
+        running,
+      };
     }
-    const installed = fs.existsSync('/usr/bin/vmtoolsd') &&
-      fs.existsSync('/usr/bin/vmware-checkvm');
-    const pid = readOptionalFile('/run/vmtoolsd.pid');
-    const processName = pid && /^\d+$/.test(pid)
-      ? readOptionalFile(`/proc/${pid}/comm`)
-      : null;
-    const running = processName === 'vmtoolsd';
-    const graphics = getGraphicsDevices();
-    return {
-      installed,
-      running,
-    };
   }
 
   function getHardwareInventory() {
@@ -373,10 +387,11 @@
 
   function getConnectivityBackend() {
     const backend = window.NovaConnectivity;
-    if (!backend) {
+    if (backend) {
+      return backend;
+    } else {
       throw new Error('Network and Bluetooth hardware backend is unavailable');
     }
-    return backend;
   }
 
   const network = Object.freeze(Object.fromEntries([

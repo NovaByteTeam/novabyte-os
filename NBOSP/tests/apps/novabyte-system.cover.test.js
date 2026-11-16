@@ -119,9 +119,21 @@ describe('NovaByteSystem (js/apps/novabyte-system/service.js) — e2e coverage',
     expect(() => S.set('customWallpaperName', 'bad\u0001char')).toThrow(TypeError);
     expect(S.set('doNotDisturb', true)).toBe(true);
     expect(() => S.set('doNotDisturb', 'yes')).toThrow(TypeError);
+    expect(S.set('showTaskbarClock', false)).toBe(true);
+    expect(() => S.set('showTaskbarClock', 'yes')).toThrow(TypeError);
     expect(S.set('taskbarSize', 'compact')).toBe(true);
+    expect(S.set('taskbarSize', 'large')).toBe(true);
     expect(() => S.set('taskbarSize', 'huge')).toThrow(TypeError);
+    expect(S.set('reduceMotion', true)).toBe(true);
+    expect(() => S.set('reduceMotion', 'yes')).toThrow(TypeError);
+    expect(S.set('removeTransparency', true)).toBe(true);
+    expect(S.set('removeTransparency', false)).toBe(true);
+    expect(() => S.set('removeTransparency', 1)).toThrow(TypeError);
+    expect(S.set('highContrast', true)).toBe(true);
+    expect(S.set('highContrast', false)).toBe(true);
+    expect(() => S.set('highContrast', 'nope')).toThrow(TypeError);
     expect(S.set('cursorSize', 'xlarge')).toBe(true);
+    expect(S.set('cursorSize', 'normal')).toBe(true);
     expect(() => S.set('cursorSize', 'giant')).toThrow(TypeError);
     expect(S.set('volume', 0)).toBe(true);
     expect(S.set('volume', 100)).toBe(true);
@@ -274,6 +286,24 @@ describe('NovaByteSystem (js/apps/novabyte-system/service.js) — e2e coverage',
     });
     expect(res.imported).toEqual([]);
     expect(res.skipped.sort()).toEqual(['someUnvalidatedKey', 'someUnvalidatedKey2']);
+  });
+
+  it('settings.import: known keys whose value serializes to undefined or is oversized are skipped', async () => {
+    const { api } = await mount({});
+    // someUnvalidatedKey is a known key WITHOUT a validator, so the value
+    // reaches the serialization gate itself
+    const res = await api.settings.import({
+      someUnvalidatedKey: () => 'never serialized',   // JSON.stringify(fn) → undefined
+    });
+    expect(res.skipped).toEqual(['someUnvalidatedKey']);
+    expect(res.imported).toEqual([]);
+
+    // oversized payload for the same known key → serialized.length gate
+    const big = await api.settings.import({
+      someUnvalidatedKey: 'x'.repeat(5_500_001),
+    });
+    expect(big.skipped).toEqual(['someUnvalidatedKey']);
+    expect(big.imported).toEqual([]);
   });
 
   it('hardware.getInventory reports supported on linux and a reason elsewhere', async () => {
@@ -510,6 +540,42 @@ describe('NovaByteSystem (js/apps/novabyte-system/service.js) — e2e coverage',
       fsMod.readdirSync = real.readdirSync;
       fsMod.realpathSync = real.realpathSync;
       fsMod.existsSync = real.existsSync;
+    }
+  });
+
+  it('network driver probing rethrows unexpected realpath errors', async () => {
+    const { api } = await mount({});
+    const { createRequire } = await import('node:module');
+    const req = createRequire(import.meta.url);
+    const fsMod = req('fs');
+    const realRealpath = fsMod.realpathSync;
+    try {
+      // only the NET driver probe blows up — every other realpath is real
+      fsMod.realpathSync = (p, ...rest) => {
+        if (String(p).startsWith('/sys/class/net/')) {
+          const e = new Error('denied');
+          e.code = 'EACCES';
+          throw e;
+        }
+        return realRealpath.call(fsMod, p, ...rest);
+      };
+      expect(() => api.hardware.getInventory()).toThrow('denied');
+    } finally {
+      fsMod.realpathSync = realRealpath;
+    }
+  });
+
+  it('reports a null cpu model and zero cores when os.cpus() is empty', async () => {
+    const { api } = await mount({});
+    const { createRequire } = await import('node:module');
+    const req = createRequire(import.meta.url);
+    const osMod = req('os');
+    const spy = vi.spyOn(osMod, 'cpus').mockReturnValue([]);
+    try {
+      const inv = api.hardware.getInventory();
+      expect(inv.cpu).toEqual({ model: null, logicalCores: 0 });
+    } finally {
+      spy.mockRestore();
     }
   });
 });
