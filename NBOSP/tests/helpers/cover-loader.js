@@ -169,9 +169,15 @@ export async function coverLoadWindowApp(appName, opts = {}) {
  * Same contract as app-harness.loadServiceApp().
  */
 export async function coverLoadServiceApp(appName, opts = {}) {
-  const { scripts = ['service.js'], stubs = {}, withBaseUtils = false, i18n = true } = opts;
+  const {
+    scripts = ['service.js'], stubs = {}, withBaseUtils = false, i18n = true,
+    // Optional custom host document — services that bind to specific shell
+    // elements (panels, tray buttons, …) need their markup in place at load
+    // time, exactly like the real shell provides.
+    html = '<!doctype html><html><body></body></html>',
+  } = opts;
   const appBase = new URL(`${appName}/`, APPS_BASE);
-  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  const dom = new JSDOM(html, {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
     url: `https://localhost/js/apps/${appName}/service.js`,
