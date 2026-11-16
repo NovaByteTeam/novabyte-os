@@ -1,0 +1,1962 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for NBOSP/js/core/services/multiuser-migration.js</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../../../prettify.css" />
+    <link rel="stylesheet" href="../../../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="../../../../theme.js"></script>
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        
+        <label class="theme-select quiet">
+            Theme
+            <select id="themeSelect" autocomplete="off">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="legacy">Legacy</option>
+            </select>
+        </label>
+
+        <h1><a href="../../../../index.html">All files</a> / <a href="index.html">NBOSP/js/core/services</a> multiuser-migration.js</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">0% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>0/290</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">0% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>0/208</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">0% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>0/22</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">0% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>0/260</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line low'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a>
+<a name='L142'></a><a href='#L142'>142</a>
+<a name='L143'></a><a href='#L143'>143</a>
+<a name='L144'></a><a href='#L144'>144</a>
+<a name='L145'></a><a href='#L145'>145</a>
+<a name='L146'></a><a href='#L146'>146</a>
+<a name='L147'></a><a href='#L147'>147</a>
+<a name='L148'></a><a href='#L148'>148</a>
+<a name='L149'></a><a href='#L149'>149</a>
+<a name='L150'></a><a href='#L150'>150</a>
+<a name='L151'></a><a href='#L151'>151</a>
+<a name='L152'></a><a href='#L152'>152</a>
+<a name='L153'></a><a href='#L153'>153</a>
+<a name='L154'></a><a href='#L154'>154</a>
+<a name='L155'></a><a href='#L155'>155</a>
+<a name='L156'></a><a href='#L156'>156</a>
+<a name='L157'></a><a href='#L157'>157</a>
+<a name='L158'></a><a href='#L158'>158</a>
+<a name='L159'></a><a href='#L159'>159</a>
+<a name='L160'></a><a href='#L160'>160</a>
+<a name='L161'></a><a href='#L161'>161</a>
+<a name='L162'></a><a href='#L162'>162</a>
+<a name='L163'></a><a href='#L163'>163</a>
+<a name='L164'></a><a href='#L164'>164</a>
+<a name='L165'></a><a href='#L165'>165</a>
+<a name='L166'></a><a href='#L166'>166</a>
+<a name='L167'></a><a href='#L167'>167</a>
+<a name='L168'></a><a href='#L168'>168</a>
+<a name='L169'></a><a href='#L169'>169</a>
+<a name='L170'></a><a href='#L170'>170</a>
+<a name='L171'></a><a href='#L171'>171</a>
+<a name='L172'></a><a href='#L172'>172</a>
+<a name='L173'></a><a href='#L173'>173</a>
+<a name='L174'></a><a href='#L174'>174</a>
+<a name='L175'></a><a href='#L175'>175</a>
+<a name='L176'></a><a href='#L176'>176</a>
+<a name='L177'></a><a href='#L177'>177</a>
+<a name='L178'></a><a href='#L178'>178</a>
+<a name='L179'></a><a href='#L179'>179</a>
+<a name='L180'></a><a href='#L180'>180</a>
+<a name='L181'></a><a href='#L181'>181</a>
+<a name='L182'></a><a href='#L182'>182</a>
+<a name='L183'></a><a href='#L183'>183</a>
+<a name='L184'></a><a href='#L184'>184</a>
+<a name='L185'></a><a href='#L185'>185</a>
+<a name='L186'></a><a href='#L186'>186</a>
+<a name='L187'></a><a href='#L187'>187</a>
+<a name='L188'></a><a href='#L188'>188</a>
+<a name='L189'></a><a href='#L189'>189</a>
+<a name='L190'></a><a href='#L190'>190</a>
+<a name='L191'></a><a href='#L191'>191</a>
+<a name='L192'></a><a href='#L192'>192</a>
+<a name='L193'></a><a href='#L193'>193</a>
+<a name='L194'></a><a href='#L194'>194</a>
+<a name='L195'></a><a href='#L195'>195</a>
+<a name='L196'></a><a href='#L196'>196</a>
+<a name='L197'></a><a href='#L197'>197</a>
+<a name='L198'></a><a href='#L198'>198</a>
+<a name='L199'></a><a href='#L199'>199</a>
+<a name='L200'></a><a href='#L200'>200</a>
+<a name='L201'></a><a href='#L201'>201</a>
+<a name='L202'></a><a href='#L202'>202</a>
+<a name='L203'></a><a href='#L203'>203</a>
+<a name='L204'></a><a href='#L204'>204</a>
+<a name='L205'></a><a href='#L205'>205</a>
+<a name='L206'></a><a href='#L206'>206</a>
+<a name='L207'></a><a href='#L207'>207</a>
+<a name='L208'></a><a href='#L208'>208</a>
+<a name='L209'></a><a href='#L209'>209</a>
+<a name='L210'></a><a href='#L210'>210</a>
+<a name='L211'></a><a href='#L211'>211</a>
+<a name='L212'></a><a href='#L212'>212</a>
+<a name='L213'></a><a href='#L213'>213</a>
+<a name='L214'></a><a href='#L214'>214</a>
+<a name='L215'></a><a href='#L215'>215</a>
+<a name='L216'></a><a href='#L216'>216</a>
+<a name='L217'></a><a href='#L217'>217</a>
+<a name='L218'></a><a href='#L218'>218</a>
+<a name='L219'></a><a href='#L219'>219</a>
+<a name='L220'></a><a href='#L220'>220</a>
+<a name='L221'></a><a href='#L221'>221</a>
+<a name='L222'></a><a href='#L222'>222</a>
+<a name='L223'></a><a href='#L223'>223</a>
+<a name='L224'></a><a href='#L224'>224</a>
+<a name='L225'></a><a href='#L225'>225</a>
+<a name='L226'></a><a href='#L226'>226</a>
+<a name='L227'></a><a href='#L227'>227</a>
+<a name='L228'></a><a href='#L228'>228</a>
+<a name='L229'></a><a href='#L229'>229</a>
+<a name='L230'></a><a href='#L230'>230</a>
+<a name='L231'></a><a href='#L231'>231</a>
+<a name='L232'></a><a href='#L232'>232</a>
+<a name='L233'></a><a href='#L233'>233</a>
+<a name='L234'></a><a href='#L234'>234</a>
+<a name='L235'></a><a href='#L235'>235</a>
+<a name='L236'></a><a href='#L236'>236</a>
+<a name='L237'></a><a href='#L237'>237</a>
+<a name='L238'></a><a href='#L238'>238</a>
+<a name='L239'></a><a href='#L239'>239</a>
+<a name='L240'></a><a href='#L240'>240</a>
+<a name='L241'></a><a href='#L241'>241</a>
+<a name='L242'></a><a href='#L242'>242</a>
+<a name='L243'></a><a href='#L243'>243</a>
+<a name='L244'></a><a href='#L244'>244</a>
+<a name='L245'></a><a href='#L245'>245</a>
+<a name='L246'></a><a href='#L246'>246</a>
+<a name='L247'></a><a href='#L247'>247</a>
+<a name='L248'></a><a href='#L248'>248</a>
+<a name='L249'></a><a href='#L249'>249</a>
+<a name='L250'></a><a href='#L250'>250</a>
+<a name='L251'></a><a href='#L251'>251</a>
+<a name='L252'></a><a href='#L252'>252</a>
+<a name='L253'></a><a href='#L253'>253</a>
+<a name='L254'></a><a href='#L254'>254</a>
+<a name='L255'></a><a href='#L255'>255</a>
+<a name='L256'></a><a href='#L256'>256</a>
+<a name='L257'></a><a href='#L257'>257</a>
+<a name='L258'></a><a href='#L258'>258</a>
+<a name='L259'></a><a href='#L259'>259</a>
+<a name='L260'></a><a href='#L260'>260</a>
+<a name='L261'></a><a href='#L261'>261</a>
+<a name='L262'></a><a href='#L262'>262</a>
+<a name='L263'></a><a href='#L263'>263</a>
+<a name='L264'></a><a href='#L264'>264</a>
+<a name='L265'></a><a href='#L265'>265</a>
+<a name='L266'></a><a href='#L266'>266</a>
+<a name='L267'></a><a href='#L267'>267</a>
+<a name='L268'></a><a href='#L268'>268</a>
+<a name='L269'></a><a href='#L269'>269</a>
+<a name='L270'></a><a href='#L270'>270</a>
+<a name='L271'></a><a href='#L271'>271</a>
+<a name='L272'></a><a href='#L272'>272</a>
+<a name='L273'></a><a href='#L273'>273</a>
+<a name='L274'></a><a href='#L274'>274</a>
+<a name='L275'></a><a href='#L275'>275</a>
+<a name='L276'></a><a href='#L276'>276</a>
+<a name='L277'></a><a href='#L277'>277</a>
+<a name='L278'></a><a href='#L278'>278</a>
+<a name='L279'></a><a href='#L279'>279</a>
+<a name='L280'></a><a href='#L280'>280</a>
+<a name='L281'></a><a href='#L281'>281</a>
+<a name='L282'></a><a href='#L282'>282</a>
+<a name='L283'></a><a href='#L283'>283</a>
+<a name='L284'></a><a href='#L284'>284</a>
+<a name='L285'></a><a href='#L285'>285</a>
+<a name='L286'></a><a href='#L286'>286</a>
+<a name='L287'></a><a href='#L287'>287</a>
+<a name='L288'></a><a href='#L288'>288</a>
+<a name='L289'></a><a href='#L289'>289</a>
+<a name='L290'></a><a href='#L290'>290</a>
+<a name='L291'></a><a href='#L291'>291</a>
+<a name='L292'></a><a href='#L292'>292</a>
+<a name='L293'></a><a href='#L293'>293</a>
+<a name='L294'></a><a href='#L294'>294</a>
+<a name='L295'></a><a href='#L295'>295</a>
+<a name='L296'></a><a href='#L296'>296</a>
+<a name='L297'></a><a href='#L297'>297</a>
+<a name='L298'></a><a href='#L298'>298</a>
+<a name='L299'></a><a href='#L299'>299</a>
+<a name='L300'></a><a href='#L300'>300</a>
+<a name='L301'></a><a href='#L301'>301</a>
+<a name='L302'></a><a href='#L302'>302</a>
+<a name='L303'></a><a href='#L303'>303</a>
+<a name='L304'></a><a href='#L304'>304</a>
+<a name='L305'></a><a href='#L305'>305</a>
+<a name='L306'></a><a href='#L306'>306</a>
+<a name='L307'></a><a href='#L307'>307</a>
+<a name='L308'></a><a href='#L308'>308</a>
+<a name='L309'></a><a href='#L309'>309</a>
+<a name='L310'></a><a href='#L310'>310</a>
+<a name='L311'></a><a href='#L311'>311</a>
+<a name='L312'></a><a href='#L312'>312</a>
+<a name='L313'></a><a href='#L313'>313</a>
+<a name='L314'></a><a href='#L314'>314</a>
+<a name='L315'></a><a href='#L315'>315</a>
+<a name='L316'></a><a href='#L316'>316</a>
+<a name='L317'></a><a href='#L317'>317</a>
+<a name='L318'></a><a href='#L318'>318</a>
+<a name='L319'></a><a href='#L319'>319</a>
+<a name='L320'></a><a href='#L320'>320</a>
+<a name='L321'></a><a href='#L321'>321</a>
+<a name='L322'></a><a href='#L322'>322</a>
+<a name='L323'></a><a href='#L323'>323</a>
+<a name='L324'></a><a href='#L324'>324</a>
+<a name='L325'></a><a href='#L325'>325</a>
+<a name='L326'></a><a href='#L326'>326</a>
+<a name='L327'></a><a href='#L327'>327</a>
+<a name='L328'></a><a href='#L328'>328</a>
+<a name='L329'></a><a href='#L329'>329</a>
+<a name='L330'></a><a href='#L330'>330</a>
+<a name='L331'></a><a href='#L331'>331</a>
+<a name='L332'></a><a href='#L332'>332</a>
+<a name='L333'></a><a href='#L333'>333</a>
+<a name='L334'></a><a href='#L334'>334</a>
+<a name='L335'></a><a href='#L335'>335</a>
+<a name='L336'></a><a href='#L336'>336</a>
+<a name='L337'></a><a href='#L337'>337</a>
+<a name='L338'></a><a href='#L338'>338</a>
+<a name='L339'></a><a href='#L339'>339</a>
+<a name='L340'></a><a href='#L340'>340</a>
+<a name='L341'></a><a href='#L341'>341</a>
+<a name='L342'></a><a href='#L342'>342</a>
+<a name='L343'></a><a href='#L343'>343</a>
+<a name='L344'></a><a href='#L344'>344</a>
+<a name='L345'></a><a href='#L345'>345</a>
+<a name='L346'></a><a href='#L346'>346</a>
+<a name='L347'></a><a href='#L347'>347</a>
+<a name='L348'></a><a href='#L348'>348</a>
+<a name='L349'></a><a href='#L349'>349</a>
+<a name='L350'></a><a href='#L350'>350</a>
+<a name='L351'></a><a href='#L351'>351</a>
+<a name='L352'></a><a href='#L352'>352</a>
+<a name='L353'></a><a href='#L353'>353</a>
+<a name='L354'></a><a href='#L354'>354</a>
+<a name='L355'></a><a href='#L355'>355</a>
+<a name='L356'></a><a href='#L356'>356</a>
+<a name='L357'></a><a href='#L357'>357</a>
+<a name='L358'></a><a href='#L358'>358</a>
+<a name='L359'></a><a href='#L359'>359</a>
+<a name='L360'></a><a href='#L360'>360</a>
+<a name='L361'></a><a href='#L361'>361</a>
+<a name='L362'></a><a href='#L362'>362</a>
+<a name='L363'></a><a href='#L363'>363</a>
+<a name='L364'></a><a href='#L364'>364</a>
+<a name='L365'></a><a href='#L365'>365</a>
+<a name='L366'></a><a href='#L366'>366</a>
+<a name='L367'></a><a href='#L367'>367</a>
+<a name='L368'></a><a href='#L368'>368</a>
+<a name='L369'></a><a href='#L369'>369</a>
+<a name='L370'></a><a href='#L370'>370</a>
+<a name='L371'></a><a href='#L371'>371</a>
+<a name='L372'></a><a href='#L372'>372</a>
+<a name='L373'></a><a href='#L373'>373</a>
+<a name='L374'></a><a href='#L374'>374</a>
+<a name='L375'></a><a href='#L375'>375</a>
+<a name='L376'></a><a href='#L376'>376</a>
+<a name='L377'></a><a href='#L377'>377</a>
+<a name='L378'></a><a href='#L378'>378</a>
+<a name='L379'></a><a href='#L379'>379</a>
+<a name='L380'></a><a href='#L380'>380</a>
+<a name='L381'></a><a href='#L381'>381</a>
+<a name='L382'></a><a href='#L382'>382</a>
+<a name='L383'></a><a href='#L383'>383</a>
+<a name='L384'></a><a href='#L384'>384</a>
+<a name='L385'></a><a href='#L385'>385</a>
+<a name='L386'></a><a href='#L386'>386</a>
+<a name='L387'></a><a href='#L387'>387</a>
+<a name='L388'></a><a href='#L388'>388</a>
+<a name='L389'></a><a href='#L389'>389</a>
+<a name='L390'></a><a href='#L390'>390</a>
+<a name='L391'></a><a href='#L391'>391</a>
+<a name='L392'></a><a href='#L392'>392</a>
+<a name='L393'></a><a href='#L393'>393</a>
+<a name='L394'></a><a href='#L394'>394</a>
+<a name='L395'></a><a href='#L395'>395</a>
+<a name='L396'></a><a href='#L396'>396</a>
+<a name='L397'></a><a href='#L397'>397</a>
+<a name='L398'></a><a href='#L398'>398</a>
+<a name='L399'></a><a href='#L399'>399</a>
+<a name='L400'></a><a href='#L400'>400</a>
+<a name='L401'></a><a href='#L401'>401</a>
+<a name='L402'></a><a href='#L402'>402</a>
+<a name='L403'></a><a href='#L403'>403</a>
+<a name='L404'></a><a href='#L404'>404</a>
+<a name='L405'></a><a href='#L405'>405</a>
+<a name='L406'></a><a href='#L406'>406</a>
+<a name='L407'></a><a href='#L407'>407</a>
+<a name='L408'></a><a href='#L408'>408</a>
+<a name='L409'></a><a href='#L409'>409</a>
+<a name='L410'></a><a href='#L410'>410</a>
+<a name='L411'></a><a href='#L411'>411</a>
+<a name='L412'></a><a href='#L412'>412</a>
+<a name='L413'></a><a href='#L413'>413</a>
+<a name='L414'></a><a href='#L414'>414</a>
+<a name='L415'></a><a href='#L415'>415</a>
+<a name='L416'></a><a href='#L416'>416</a>
+<a name='L417'></a><a href='#L417'>417</a>
+<a name='L418'></a><a href='#L418'>418</a>
+<a name='L419'></a><a href='#L419'>419</a>
+<a name='L420'></a><a href='#L420'>420</a>
+<a name='L421'></a><a href='#L421'>421</a>
+<a name='L422'></a><a href='#L422'>422</a>
+<a name='L423'></a><a href='#L423'>423</a>
+<a name='L424'></a><a href='#L424'>424</a>
+<a name='L425'></a><a href='#L425'>425</a>
+<a name='L426'></a><a href='#L426'>426</a>
+<a name='L427'></a><a href='#L427'>427</a>
+<a name='L428'></a><a href='#L428'>428</a>
+<a name='L429'></a><a href='#L429'>429</a>
+<a name='L430'></a><a href='#L430'>430</a>
+<a name='L431'></a><a href='#L431'>431</a>
+<a name='L432'></a><a href='#L432'>432</a>
+<a name='L433'></a><a href='#L433'>433</a>
+<a name='L434'></a><a href='#L434'>434</a>
+<a name='L435'></a><a href='#L435'>435</a>
+<a name='L436'></a><a href='#L436'>436</a>
+<a name='L437'></a><a href='#L437'>437</a>
+<a name='L438'></a><a href='#L438'>438</a>
+<a name='L439'></a><a href='#L439'>439</a>
+<a name='L440'></a><a href='#L440'>440</a>
+<a name='L441'></a><a href='#L441'>441</a>
+<a name='L442'></a><a href='#L442'>442</a>
+<a name='L443'></a><a href='#L443'>443</a>
+<a name='L444'></a><a href='#L444'>444</a>
+<a name='L445'></a><a href='#L445'>445</a>
+<a name='L446'></a><a href='#L446'>446</a>
+<a name='L447'></a><a href='#L447'>447</a>
+<a name='L448'></a><a href='#L448'>448</a>
+<a name='L449'></a><a href='#L449'>449</a>
+<a name='L450'></a><a href='#L450'>450</a>
+<a name='L451'></a><a href='#L451'>451</a>
+<a name='L452'></a><a href='#L452'>452</a>
+<a name='L453'></a><a href='#L453'>453</a>
+<a name='L454'></a><a href='#L454'>454</a>
+<a name='L455'></a><a href='#L455'>455</a>
+<a name='L456'></a><a href='#L456'>456</a>
+<a name='L457'></a><a href='#L457'>457</a>
+<a name='L458'></a><a href='#L458'>458</a>
+<a name='L459'></a><a href='#L459'>459</a>
+<a name='L460'></a><a href='#L460'>460</a>
+<a name='L461'></a><a href='#L461'>461</a>
+<a name='L462'></a><a href='#L462'>462</a>
+<a name='L463'></a><a href='#L463'>463</a>
+<a name='L464'></a><a href='#L464'>464</a>
+<a name='L465'></a><a href='#L465'>465</a>
+<a name='L466'></a><a href='#L466'>466</a>
+<a name='L467'></a><a href='#L467'>467</a>
+<a name='L468'></a><a href='#L468'>468</a>
+<a name='L469'></a><a href='#L469'>469</a>
+<a name='L470'></a><a href='#L470'>470</a>
+<a name='L471'></a><a href='#L471'>471</a>
+<a name='L472'></a><a href='#L472'>472</a>
+<a name='L473'></a><a href='#L473'>473</a>
+<a name='L474'></a><a href='#L474'>474</a>
+<a name='L475'></a><a href='#L475'>475</a>
+<a name='L476'></a><a href='#L476'>476</a>
+<a name='L477'></a><a href='#L477'>477</a>
+<a name='L478'></a><a href='#L478'>478</a>
+<a name='L479'></a><a href='#L479'>479</a>
+<a name='L480'></a><a href='#L480'>480</a>
+<a name='L481'></a><a href='#L481'>481</a>
+<a name='L482'></a><a href='#L482'>482</a>
+<a name='L483'></a><a href='#L483'>483</a>
+<a name='L484'></a><a href='#L484'>484</a>
+<a name='L485'></a><a href='#L485'>485</a>
+<a name='L486'></a><a href='#L486'>486</a>
+<a name='L487'></a><a href='#L487'>487</a>
+<a name='L488'></a><a href='#L488'>488</a>
+<a name='L489'></a><a href='#L489'>489</a>
+<a name='L490'></a><a href='#L490'>490</a>
+<a name='L491'></a><a href='#L491'>491</a>
+<a name='L492'></a><a href='#L492'>492</a>
+<a name='L493'></a><a href='#L493'>493</a>
+<a name='L494'></a><a href='#L494'>494</a>
+<a name='L495'></a><a href='#L495'>495</a>
+<a name='L496'></a><a href='#L496'>496</a>
+<a name='L497'></a><a href='#L497'>497</a>
+<a name='L498'></a><a href='#L498'>498</a>
+<a name='L499'></a><a href='#L499'>499</a>
+<a name='L500'></a><a href='#L500'>500</a>
+<a name='L501'></a><a href='#L501'>501</a>
+<a name='L502'></a><a href='#L502'>502</a>
+<a name='L503'></a><a href='#L503'>503</a>
+<a name='L504'></a><a href='#L504'>504</a>
+<a name='L505'></a><a href='#L505'>505</a>
+<a name='L506'></a><a href='#L506'>506</a>
+<a name='L507'></a><a href='#L507'>507</a>
+<a name='L508'></a><a href='#L508'>508</a>
+<a name='L509'></a><a href='#L509'>509</a>
+<a name='L510'></a><a href='#L510'>510</a>
+<a name='L511'></a><a href='#L511'>511</a>
+<a name='L512'></a><a href='#L512'>512</a>
+<a name='L513'></a><a href='#L513'>513</a>
+<a name='L514'></a><a href='#L514'>514</a>
+<a name='L515'></a><a href='#L515'>515</a>
+<a name='L516'></a><a href='#L516'>516</a>
+<a name='L517'></a><a href='#L517'>517</a>
+<a name='L518'></a><a href='#L518'>518</a>
+<a name='L519'></a><a href='#L519'>519</a>
+<a name='L520'></a><a href='#L520'>520</a>
+<a name='L521'></a><a href='#L521'>521</a>
+<a name='L522'></a><a href='#L522'>522</a>
+<a name='L523'></a><a href='#L523'>523</a>
+<a name='L524'></a><a href='#L524'>524</a>
+<a name='L525'></a><a href='#L525'>525</a>
+<a name='L526'></a><a href='#L526'>526</a>
+<a name='L527'></a><a href='#L527'>527</a>
+<a name='L528'></a><a href='#L528'>528</a>
+<a name='L529'></a><a href='#L529'>529</a>
+<a name='L530'></a><a href='#L530'>530</a>
+<a name='L531'></a><a href='#L531'>531</a>
+<a name='L532'></a><a href='#L532'>532</a>
+<a name='L533'></a><a href='#L533'>533</a>
+<a name='L534'></a><a href='#L534'>534</a>
+<a name='L535'></a><a href='#L535'>535</a>
+<a name='L536'></a><a href='#L536'>536</a>
+<a name='L537'></a><a href='#L537'>537</a>
+<a name='L538'></a><a href='#L538'>538</a>
+<a name='L539'></a><a href='#L539'>539</a>
+<a name='L540'></a><a href='#L540'>540</a>
+<a name='L541'></a><a href='#L541'>541</a>
+<a name='L542'></a><a href='#L542'>542</a>
+<a name='L543'></a><a href='#L543'>543</a>
+<a name='L544'></a><a href='#L544'>544</a>
+<a name='L545'></a><a href='#L545'>545</a>
+<a name='L546'></a><a href='#L546'>546</a>
+<a name='L547'></a><a href='#L547'>547</a>
+<a name='L548'></a><a href='#L548'>548</a>
+<a name='L549'></a><a href='#L549'>549</a>
+<a name='L550'></a><a href='#L550'>550</a>
+<a name='L551'></a><a href='#L551'>551</a>
+<a name='L552'></a><a href='#L552'>552</a>
+<a name='L553'></a><a href='#L553'>553</a>
+<a name='L554'></a><a href='#L554'>554</a>
+<a name='L555'></a><a href='#L555'>555</a>
+<a name='L556'></a><a href='#L556'>556</a>
+<a name='L557'></a><a href='#L557'>557</a>
+<a name='L558'></a><a href='#L558'>558</a>
+<a name='L559'></a><a href='#L559'>559</a>
+<a name='L560'></a><a href='#L560'>560</a>
+<a name='L561'></a><a href='#L561'>561</a>
+<a name='L562'></a><a href='#L562'>562</a>
+<a name='L563'></a><a href='#L563'>563</a>
+<a name='L564'></a><a href='#L564'>564</a>
+<a name='L565'></a><a href='#L565'>565</a>
+<a name='L566'></a><a href='#L566'>566</a>
+<a name='L567'></a><a href='#L567'>567</a>
+<a name='L568'></a><a href='#L568'>568</a>
+<a name='L569'></a><a href='#L569'>569</a>
+<a name='L570'></a><a href='#L570'>570</a>
+<a name='L571'></a><a href='#L571'>571</a>
+<a name='L572'></a><a href='#L572'>572</a>
+<a name='L573'></a><a href='#L573'>573</a>
+<a name='L574'></a><a href='#L574'>574</a>
+<a name='L575'></a><a href='#L575'>575</a>
+<a name='L576'></a><a href='#L576'>576</a>
+<a name='L577'></a><a href='#L577'>577</a>
+<a name='L578'></a><a href='#L578'>578</a>
+<a name='L579'></a><a href='#L579'>579</a>
+<a name='L580'></a><a href='#L580'>580</a>
+<a name='L581'></a><a href='#L581'>581</a>
+<a name='L582'></a><a href='#L582'>582</a>
+<a name='L583'></a><a href='#L583'>583</a>
+<a name='L584'></a><a href='#L584'>584</a>
+<a name='L585'></a><a href='#L585'>585</a>
+<a name='L586'></a><a href='#L586'>586</a>
+<a name='L587'></a><a href='#L587'>587</a>
+<a name='L588'></a><a href='#L588'>588</a>
+<a name='L589'></a><a href='#L589'>589</a>
+<a name='L590'></a><a href='#L590'>590</a>
+<a name='L591'></a><a href='#L591'>591</a>
+<a name='L592'></a><a href='#L592'>592</a>
+<a name='L593'></a><a href='#L593'>593</a>
+<a name='L594'></a><a href='#L594'>594</a>
+<a name='L595'></a><a href='#L595'>595</a>
+<a name='L596'></a><a href='#L596'>596</a>
+<a name='L597'></a><a href='#L597'>597</a>
+<a name='L598'></a><a href='#L598'>598</a>
+<a name='L599'></a><a href='#L599'>599</a>
+<a name='L600'></a><a href='#L600'>600</a>
+<a name='L601'></a><a href='#L601'>601</a>
+<a name='L602'></a><a href='#L602'>602</a>
+<a name='L603'></a><a href='#L603'>603</a>
+<a name='L604'></a><a href='#L604'>604</a>
+<a name='L605'></a><a href='#L605'>605</a>
+<a name='L606'></a><a href='#L606'>606</a>
+<a name='L607'></a><a href='#L607'>607</a>
+<a name='L608'></a><a href='#L608'>608</a>
+<a name='L609'></a><a href='#L609'>609</a>
+<a name='L610'></a><a href='#L610'>610</a>
+<a name='L611'></a><a href='#L611'>611</a>
+<a name='L612'></a><a href='#L612'>612</a>
+<a name='L613'></a><a href='#L613'>613</a>
+<a name='L614'></a><a href='#L614'>614</a>
+<a name='L615'></a><a href='#L615'>615</a>
+<a name='L616'></a><a href='#L616'>616</a>
+<a name='L617'></a><a href='#L617'>617</a>
+<a name='L618'></a><a href='#L618'>618</a>
+<a name='L619'></a><a href='#L619'>619</a>
+<a name='L620'></a><a href='#L620'>620</a>
+<a name='L621'></a><a href='#L621'>621</a>
+<a name='L622'></a><a href='#L622'>622</a>
+<a name='L623'></a><a href='#L623'>623</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/**
+ * NovaByte OS — Multi-user migration (3.0.2 single-user → accounts)
+ *
+ * The migration that must be perfect, because the existing user's data IS
+ * the product. One-time, idempotent behind the HKNS/system/migration/v1
+ * marker, and a strict no-op on machines that never enabled multi-user
+ * (those keep byte-identical single-user behaviour forever).
+ *
+ * Order matters: this runs in boot BEFORE any per-user hive is mounted and
+ * BEFORE the storage schemas (NovaByte_FS v2, NovaByte_AppStorage v2)
+ * stamp owner uids, so every legacy byte is stamped to the owner it
+ * belongs to:
+ *
+ *   1. owner account imported from the legacy single-user state
+ *      (HKNS/security/lockPin PBKDF2 hash + pinSalt + HKNU/settings/
+ *      username) into the server's users.db — kdf records the legacy
+ *      shape, the first successful verification re-hashes to scrypt;
+ *   2. registry user hives moved into users/&lt;owner&gt;/registry/;
+ *   3. the legacy home tree moved into users/&lt;owner&gt;/ (the account's
+ *      actual filesystem root) and the per-app AppDirs re-rooted under
+ *      users/&lt;owner&gt;/.apps/;
+ *   4. NovaByte_FS + NovaByte_AppStorage rows stamped with the owner uid
+ *      through their schema v2 upgrades;
+ *   5. webview partitions renamed from persist:app_&lt;appId&gt; to
+ *      persist:u&lt;owner&gt;_app_&lt;appId&gt; — best-effort at the NW.js user-data
+ *      layout, fail-soft;
+ *   6. the LS_MAP user-data localStorage keys ride their existing mirror
+ *      into the owner's per-app files (the AppDirs bootstrap seeds from
+ *      localStorage on first login);
+ *   7. machine app-permission grants copied into the owner's per-account
+ *      hive; legacy adminEnabled=true maps to the owner (owner IS admin).
+ *
+ * After migration the machine behaves exactly as it did before — one
+ * account, one PIN, all data intact — but every stratum carries an owner.
+ */
+<span class="cstat-no" title="statement not covered" >(<span class="fstat-no" title="function not covered" >()</span> =&gt; {</span>
+  'use strict';
+&nbsp;
+  const MIGRATION_MARKER = <span class="cstat-no" title="statement not covered" >'HKNS/system/migration/v1';</span>
+  const MULTI_USER_FLAG = <span class="cstat-no" title="statement not covered" >'HKNS/system/features/multiUser';</span>
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >log(</span>...args) {
+<span class="cstat-no" title="statement not covered" >    try { <span class="cstat-no" title="statement not covered" >console.info('[MultiUserMigration]', ...args); </span>} catch (_) { }</span>
+  }
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >warn(</span>...args) {
+<span class="cstat-no" title="statement not covered" >    try { <span class="cstat-no" title="statement not covered" >console.warn('[MultiUserMigration]', ...args); </span>} catch (_) { }</span>
+  }
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >isLinuxRuntime(</span>) {
+<span class="cstat-no" title="statement not covered" >    return typeof process !== 'undefined' &amp;&amp; process.platform === 'linux' &amp;&amp;</span>
+      typeof require === 'function';
+  }
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >metaCsrf(</span>) {
+<span class="cstat-no" title="statement not covered" >    try { <span class="cstat-no" title="statement not covered" >return document.querySelector('meta[name="csrf-token"]')?.content || ''; </span>} catch (_) { <span class="cstat-no" title="statement not covered" >return ''; </span>}</span>
+  }
+&nbsp;
+  async function <span class="fstat-no" title="function not covered" >api(</span>path, { method = <span class="branch-0 cbranch-no" title="branch not covered" >'POST',</span> body } = <span class="branch-0 cbranch-no" title="branch not covered" >{})</span> {
+    const headers = <span class="cstat-no" title="statement not covered" >{ 'Content-Type': 'application/json' };</span>
+    const csrf = <span class="cstat-no" title="statement not covered" >metaCsrf();</span>
+<span class="cstat-no" title="statement not covered" >    if (csrf) <span class="cstat-no" title="statement not covered" >headers['X-CSRF-Token'] = csrf;</span></span>
+    const res = <span class="cstat-no" title="statement not covered" >await fetch(path, {</span>
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin',
+    });
+    let json = <span class="cstat-no" title="statement not covered" >null;</span>
+<span class="cstat-no" title="statement not covered" >    try { <span class="cstat-no" title="statement not covered" >json = await res.json(); </span>} catch (_) { }</span>
+<span class="cstat-no" title="statement not covered" >    return { status: res.status, ok: res.ok, json };</span>
+  }
+&nbsp;
+  /**
+   * Runs the migration exactly once per machine. Multi-user mode is only
+   * enabled when the server successfully owns accounts afterwards, so a
+   * failed migration leaves a fully functional single-user machine.
+   */
+  async function <span class="fstat-no" title="function not covered" >run(</span>) {
+    const scope = <span class="cstat-no" title="statement not covered" >(typeof NovaUserScope !== 'undefined' &amp;&amp; NovaUserScope) || null;</span>
+    const registry = <span class="cstat-no" title="statement not covered" >(typeof NovaRegistry !== 'undefined' &amp;&amp; NovaRegistry) || null;</span>
+&nbsp;
+    // This machine already went through account setup or an earlier
+    // migration (flag written as '1') → nothing to do. enabled() can't be used
+    // here: multi-user is on by default, so it is true on every fresh machine.
+<span class="cstat-no" title="statement not covered" >    if (scope &amp;&amp; (scope.explicitlyEnabled ? scope.explicitlyEnabled() : scope.enabled())) {</span>
+<span class="cstat-no" title="statement not covered" >      return { skipped: 'already-enabled' };</span>
+    }
+&nbsp;
+    // The marker lives in HKNS — the machine hive, mounted at boot before
+    // any account is mounted, so pre-login reads are safe.
+<span class="cstat-no" title="statement not covered" >    if (registry) {</span>
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        if (registry.get(MIGRATION_MARKER)) <span class="cstat-no" title="statement not covered" >return { skipped: 'marker' };</span></span>
+      } catch (_) { }
+    }
+&nbsp;
+    // Read the legacy single-user state BEFORE any hive moves.
+    let legacy = <span class="cstat-no" title="statement not covered" >null;</span>
+<span class="cstat-no" title="statement not covered" >    if (registry) {</span>
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        legacy = {</span>
+          username: registry.get('HKNU/settings/username'),
+          displayName: registry.get('HKNU/settings/username'),
+          pinHash: registry.get('HKNS/security/lockPin'),
+          pinSalt: registry.get('HKNS/security/pinSalt'),
+          biometricId: registry.get('HKNS/security/biometricCredentialId'),
+        };
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn('legacy state read failed:', err);</span>
+      }
+    }
+&nbsp;
+    // Server-side: does users.db already have accounts (e.g. a previous
+    // migration whose marker write failed)? Idempotence: import is refused
+    // when accounts exist, and the marker is just re-stamped.
+    const existing = <span class="cstat-no" title="statement not covered" >await api('/api/auth/users', { method: 'GET' });</span>
+    const serverHasAccounts = <span class="cstat-no" title="statement not covered" >existing.ok &amp;&amp; Array.isArray(existing.json?.data?.users) &amp;&amp;</span>
+      existing.json.data.users.length &gt; 0;
+&nbsp;
+    let ownerUid = <span class="cstat-no" title="statement not covered" >null;</span>
+    let ownerUsername = <span class="cstat-no" title="statement not covered" >'';</span>
+<span class="cstat-no" title="statement not covered" >    if (serverHasAccounts &amp;&amp; existing.json.data.users.length) {</span>
+<span class="cstat-no" title="statement not covered" >      ownerUid = existing.json.data.users[0].uid; </span>// the first account is the owner by construction
+<span class="cstat-no" title="statement not covered" >      ownerUsername = String(existing.json.data.users[0].username || '');</span>
+    } else <span class="cstat-no" title="statement not covered" >if (legacy &amp;&amp; legacy.pinHash) {</span>
+      // The 3.0.2 → accounts import: the PBKDF2 hash + salt + username go
+      // to the server; the first successful PIN verification re-hashes the
+      // account to scrypt there.
+      const username = <span class="cstat-no" title="statement not covered" >typeof legacy.username === 'string' &amp;&amp; legacy.username</span>
+        ? legacy.username : 'user';
+      const pinLen = <span class="cstat-no" title="statement not covered" >4;</span>
+      const adminMode = <span class="cstat-no" title="statement not covered" >await readAdminMode();</span>
+      const imported = <span class="cstat-no" title="statement not covered" >await api('/api/auth/migrate-legacy', {</span>
+        body: {
+          username: String(username).toLowerCase(),
+          displayName: String(username),
+          legacyPinHash: String(legacy.pinHash || ''),
+          legacyPinSalt: String(legacy.pinSalt || ''),
+          pinLen,
+          adminEnabled: adminMode === true,
+        },
+      });
+<span class="cstat-no" title="statement not covered" >      if (!imported.ok || !imported.json?.success) {</span>
+<span class="cstat-no" title="statement not covered" >        warn('legacy import refused — multi-user stays OFF:', imported.json?.message || imported.status);</span>
+<span class="cstat-no" title="statement not covered" >        return { skipped: 'import-refused' };</span>
+      }
+<span class="cstat-no" title="statement not covered" >      ownerUid = imported.json.data?.uid || null;</span>
+<span class="cstat-no" title="statement not covered" >      ownerUsername = String(imported.json.data?.username || username || '');</span>
+<span class="cstat-no" title="statement not covered" >      if (!ownerUid) {</span>
+<span class="cstat-no" title="statement not covered" >        warn('legacy import returned no owner uid — multi-user stays OFF');</span>
+<span class="cstat-no" title="statement not covered" >        return { skipped: 'no-owner' };</span>
+      }
+    } else {
+      // No legacy PIN and no accounts: this is either a factory-fresh
+      // machine (the first-boot wizard will create the owner) or a legacy
+      // machine that never set a PIN. Neither has anything to import; the
+      // first-boot wizard creates the owner account on the next gate.
+<span class="cstat-no" title="statement not covered" >      return { skipped: 'no-legacy-state' };</span>
+    }
+&nbsp;
+    // Stamp the scope flags BEFORE the storage schemas open: NovaByte_FS
+    // and NovaByte_AppStorage v2 upgrades stamp unscoped rows with the
+    // legacy owner uid from here.
+<span class="cstat-no" title="statement not covered" >    if (scope) {</span>
+<span class="cstat-no" title="statement not covered" >      scope.setLegacyOwnerUid(ownerUid);</span>
+<span class="cstat-no" title="statement not covered" >      scope.enable();</span>
+    }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >    if (isLinuxRuntime()) {</span>
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        moveStorageToOwner(ownerUid, { username: ownerUsername, registry, scope, legacy });</span>
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn('storage move failed (data stays at the legacy roots):', err);</span>
+      }
+    } else {
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        moveWebStorageToOwner(ownerUid, { username: ownerUsername, registry });</span>
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn('web storage move failed:', err);</span>
+      }
+      // NovaByte_FS (IndexedDB): stamp every unscoped 3.0.2 row with the
+      // owner's uid. The worker's stampOwner() method existed but was never
+      // called by anything, so after the migration a login re-rooted onto
+      // "rows owned by uid" — which is empty — and the account's whole
+      // pre-existing tree vanished from every view. This is the wiring the
+      // header's step 4 always promised: stamp, then the first login mounts
+      // the exact tree the machine always had. Idempotent behind the
+      // 'nova_fs_owner_stamped' settings marker, so re-running is a no-op.
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        if (typeof OS !== 'undefined' &amp;&amp; OS?.workers?.fs?.call) {</span>
+          const stamped = <span class="cstat-no" title="statement not covered" >await OS.workers.fs.call('stampOwner', ownerUid);</span>
+<span class="cstat-no" title="statement not covered" >          if (stamped &amp;&amp; typeof stamped.stamped === 'number' &amp;&amp; stamped.stamped &gt; 0) {</span>
+<span class="cstat-no" title="statement not covered" >            log(`stamped ${stamped.stamped} legacy filesystem rows to the owner`);</span>
+          }
+        }
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn('legacy filesystem stamping failed (rows stay unscoped):', err);</span>
+      }
+    }
+&nbsp;
+    // The credential keys are deleted at migration time: users.db owns
+    // credentials now, and their presence in HKNS would make the legacy
+    // lock screen fire on the next boot.
+<span class="cstat-no" title="statement not covered" >    if (registry) {</span>
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        registry.remove('HKNS/security/lockPin', { actor: 'migration' });</span>
+<span class="cstat-no" title="statement not covered" >        registry.remove('HKNS/security/pinSalt', { actor: 'migration' });</span>
+<span class="cstat-no" title="statement not covered" >        registry.remove('HKNS/security/biometricCredentialId', { actor: 'migration' });</span>
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn('legacy credential key deletion failed:', err);</span>
+      }
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        registry.set(MULTI_USER_FLAG, true, { type: 'REG_BOOL', source: 'migration', actor: 'migration' });</span>
+<span class="cstat-no" title="statement not covered" >        registry.set(MIGRATION_MARKER, { version: 1, at: Date.now(), ownerUid }, { type: 'REG_JSON', source: 'migration', actor: 'migration' });</span>
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn('marker write failed:', err);</span>
+      }
+    }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >    log('legacy single-user machine migrated to accounts; owner', ownerUid);</span>
+<span class="cstat-no" title="statement not covered" >    return { migrated: true, ownerUid };</span>
+  }
+&nbsp;
+  async function <span class="fstat-no" title="function not covered" >readAdminMode(</span>) {
+<span class="cstat-no" title="statement not covered" >    try {</span>
+      const res = <span class="cstat-no" title="statement not covered" >await api('/api/security/admin-mode', { method: 'GET' });</span>
+<span class="cstat-no" title="statement not covered" >      return res.ok &amp;&amp; res.json?.data?.adminEnabled === true;</span>
+    } catch (_) { <span class="cstat-no" title="statement not covered" >return false; </span>}
+  }
+&nbsp;
+  // ── Linux native storage move ───────────────────────────────────────────
+&nbsp;
+  /* The per-account directory segment: the username when the caller knows
+   * one, else the uid (machines that never learned the username keep
+   * byte-identical uid-keyed addressing). Usernames are immutable in the
+   * account database, so the segment stays stable for the account's life. */
+  function <span class="fstat-no" title="function not covered" >safeUsername(</span>uname) {
+<span class="cstat-no" title="statement not covered" >    return /^[a-z0-9][a-z0-9._-]{2,31}$/.test(String(uname || '').toLowerCase())</span>
+      ? String(uname || '').toLowerCase() : '';
+  }
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >ownerSegment(</span>ownerUid, username) {
+<span class="cstat-no" title="statement not covered" >    return safeUsername(username) || String(ownerUid || '');</span>
+  }
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >moveStorageToOwner(</span>ownerUid, { username, registry, scope, legacy }) {
+    const fs = <span class="cstat-no" title="statement not covered" >require('fs');</span>
+    const path = <span class="cstat-no" title="statement not covered" >require('path');</span>
+    const os = <span class="cstat-no" title="statement not covered" >require('os');</span>
+    const home = <span class="cstat-no" title="statement not covered" >os.homedir();</span>
+    const shareRoot = <span class="cstat-no" title="statement not covered" >path.join(home, '.local', 'share', 'novabyte');</span>
+    const segment = <span class="cstat-no" title="statement not covered" >ownerSegment(ownerUid, username);</span>
+    // The account's filesystem root IS &lt;machine home&gt;/users/&lt;segment&gt;/ —
+    // a real tree beside the other accounts, not a "home" nested inside
+    // hidden machine state. Registry hives stay under ~/.config (hidden
+    // OS plumbing), everything user-visible lives under ~/users.
+    const userRoot = <span class="cstat-no" title="statement not covered" >path.join(home, 'users', segment);</span>
+&nbsp;
+    const moveTree = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >(f</span>rom, to, { keepSource = <span class="branch-0 cbranch-no" title="branch not covered" >false </span>} = <span class="branch-0 cbranch-no" title="branch not covered" >{})</span> =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >      if (!fs.existsSync(from)) <span class="cstat-no" title="statement not covered" >return false;</span></span>
+<span class="cstat-no" title="statement not covered" >      fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });</span>
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        fs.renameSync(from, to);</span>
+      } catch (_) {
+        // Cross-device or busy: fall back to copy + remove.
+<span class="cstat-no" title="statement not covered" >        fs.cpSync(from, to, { recursive: true });</span>
+<span class="cstat-no" title="statement not covered" >        if (!keepSource) <span class="cstat-no" title="statement not covered" >fs.rmSync(from, { recursive: true, force: true });</span></span>
+      }
+<span class="cstat-no" title="statement not covered" >      return true;</span>
+    };
+&nbsp;
+    // 1. Registry user hives: ~/.config/novabyte/registry/{HKNU,HKNA,HKND}.json
+    const regDir = <span class="cstat-no" title="statement not covered" >path.join(home, '.config', 'novabyte', 'registry');</span>
+    const userRegDir = <span class="cstat-no" title="statement not covered" >path.join(home, '.config', 'novabyte', 'users', segment, 'registry');</span>
+<span class="cstat-no" title="statement not covered" >    for (const hive of ['HKNU', 'HKNA', 'HKND']) {</span>
+<span class="cstat-no" title="statement not covered" >      moveTree(path.join(regDir, `${hive}.json`), path.join(userRegDir, `${hive}.json`));</span>
+    }
+&nbsp;
+    // 2. Per-app AppDirs: ~/.local/share/novabyte/data/&lt;appId&gt; →
+    //    ~/users/&lt;segment&gt;/.apps/&lt;appId&gt; (the account's own app-data root).
+    const dataRoot = <span class="cstat-no" title="statement not covered" >path.join(shareRoot, 'data');</span>
+    const userApps = <span class="cstat-no" title="statement not covered" >path.join(userRoot, '.apps');</span>
+<span class="cstat-no" title="statement not covered" >    if (fs.existsSync(dataRoot)) {</span>
+<span class="cstat-no" title="statement not covered" >      for (const entry of fs.readdirSync(dataRoot)) {</span>
+<span class="cstat-no" title="statement not covered" >        moveTree(path.join(dataRoot, entry), path.join(userApps, entry));</span>
+      }
+    }
+&nbsp;
+    // 3. The legacy home tree (documents, pictures, …) → ~/users/&lt;segment&gt;/
+    // DIRECTLY — the account tree root itself, so the account's Desktop,
+    // Documents, … sit at /home/&lt;machine-user&gt;/users/&lt;name&gt;/Desktop just
+    // like a real multi-user OS. Dot-folders and the NovaByte roots move
+    // with it only when they are INSIDE the home tree itself; ~/.config
+    // and ~/.local/share are machine state and stay machine state.
+<span class="cstat-no" title="statement not covered" >    fs.mkdirSync(userRoot, { recursive: true, mode: 0o700 });</span>
+<span class="cstat-no" title="statement not covered" >    for (const entry of fs.readdirSync(home)) {</span>
+<span class="cstat-no" title="statement not covered" >      if (entry === 'users') <span class="cstat-no" title="statement not covered" >continue; </span></span>// never fold the account root into itself
+<span class="cstat-no" title="statement not covered" >      if (entry.startsWith('.')) <span class="cstat-no" title="statement not covered" >continue;</span></span>
+<span class="cstat-no" title="statement not covered" >      moveTree(path.join(home, entry), path.join(userRoot, entry));</span>
+    }
+    // The legacy XDG trash contents are not per-account property in the
+    // same sense — leaving ~/.local/share/Trash alone is the conservative
+    // choice; the owner can clean it from the Files app.
+&nbsp;
+    // 4. Per-user browser-state + settings shadow: ~/users/&lt;segment&gt;/.browser-state.json
+    // is seeded from the machine file on first login by the mirror.
+    const legacyBrowserState = <span class="cstat-no" title="statement not covered" >path.join(shareRoot, 'browser-state.json');</span>
+<span class="cstat-no" title="statement not covered" >    if (fs.existsSync(legacyBrowserState)) {</span>
+<span class="cstat-no" title="statement not covered" >      moveTree(legacyBrowserState, path.join(userRoot, '.browser-state.json'), { keepSource: true });</span>
+    }
+&nbsp;
+    // 5. Webview partitions: best-effort rename at the NW.js user-data
+    // layout (persist:app_&lt;id&gt; profiles). If the layout ever differs, the
+    // rename is a silent no-op and apps just start with fresh partitions.
+<span class="cstat-no" title="statement not covered" >    try {</span>
+<span class="cstat-no" title="statement not covered" >      migrateNwjsPartitions(ownerUid, path);</span>
+    } catch (err) {
+<span class="cstat-no" title="statement not covered" >      warn('webview partition migration skipped:', err?.message || err);</span>
+    }
+&nbsp;
+    // 6. IndexedDB NovaByte_FS / NovaByte_AppStorage stamping happens via
+    //    their own v2 schema upgrades at next open (scope flags are set).
+&nbsp;
+<span class="cstat-no" title="statement not covered" >    log('linux storage re-rooted under ~/users/' + segment);</span>
+  }
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >migrateNwjsPartitions(</span>ownerUid) {
+    const fs = <span class="cstat-no" title="statement not covered" >require('fs');</span>
+    const path = <span class="cstat-no" title="statement not covered" >require('path');</span>
+    // NW.js --user-data-dir=./nwjs-data (package.json chromium-args).
+    // Persistent partitions live under a Partitions/ directory keyed by a
+    // hash of the partition name on some versions, or a directly-named
+    // directory on others. Try both, fail-soft.
+    const candidates = <span class="cstat-no" title="statement not covered" >[</span>
+      path.join(process.cwd(), 'nwjs-data', 'Partitions'),
+      path.join(process.cwd(), 'nwjs-data'),
+    ];
+<span class="cstat-no" title="statement not covered" >    for (const root of candidates) {</span>
+<span class="cstat-no" title="statement not covered" >      if (!fs.existsSync(root)) <span class="cstat-no" title="statement not covered" >continue;</span></span>
+<span class="cstat-no" title="statement not covered" >      for (const entry of fs.readdirSync(root)) {</span>
+<span class="cstat-no" title="statement not covered" >        if (entry.startsWith('app_')) {</span>
+          // Directly-named layout: rename app_&lt;id&gt; → u&lt;owner&gt;_app_&lt;id&gt;.
+<span class="cstat-no" title="statement not covered" >          try {</span>
+<span class="cstat-no" title="statement not covered" >            fs.renameSync(path.join(root, entry), path.join(root, `u${ownerUid}_${entry}`));</span>
+          } catch (_) { }
+        }
+      }
+    }
+  }
+&nbsp;
+  // ── Web build storage move (localStorage / OPFS best-effort) ────────────
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >moveWebStorageToOwner(</span>ownerUid, { username, registry }) {
+    // Registry hives: localStorage keys nova_registry_hive_&lt;HIVE&gt; →
+    // nova_registry_hive_u_&lt;segment&gt;_&lt;HIVE&gt; (the mounted-hive layout).
+    const segment = <span class="cstat-no" title="statement not covered" >ownerSegment(ownerUid, username);</span>
+<span class="cstat-no" title="statement not covered" >    try {</span>
+<span class="cstat-no" title="statement not covered" >      for (const hive of ['HKNU', 'HKNA', 'HKND']) {</span>
+        const from = <span class="cstat-no" title="statement not covered" >`nova_registry_hive_${hive}`;</span>
+        const to = <span class="cstat-no" title="statement not covered" >`nova_registry_hive_u_${segment}_${hive}`;</span>
+        const raw = <span class="cstat-no" title="statement not covered" >localStorage.getItem(from);</span>
+<span class="cstat-no" title="statement not covered" >        if (raw !== null) {</span>
+<span class="cstat-no" title="statement not covered" >          localStorage.setItem(to, raw);</span>
+<span class="cstat-no" title="statement not covered" >          localStorage.removeItem(from);</span>
+        }
+      }
+    } catch (err) {
+<span class="cstat-no" title="statement not covered" >      warn('web hive move failed:', err);</span>
+    }
+    // NovaByte_FS / NovaByte_AppStorage stamp through their v2 upgrades at
+    // next open; the LS_MAP keys mirror into per-user files through the
+    // AppDirs bootstrap; OPFS moves ride the next bootstrap reconcile.
+  }
+&nbsp;
+  // ── Per-user layout upgrades (login-time, before any mount) ───────────
+  //
+  // Two layout generations can exist on disk before this runs:
+  //
+  //   A. uid-keyed segments —   ~/.local/share/novabyte/users/&lt;uid&gt;/…,
+  //                             ~/.config/novabyte/users/&lt;uid&gt;/registry/…
+  //   B. the nested layout —   ~/.local/share/novabyte/users/&lt;name&gt;/home/…
+  //                             (a "home" buried inside hidden machine state)
+  //
+  // The current layout puts the account's whole visible filesystem at
+  // &lt;machine home&gt;/users/&lt;username&gt;/ (Desktop/Documents/… directly inside,
+  // app data at .apps/) — a real, separated tree per account, exactly what
+  // a person sees at /home/&lt;machine-user&gt;/users. This upgrade — run by the
+  // SessionManager at login, before any mount — renames uid segments onto
+  // the username segment, then lifts any nested-layout remains onto the
+  // flat tree. It is strictly idempotent: a machine already on the current
+  // layout (or one that never had the older ones) takes the fast
+  // existsSync paths and changes nothing. Collisions never merge or
+  // clobber — the older tree is left in place for manual recovery.
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >upgradeUserLayout(</span>uid, username) {
+    const uname = <span class="cstat-no" title="statement not covered" >safeUsername(username);</span>
+    const userId = <span class="cstat-no" title="statement not covered" >/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(String(uid || '')) ? String(uid) : '';</span>
+<span class="cstat-no" title="statement not covered" >    if (!uname || !userId) <span class="cstat-no" title="statement not covered" >return { moved: 0 };</span></span>
+    let moved = <span class="cstat-no" title="statement not covered" >0;</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >    if (isLinuxRuntime()) {</span>
+      const fs = <span class="cstat-no" title="statement not covered" >require('fs');</span>
+      const path = <span class="cstat-no" title="statement not covered" >require('path');</span>
+      const home = <span class="cstat-no" title="statement not covered" >require('os').homedir();</span>
+      // uid segment → username segment, across every base that ever keyed
+      // an account by uid: the current ~/users root, the pre-flat nested
+      // share root, and the registry users root. Skipped when the segments
+      // already match (common on the current layout — nothing to rename).
+<span class="cstat-no" title="statement not covered" >      if (uname !== userId) {</span>
+<span class="cstat-no" title="statement not covered" >      for (const base of [</span>
+        path.join(home, 'users'),
+        path.join(home, '.local', 'share', 'novabyte', 'users'),
+        path.join(home, '.config', 'novabyte', 'users'),
+      ]) {
+        const from = <span class="cstat-no" title="statement not covered" >path.join(base, userId);</span>
+        const to = <span class="cstat-no" title="statement not covered" >path.join(base, uname);</span>
+<span class="cstat-no" title="statement not covered" >        if (!fs.existsSync(from)) <span class="cstat-no" title="statement not covered" >continue;</span></span>
+<span class="cstat-no" title="statement not covered" >        if (fs.existsSync(to)) {</span>
+          // Never merge over an existing username directory — a username
+          // collision with real data means the account keeps its uid
+          // segment (callers fall back to it) rather than losing either.
+<span class="cstat-no" title="statement not covered" >          warn(`username layout upgrade skipped for ${uname}: target already exists`);</span>
+<span class="cstat-no" title="statement not covered" >          continue;</span>
+        }
+<span class="cstat-no" title="statement not covered" >        try {</span>
+<span class="cstat-no" title="statement not covered" >          fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });</span>
+<span class="cstat-no" title="statement not covered" >          fs.renameSync(from, to);</span>
+<span class="cstat-no" title="statement not covered" >          moved++;</span>
+        } catch (err) {
+<span class="cstat-no" title="statement not covered" >          warn(`username layout upgrade failed for ${uname}:`, err?.message || err);</span>
+        }
+      }
+      }
+      // Nested layout → flat ~/users/&lt;username&gt;/ lift. Everything the old
+      // layout kept at ~/.local/share/novabyte/users/&lt;uname&gt;/ moves onto the
+      // account's real tree: home/* becomes &lt;name&gt;/* directly, apps/ becomes
+      // .apps/, browser-state.json becomes .browser-state.json.
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        moved += liftNestedUserTree(uname) ? 1 : 0;</span>
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn(`nested layout lift failed for ${uname}:`, err?.message || err);</span>
+      }
+      // The machine home is the SYSTEM area: stray visible entries (legacy
+      // folders, loose files) are adopted into the signing-in account's tree
+      // so the machine root never holds anything user-owned.
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        moved += sweepMachineHome(uname) ? 1 : 0;</span>
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn(`machine-home sweep failed for ${uname}:`, err?.message || err);</span>
+      }
+    } else {
+      // Web build: the mounted-hive documents are localStorage keys.
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        for (const hive of ['HKNU', 'HKNA', 'HKND']) {</span>
+          const from = <span class="cstat-no" title="statement not covered" >`nova_registry_hive_u_${userId}_${hive}`;</span>
+          const to = <span class="cstat-no" title="statement not covered" >`nova_registry_hive_u_${uname}_${hive}`;</span>
+          const raw = <span class="cstat-no" title="statement not covered" >localStorage.getItem(from);</span>
+<span class="cstat-no" title="statement not covered" >          if (raw !== null &amp;&amp; localStorage.getItem(to) === null) {</span>
+<span class="cstat-no" title="statement not covered" >            localStorage.setItem(to, raw);</span>
+<span class="cstat-no" title="statement not covered" >            localStorage.removeItem(from);</span>
+<span class="cstat-no" title="statement not covered" >            moved++;</span>
+          }
+        }
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn('web username layout upgrade failed:', err);</span>
+      }
+    }
+<span class="cstat-no" title="statement not covered" >    if (moved) <span class="cstat-no" title="statement not covered" >log(`account ${uname}: storage moved onto the ~/users layout (${moved} root(s))`);</span></span>
+<span class="cstat-no" title="statement not covered" >    return { moved };</span>
+  }
+&nbsp;
+  /* Lifts ~/.local/share/novabyte/users/&lt;name&gt;/{home/*, apps,
+   * browser-state.json} onto ~/users/&lt;name&gt;/. Returns true when anything
+   * moved. Entry-by-entry with existsSync guards, so a half-completed lift
+   * resumes safely and a collision leaves the older copy untouched. */
+  function <span class="fstat-no" title="function not covered" >liftNestedUserTree(</span>uname) {
+    const fs = <span class="cstat-no" title="statement not covered" >require('fs');</span>
+    const path = <span class="cstat-no" title="statement not covered" >require('path');</span>
+    const home = <span class="cstat-no" title="statement not covered" >require('os').homedir();</span>
+    const legacyRoot = <span class="cstat-no" title="statement not covered" >path.join(home, '.local', 'share', 'novabyte', 'users', uname);</span>
+<span class="cstat-no" title="statement not covered" >    if (!fs.existsSync(legacyRoot)) <span class="cstat-no" title="statement not covered" >return false;</span></span>
+    const userRoot = <span class="cstat-no" title="statement not covered" >path.join(home, 'users', uname);</span>
+<span class="cstat-no" title="statement not covered" >    fs.mkdirSync(userRoot, { recursive: true, mode: 0o700 });</span>
+    let touched = <span class="cstat-no" title="statement not covered" >false;</span>
+&nbsp;
+    const moveOne = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >(f</span>rom, to) =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >      if (!fs.existsSync(from) || fs.existsSync(to)) <span class="cstat-no" title="statement not covered" >return; </span></span>// collision → keep both, admin recovers
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });</span>
+<span class="cstat-no" title="statement not covered" >        fs.renameSync(from, to);</span>
+<span class="cstat-no" title="statement not covered" >        touched = true;</span>
+      } catch (_) {
+<span class="cstat-no" title="statement not covered" >        try { // cross-device / busy fallback: copy, then remove</span>
+<span class="cstat-no" title="statement not covered" >          fs.cpSync(from, to, { recursive: true });</span>
+<span class="cstat-no" title="statement not covered" >          fs.rmSync(from, { recursive: true, force: true });</span>
+<span class="cstat-no" title="statement not covered" >          touched = true;</span>
+        } catch (err) {
+<span class="cstat-no" title="statement not covered" >          warn(`nested layout lift could not move ${from}:`, err?.message || err);</span>
+        }
+      }
+    };
+&nbsp;
+    // home/* → &lt;name&gt;/* (the visible tree, directly inside the account root)
+    const legacyHome = <span class="cstat-no" title="statement not covered" >path.join(legacyRoot, 'home');</span>
+<span class="cstat-no" title="statement not covered" >    if (fs.existsSync(legacyHome)) {</span>
+<span class="cstat-no" title="statement not covered" >      for (const entry of fs.readdirSync(legacyHome)) {</span>
+<span class="cstat-no" title="statement not covered" >        moveOne(path.join(legacyHome, entry), path.join(userRoot, entry));</span>
+      }
+    }
+    // apps/ → .apps/, browser-state.json → .browser-state.json
+<span class="cstat-no" title="statement not covered" >    moveOne(path.join(legacyRoot, 'apps'), path.join(userRoot, '.apps'));</span>
+<span class="cstat-no" title="statement not covered" >    moveOne(path.join(legacyRoot, 'browser-state.json'), path.join(userRoot, '.browser-state.json'));</span>
+&nbsp;
+    // Best-effort cleanup of the emptied legacy shell (the now-empty home/
+    // directory and, if fully drained, the account's legacy root); failures
+    // just leave empty directories behind — harmless.
+<span class="cstat-no" title="statement not covered" >    try {</span>
+<span class="cstat-no" title="statement not covered" >      if (fs.existsSync(legacyHome) &amp;&amp; fs.readdirSync(legacyHome).length === 0) <span class="cstat-no" title="statement not covered" >fs.rmdirSync(legacyHome);</span></span>
+    } catch (_) { }
+<span class="cstat-no" title="statement not covered" >    try {</span>
+<span class="cstat-no" title="statement not covered" >      if (fs.readdirSync(legacyRoot).length === 0) <span class="cstat-no" title="statement not covered" >fs.rmdirSync(legacyRoot);</span></span>
+    } catch (_) { }
+<span class="cstat-no" title="statement not covered" >    return touched;</span>
+  }
+&nbsp;
+  /* Sweeps every visible (non-dot) entry at the MACHINE home into the
+   * signing-in account's ~/users/&lt;username&gt;/ tree. The machine home is the
+   * system area: it must hold nothing user-visible — no legacy Desktop/
+   * Documents folders (boot no longer recreates them at the machine root,
+   * fs.js init), no loose stray files. Whatever still sits there from older
+   * layouts or stray writes is adopted into the account, merging without
+   * ever clobbering (name collisions get a numbered suffix).
+   *
+   * Exclusions — never adopted:
+   *   * dot entries (machine plumbing: .config, .local, .pki, …)
+   *   * `users/` (the account trees themselves)
+   *   * machine log files (nbosp-kiosk.log, vmusr.log, xwayland-*): the
+   *     S99nbosp boot janitor owns those under /var/log/nbosp.
+   *
+   * Strictly idempotent: a clean machine home is a fast no-op. Single-user
+   * machines (multi-user off) never sweep — there the machine home IS the
+   * user's home by design. */
+  const MACHINE_HOME_KEEP = <span class="cstat-no" title="statement not covered" >new Set(['users']);</span>
+  const MACHINE_LOG_NAMES = <span class="cstat-no" title="statement not covered" >/^(?:nbosp-kiosk\.log|vmusr\.log|nbosp-gl-debug\.log|xwayland-.*)$/;</span>
+&nbsp;
+  function <span class="fstat-no" title="function not covered" >sweepMachineHome(</span>uname) {
+    const scope = <span class="cstat-no" title="statement not covered" >(typeof NovaUserScope !== 'undefined' &amp;&amp; NovaUserScope) || null;</span>
+<span class="cstat-no" title="statement not covered" >    if (!scope || !scope.enabled || !scope.enabled()) <span class="cstat-no" title="statement not covered" >return false;</span></span>
+    const name = <span class="cstat-no" title="statement not covered" >safeUsername(uname);</span>
+<span class="cstat-no" title="statement not covered" >    if (!name) <span class="cstat-no" title="statement not covered" >return false;</span></span>
+    const fs = <span class="cstat-no" title="statement not covered" >require('fs');</span>
+    const path = <span class="cstat-no" title="statement not covered" >require('path');</span>
+    const home = <span class="cstat-no" title="statement not covered" >require('os').homedir();</span>
+<span class="cstat-no" title="statement not covered" >    if (!fs.existsSync(home)) <span class="cstat-no" title="statement not covered" >return false;</span></span>
+    const entries = <span class="cstat-no" title="statement not covered" >fs.readdirSync(home)</span>
+      .filter(<span class="fstat-no" title="function not covered" >entry </span>=&gt; <span class="cstat-no" title="statement not covered" >!entry.startsWith('.') &amp;&amp; !MACHINE_HOME_KEEP.has(entry) &amp;&amp; !MACHINE_LOG_NAMES.test(entry))</span>;
+<span class="cstat-no" title="statement not covered" >    if (!entries.length) <span class="cstat-no" title="statement not covered" >return false;</span></span>
+    const userRoot = <span class="cstat-no" title="statement not covered" >path.join(home, 'users', name);</span>
+<span class="cstat-no" title="statement not covered" >    fs.mkdirSync(userRoot, { recursive: true, mode: 0o700 });</span>
+&nbsp;
+    let touched = <span class="cstat-no" title="statement not covered" >false;</span>
+    const uniqueTarget = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >(d</span>ir, name_) =&gt; {</span>
+      let target = <span class="cstat-no" title="statement not covered" >path.join(dir, name_);</span>
+<span class="cstat-no" title="statement not covered" >      if (!fs.existsSync(target)) <span class="cstat-no" title="statement not covered" >return target;</span></span>
+      const dot = <span class="cstat-no" title="statement not covered" >name_.lastIndexOf('.');</span>
+      const stem = <span class="cstat-no" title="statement not covered" >dot &gt; 0 ? name_.slice(0, dot) : name_;</span>
+      const ext = <span class="cstat-no" title="statement not covered" >dot &gt; 0 ? name_.slice(dot) : '';</span>
+<span class="cstat-no" title="statement not covered" >      for (let n = <span class="cstat-no" title="statement not covered" >1;</span> ; n++) {</span>
+<span class="cstat-no" title="statement not covered" >        target = path.join(dir, `${stem} (${n})${ext}`);</span>
+<span class="cstat-no" title="statement not covered" >        if (!fs.existsSync(target)) <span class="cstat-no" title="statement not covered" >return target;</span></span>
+      }
+    };
+    const adoptEntry = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >(f</span>rom, to) =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >      if (!fs.existsSync(from)) <span class="cstat-no" title="statement not covered" >return;</span></span>
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });</span>
+<span class="cstat-no" title="statement not covered" >        fs.renameSync(from, to);</span>
+<span class="cstat-no" title="statement not covered" >        touched = true;</span>
+      } catch (_) {
+<span class="cstat-no" title="statement not covered" >        try { // cross-device / busy fallback: copy, then remove</span>
+<span class="cstat-no" title="statement not covered" >          fs.cpSync(from, to, { recursive: true });</span>
+<span class="cstat-no" title="statement not covered" >          fs.rmSync(from, { recursive: true, force: true });</span>
+<span class="cstat-no" title="statement not covered" >          touched = true;</span>
+        } catch (err) {
+<span class="cstat-no" title="statement not covered" >          warn(`machine-home sweep could not move ${from}:`, err?.message || err);</span>
+        }
+      }
+    };
+    const mergeInto = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >(s</span>ourceDir, targetDir) =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >      for (const child of fs.readdirSync(sourceDir)) {</span>
+<span class="cstat-no" title="statement not covered" >        adoptEntry(path.join(sourceDir, child), uniqueTarget(targetDir, child));</span>
+      }
+<span class="cstat-no" title="statement not covered" >      try { <span class="cstat-no" title="statement not covered" >if (fs.readdirSync(sourceDir).length === 0) <span class="cstat-no" title="statement not covered" >fs.rmdirSync(sourceDir); </span></span>} catch (_) { }</span>
+    };
+&nbsp;
+<span class="cstat-no" title="statement not covered" >    for (const entry of entries) {</span>
+      const from = <span class="cstat-no" title="statement not covered" >path.join(home, entry);</span>
+      const to = <span class="cstat-no" title="statement not covered" >path.join(userRoot, entry);</span>
+<span class="cstat-no" title="statement not covered" >      try {</span>
+<span class="cstat-no" title="statement not covered" >        if (fs.existsSync(to) &amp;&amp; fs.statSync(from).isDirectory() &amp;&amp; fs.statSync(to).isDirectory()) {</span>
+<span class="cstat-no" title="statement not covered" >          mergeInto(from, to); </span>// both dirs: merge children, drop the emptied source
+        } else {
+<span class="cstat-no" title="statement not covered" >          adoptEntry(from, uniqueTarget(userRoot, entry));</span>
+        }
+      } catch (err) {
+<span class="cstat-no" title="statement not covered" >        warn(`machine-home sweep skipped ${entry}:`, err?.message || err);</span>
+      }
+    }
+<span class="cstat-no" title="statement not covered" >    if (touched) <span class="cstat-no" title="statement not covered" >log(`machine home swept: visible entries adopted into ~/users/${name}`);</span></span>
+<span class="cstat-no" title="statement not covered" >    return touched;</span>
+  }
+&nbsp;
+  const MultiUserMigration = <span class="cstat-no" title="statement not covered" >{ run, upgradeUserLayout, sweepMachineHome, MIGRATION_MARKER, MULTI_USER_FLAG };</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >  if (typeof window !== 'undefined' &amp;&amp; window) {</span>
+<span class="cstat-no" title="statement not covered" >    window.MultiUserMigration = Object.freeze(MultiUserMigration);</span>
+  }
+<span class="cstat-no" title="statement not covered" >  if (typeof module !== 'undefined' &amp;&amp; module.exports) {</span>
+<span class="cstat-no" title="statement not covered" >    module.exports = MultiUserMigration;</span>
+  }
+})();
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-11-16T21:29:48.914Z
+            </div>
+        <script src="../../../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../../../sorter.js"></script>
+        <script src="../../../../block-navigation.js"></script>
+    </body>
+</html>
+    
