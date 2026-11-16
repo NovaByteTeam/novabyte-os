@@ -42,6 +42,11 @@ const KEEP_NODE = new Set([
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate',
   'queueMicrotask', 'performance', 'console', 'crypto', 'structuredClone',
   'TextEncoder', 'TextDecoder', 'URL', 'URLSearchParams',
+  // atob/btoa: jsdom's window wrappers internally call the *global* atob —
+  // mirroring them over Node's natives makes the wrapper resolve to itself
+  // (infinite recursion surfaced as InvalidCharacterError). Node's own
+  // atob/btoa are correct for both realms.
+  'atob', 'btoa',
   'Buffer', 'process', 'global', 'require', 'module', 'exports', '__dirname', '__filename',
   'navigator', 'origin', 'onmessage', 'onerror', 'onunhandledrejection',
 ]);
