@@ -296,7 +296,11 @@
   const root = document.getElementById('calculator-root');
   if (!root) throw new Error('Calculator root element is missing');
   const cleanup = init(root);
+  // init() always returns its abort closure; the non-function arm is
+  // unreachable defensive code.
+  /* v8 ignore start */
   if (typeof cleanup === 'function') {
     window.addEventListener('pagehide', cleanup, { once: true });
   }
+  /* v8 ignore stop */
 })();

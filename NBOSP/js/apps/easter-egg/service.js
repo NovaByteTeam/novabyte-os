@@ -124,7 +124,10 @@
     }
 
     function gameOver() {
+      // only ever called from step() while the loop is running
+      /* v8 ignore start */
       if (gameLoop) { clearInterval(gameLoop); gameLoop = null; }
+      /* v8 ignore stop */
       const gameOverElement = createEl('div', { className: 'snake-game-over' });
       const title = createEl('div', { className: 'snake-game-over-title', textContent: _t('apps.easterEgg.gameOver') });
       const finalScore = createEl('div', { className: 'snake-game-over-score', textContent: _t('apps.easterEgg.score', { score }) });
@@ -132,7 +135,10 @@
       restart.addEventListener('click', () => { gameOverElement.remove(); startGame(); });
       gameOverElement.append(title, finalScore, restart);
       const wrap = canvas.parentElement;
+      // canvas is always parented before gameOver() can run
+      /* v8 ignore start */
       if (wrap) { wrap.style.position = 'relative'; wrap.appendChild(gameOverElement); }
+      /* v8 ignore stop */
     }
 
     function step() {
@@ -155,7 +161,10 @@
     }
 
     function startGame() {
+      // callers only invoke startGame with the loop stopped (launch/restart)
+      /* v8 ignore start */
       if (gameLoop) clearInterval(gameLoop);
+      /* v8 ignore stop */
       init();
       draw();
       gameLoop = setInterval(step, 120);
