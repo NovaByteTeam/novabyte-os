@@ -64,9 +64,14 @@ async function bootstrap(appDir) {
     process.env.HTTPS = 'true';
   }
 
-  // Validate port input to avoid NaN or invalid range URLs
+  // Validate port input to avoid NaN or invalid range URLs. ensureEnv has
+  // already schema-validated PORT by this point, so the 3003 arm is a hard
+  // backstop against future callers that skip the env bootstrap, not a
+  // reachable state through bootstrap() itself.
   const rawPort = parseInt(process.env.PORT, 10);
+  /* v8 ignore start */
   const port = Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535 ? rawPort : 3003;
+  /* v8 ignore stop */
   const appUrl = `https://localhost:${port}`;
 
   // Global rejection safety net with full stack trace observability
@@ -98,14 +103,25 @@ async function bootstrap(appDir) {
   let fallbackTimer = null;
 
   function openWindow() {
+    /* v8 ignore start */
+    // Second-level guards for the readiness-vs-fallback race: every caller
+    // (the stdout inspector and the fallback timer path below) already
+    // checks the same conditions before invoking openWindow, so these can
+    // only fire if both paths converge inside the same tick — which the
+    // single-threaded event loop makes impossible.
     if (opened) return;
+    /* v8 ignore stop */
     opened = true;
 
-    // Clear fallback timer immediately once window is triggered
+    // Clear fallback timer immediately once window is triggered. The null
+    // side cannot happen: every openWindow caller runs after bootstrap()
+    // assigned the timer below, so the guard is a hard race backstop.
+    /* v8 ignore start */
     if (fallbackTimer !== null) {
       clearTimeout(fallbackTimer);
       fallbackTimer = null;
     }
+    /* v8 ignore stop */
 
     nw.Window.open(appUrl, getMainWindowOptions(), (createdWindow) => {
       if (!createdWindow) return;

@@ -255,7 +255,8 @@ async function runBootstrap(opts = {}) {
 
   setEnv({
     NBOSP_DATA_DIR: ws.dataDir,
-    NODE_BIN_PATH: opts.nodeBin ?? process.execPath,
+    // nodeBin: null → deliberately unset (spawn plain "node" from PATH)
+    NODE_BIN_PATH: opts.nodeBin === null ? undefined : (opts.nodeBin ?? process.execPath),
     NODE_OPTIONS: undefined, // deterministic NODE_OPTIONS assertions
     FAKE_SERVER_PIDFILE: pidFile,
     FAKE_SERVER_ENV_DUMP: envDump,
@@ -805,5 +806,40 @@ describe('startup.bootstrap — unhandledRejection safety net', () => {
     ctx.cap.calls.error.length = 0;
     handler('plain string reason');
     expect(ctx.cap.calls.error.join('\n')).toContain('[NovaByte] Unhandled rejection: plain string reason');
+
+    // an Error whose stack was stripped falls back to .message
+    ctx.cap.calls.error.length = 0;
+    const stackless = Object.assign(new Error('stackless reason'), { stack: '' });
+    handler(stackless);
+    expect(ctx.cap.calls.error.join('\n')).toContain('Unhandled rejection: stackless reason');
+  });
+});
+
+describe('startup.bootstrap — port and binary resolution fallbacks', () => {
+  it('spawns plain "node" from PATH when NODE_BIN_PATH is unset', { timeout: 30_000 }, async () => {
+    const ctx = await runBootstrap({ serverMode: 'listening', nodeBin: null });
+    const pid = await serverPid(ctx); // the fake server really booted
+    await waitFor(() => ctx.nw.calls.windowOpen.length > 0, { timeout: 8_000, label: 'window open' });
+    expect(pidAlive(pid)).toBe(true);
+  });
+
+  it('ends the Windows console stream when the server exits', { timeout: 30_000 }, async () => {
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    const cwd = process.cwd();
+    const scratch = mkTmp('nbosp-startup-conout-');
+    process.chdir(scratch); // the CONOUT$-named scratch file lands here
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    try {
+      const ctx = await runBootstrap({ serverMode: 'exit5', env: { NW_SHOW_CONSOLE: 'true' } });
+      const pid = await serverPid(ctx);
+      await waitFor(() => !pidAlive(pid), { timeout: 8_000, label: 'server exit' });
+      livePids.delete(pid);
+      await waitFor(() => readLog(ctx).includes('Server exited (code=5, signal=null)'), {
+        timeout: 5_000, label: 'exit(5) line in server.log',
+      });
+    } finally {
+      Object.defineProperty(process, 'platform', origPlatform);
+      process.chdir(cwd);
+    }
   });
 });
