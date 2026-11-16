@@ -142,6 +142,10 @@ describe('ScreenshotService (js/apps/screenshots/service.js) — e2e coverage', 
     expect(Notify.show).toHaveBeenCalledTimes(1);
     expect(Notify.show.mock.calls[0][0].type).toBe('error');
     expect(EventLog.log.mock.calls[0][0].message).toContain('denied');
+    // a rejection that carries no .message (non-Error) logs the raw value
+    globalThis.navigator.mediaDevices.getDisplayMedia = vi.fn(() => Promise.reject('boom-string'));
+    await expect(window.ScreenshotService.capture('desktop')).resolves.toBeUndefined();
+    expect(EventLog.log.mock.calls.at(-1)[0].message).toContain('boom-string');
   });
 
   it('still releases the stream when the video pipeline throws mid-capture', async () => {

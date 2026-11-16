@@ -164,6 +164,9 @@ describe('DownloadsHistory (js/apps/downloads-history/service.js) — e2e covera
     // a completed onCreated entry is NOT tracked for onChanged
     handlers.created({ id: 'natC', filename: 'c.txt', url: 'u', totalBytes: 3, mime: 't', state: 'complete' });
     expect(d.getAll().find((i) => i.name === 'c.txt').status).toBe('done');
+    // an entry without a mime field normalises to the empty mime
+    handlers.created({ id: 'natM', filename: 'no-mime.bin', url: 'u', totalBytes: 1, state: 'complete' });
+    expect(d.getAll().find((i) => i.name === 'no-mime.bin')).toMatchObject({ mimeType: '', status: 'done' });
     // a live (non-complete) native download is tracked for onChanged
     handlers.created({ id: 'nat1', filename: 'n.txt', url: 'u', totalBytes: 10, mime: 't', state: 'in_progress' });
     const tracked = d.getAll().find((i) => i.name === 'n.txt');

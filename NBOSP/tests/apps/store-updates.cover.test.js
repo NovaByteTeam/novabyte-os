@@ -246,6 +246,16 @@ describe('StoreUpdateService (js/apps/store-updates/service.js) — e2e coverage
     localStorage.setItem(INSTALLED, '{corrupt'); // readArray throws → warn → []
     expect(await second.svc.checkNow()).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
+
+    // inventory helpers that resolve null (not throw) fall back to the empty
+    // list instead of returning null — the || [] arms in readInstalledApps.
+    const nullish = await mount({
+      catalog,
+      registry: { installedApps: () => null },
+      packageStore: { loadRegistry: () => null },
+    });
+    localStorage.setItem(INSTALLED, '"not an array"');
+    expect(await nullish.svc.checkNow()).toEqual([]);
   });
 
   it('interval settings: registry first, legacy fallback, validation', async () => {

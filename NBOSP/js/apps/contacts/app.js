@@ -498,7 +498,12 @@ registerApp({
         }
       };
       typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+      /* v8 ignore start */
+      // The contacts:updated registration above runs under the same guard and
+      // always creates state.cleanups first, so the || [] fallback here can
+      // never execute — defensive symmetry, not a reachable branch.
       state.cleanups = state.cleanups || [];
+      /* v8 ignore stop */
       state.cleanups.push(() => OS.events.off?.('languageChanged', localeHandler));
     }
 

@@ -88,6 +88,11 @@ describe('Scanner (js/apps/scanner/service.js) — e2e coverage', () => {
     // null name: extOf/hasDoubleExtensionTrick take their String(name||'') paths
     const nullName = await S.scanText(null, 'plain content');
     expect(nullName.safe).toBe(true);
+    // nullish text: String(text ?? '') scans an empty payload
+    const nullText = await S.scanText('n.txt', null);
+    expect(nullText.safe).toBe(true);
+    const undefText = await S.scanText('u.txt', undefined);
+    expect(undefText.safe).toBe(true);
   });
 
   it('blanket-blocks active content in svg/xml/no-ext files', async () => {

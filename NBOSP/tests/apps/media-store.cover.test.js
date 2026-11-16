@@ -30,6 +30,8 @@ function mainTree() {
       { id: 'f6', name: 'song.mp3', type: 'file', size: 60, created: 2, modified: 50 }, // mime absent, extension hit
       { id: 'f7', name: 'x', type: 'file', size: 1, created: 1, modified: 1 }, // no mime, no media ext
       { id: 'f12', name: '', type: 'file', size: 1, created: 1, modified: 1 }, // empty name → String(file.name || '') falsy arm
+      // media item with no timestamps at all → created/modified fall back to 0
+      { id: 'f13', name: 'stale.jpg', type: 'file', mimeType: 'image/jpeg', size: 5 },
     ],
     trashid: [{ id: 't1', name: 'deleted.png', type: 'file', mimeType: 'image/png', size: 1, created: 1, modified: 1 }],
     dataid: [{ id: 'd1', name: 'db.sqlite', type: 'file', size: 1, created: 1, modified: 1 }],
@@ -142,8 +144,8 @@ describe('NovaByteMediaStore (js/apps/media-store/service.js) — e2e coverage',
     expect(ids).not.toContain('mount-x');
     expect(ids).not.toContain('f12');
     // the real media files are in, newest modified first; ties broken by name
-    // (modified: f8=300, f3=200, {f5 clip,f4 tone}=100, f6=50, f9=3, {f10 at-root,f11 odd}=1)
-    expect(files.map((f) => f.id)).toEqual(['f8', 'f3', 'f5', 'f4', 'f6', 'f9', 'f10', 'f11']);
+    // (modified: f8=300, f3=200, {f5 clip,f4 tone}=100, f6=50, f9=3, {f10 at-root,f11 odd}=1, f13=0 fallback)
+    expect(files.map((f) => f.id)).toEqual(['f8', 'f3', 'f5', 'f4', 'f6', 'f9', 'f10', 'f11', 'f13']);
     // mime-based typing kept the case-insensitive match
     expect(files.find((f) => f.id === 'f3').type).toBe('image');
     expect(files.find((f) => f.id === 'f4').type).toBe('audio');
@@ -153,6 +155,9 @@ describe('NovaByteMediaStore (js/apps/media-store/service.js) — e2e coverage',
     expect(files.find((f) => f.id === 'f6').mimeType).toBe('');
     // non-finite size fell back to 0
     expect(files.find((f) => f.id === 'f9').size).toBe(0);
+    // absent timestamps fell back to 0 in the index snapshot
+    expect(files.find((f) => f.id === 'f13').created).toBe(0);
+    expect(files.find((f) => f.id === 'f13').modified).toBe(0);
     // paths normalised: root-equal → '/', no-leading-slash → prefixed
     expect(files.find((f) => f.id === 'f10').path).toBe('media:/');
     expect(files.find((f) => f.id === 'f11').path).toBe('media:/media/odd.mp4');

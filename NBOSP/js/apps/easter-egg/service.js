@@ -108,7 +108,11 @@
 
       snake.forEach((segment, index) => {
         const x = segment.x * CELL + 1, y = segment.y * CELL + 1, size = CELL - 2;
+        /* v8 ignore start */
+        // init() always seeds a 3-segment snake and the game only grows it,
+        // so length 1 (the || 1 fallback) is unreachable in real play.
         const ratio = index / (snake.length - 1 || 1);
+        /* v8 ignore stop */
         const red = Math.round(88 + (63 - 88) * ratio);
         const green = Math.round(166 + (190 - 166) * ratio);
         const blue = Math.round(255 + (90 - 255) * ratio);

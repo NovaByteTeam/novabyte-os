@@ -350,6 +350,18 @@ describe('ModalService (js/apps/shell-ui/modals.js) — e2e coverage', () => {
     ], null, '', { collect: () => { throw new Error('nope'); } });
     q('.modal-actions button').click();
     await expect(second).resolves.toBe(null);
+
+    // a custom action without any options (or a non-function collect) resolves null
+    const third = window.showModal('Collect', body, [
+      { label: 'Go', primary: true, value: '__MODAL_SUBMIT_CUSTOM__' },
+    ]);
+    q('.modal-actions button').click();
+    await expect(third).resolves.toBe(null);
+    const fourth = window.showModal('Collect', body, [
+      { label: 'Go', primary: true, value: '__MODAL_SUBMIT_CUSTOM__' },
+    ], null, '', { collect: 'not-a-fn' });
+    q('.modal-actions button').click();
+    await expect(fourth).resolves.toBe(null);
   });
 
   it('developer-warning variant styles the dialog and pads an element body', async () => {

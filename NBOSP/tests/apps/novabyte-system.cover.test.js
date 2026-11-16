@@ -578,4 +578,29 @@ describe('NovaByteSystem (js/apps/novabyte-system/service.js) — e2e coverage',
       spy.mockRestore();
     }
   });
+
+  it('settings.import on a bare store (no defaults, no _cache) skips everything', async () => {
+    // A settings store that has neither a defaults catalogue nor a cache
+    // contributes no known keys, so every import is skipped — the || {}
+    // fallbacks in the knownKeys build must hold.
+    const bare = { get: vi.fn(() => undefined), set: vi.fn(() => true) };
+    const { api } = await mount({ settings: bare });
+    const res = await api.settings.import({ theme: 'gruvbox', volume: 11 });
+    expect(res.imported).toEqual([]);
+    expect(res.skipped).toEqual(['theme', 'volume']);
+    expect(bare.set).not.toHaveBeenCalled();
+  });
+
+  it('hardware.getInventory reports a null resolution when screen is unavailable', async () => {
+    const { api } = await mount({});
+    const had = 'screen' in globalThis;
+    const saved = globalThis.screen;
+    delete globalThis.screen;
+    try {
+      const inv = api.hardware.getInventory();
+      expect(inv.display.resolution).toBeNull();
+    } finally {
+      if (had) globalThis.screen = saved; else delete globalThis.screen;
+    }
+  });
 });

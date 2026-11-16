@@ -90,12 +90,16 @@ describe('email/protocols/imapClient.js — imapFolders', () => {
     FakeImapFlow.listResult = [
       { path: 'INBOX', name: 'INBOX', delimiter: '/', flags: ['\\HasNoChildren'] },
       { path: 'Sent &#x27;Items&#x27;', delimiter: '/' },
+      // no name and no delimiter: the last-segment fallback splits on '/'
+      { path: 'Plain/Child' },
     ];
     const folders = await imapClient.imapFolders(CREDS);
     expect(folders[0]).toEqual({ path: 'INBOX', name: 'INBOX', delimiter: '/', flags: ['\\HasNoChildren'] });
     expect(folders[1].name).toBe("Sent 'Items'");
     // name falls back to the last path segment when the server omits it
     expect(folders[1].path).toBe("Sent 'Items'");
+    // the delimiter-less, name-less entry derives its name from the path tail
+    expect(folders[2].name).toBe('Child');
     expect(FakeImapFlow.last.calls).toContain('logout');
   });
 });
@@ -108,17 +112,20 @@ describe('email/protocols/imapClient.js — imapMessages', () => {
       { uid: 2, seq: 2, flags: new Set(['\\Seen']), envelope: { subject: 'two' } },
       { uid: 3, seq: 3, flags: new Set(['\\Seen']), envelope: { subject: 'three' } },
     ];
+    // a fetched message without an envelope maps onto the empty-object arm
+    FakeImapFlow.fetchResult.push({ uid: 9, seq: 4, flags: new Set(['\\Flagged']) });
     const res = await imapClient.imapMessages(CREDS, 'INBOX', 1, 20, (p) => p);
     expect(res.total).toBe(3);
     expect(res.page).toBe(1);
     expect(res.pages).toBe(1);
     // reversed → newest first
-    expect(res.messages.map((m) => m.subject)).toEqual(['three', 'two', 'one']);
-    expect(res.messages[1].seen).toBe(true);
-    expect(res.messages[2].seen).toBe(false);
-    expect(res.messages[2].from).toBe('A <a@x.com>');
-    expect(res.messages[2].to).toBe('b@x.com');
-    expect(res.messages[2].date).toBe('2026-01-01T00:00:00.000Z');
+    expect(res.messages.map((m) => m.subject)).toEqual(['(no subject)', 'three', 'two', 'one']);
+    expect(res.messages[1].seen).toBe(true);  // 'three'
+    expect(res.messages[2].seen).toBe(true);   // 'two' carries \Seen
+    expect(res.messages[3].seen).toBe(false);  // 'one' is unseen
+    expect(res.messages[3].from).toBe('A <a@x.com>');
+    expect(res.messages[3].to).toBe('b@x.com');
+    expect(res.messages[3].date).toBe('2026-01-01T00:00:00.000Z');
   });
 
   it('computes pages and clamps the fetch window to the requested page', async () => {
@@ -202,11 +209,17 @@ describe('email/protocols/imapClient.js — imapSearch', () => {
       { uid: 1, flags: new Set(), envelope: { subject: 'old', from: [{ address: 'a@x.com' }], date: '2026-01-01T00:00:00Z' } },
       { uid: 3, flags: new Set(['\\Seen']), envelope: { subject: 'new' } },
     ];
+    // a result without an envelope maps onto the empty-object arm
+    FakeImapFlow.fetchResult.push({ uid: 7, flags: new Set() });
     const messages = await imapClient.imapSearch(CREDS, 'needle', 'INBOX');
-    expect(messages).toHaveLength(2);
+    expect(messages).toHaveLength(3);
     expect(messages[0].subject).toBe('old');
     expect(messages[1].subject).toBe('new');
     expect(messages[1].seen).toBe(true);
+    const bare = messages[2];
+    expect(bare.subject).toBe('(no subject)');
+    expect(bare.from).toBe('');
+    expect(bare.date).toBeNull();
   });
 
   it('returns [] when the search yields no uids', async () => {
@@ -235,6 +248,10 @@ describe('email/protocols/imapClient.js — resolveFolder', () => {
     FakeImapFlow.openError = new Error('nope');
     FakeImapFlow.opensToFail = 999; // every open fails
     FakeImapFlow.listResult = [{ path: 'INBOX', name: 'INBOX' }];
+    await expect(imapClient.resolveFolder(client, 'Nowhere')).rejects.toThrow('Folder not found: Nowhere');
+    // a list containing a name-less folder exercises the (f.name || '') arm
+    // of the alias matcher: the empty string never matches an alias.
+    FakeImapFlow.listResult = [{ path: 'INBOX' }, { path: 'x', name: 'Sent' }];
     await expect(imapClient.resolveFolder(client, 'Nowhere')).rejects.toThrow('Folder not found: Nowhere');
   });
 });
