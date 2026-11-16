@@ -3,7 +3,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ensureCerts } from '../../scripts/certs.js';
+// CJS require — startup.test.js loads certs.js through its own require
+// chain; one loading style everywhere keeps the coverage merge honest.
+const { createRequire } = await import('node:module');
+const { ensureCerts } = createRequire(import.meta.url)('../../scripts/certs.js');
 import { seedCerts } from '../server/helpers/seed-certs.js';
 
 describe('scripts/certs.js — kiosk localhost certificate handling', () => {

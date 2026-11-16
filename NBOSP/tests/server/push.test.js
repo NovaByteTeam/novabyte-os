@@ -3,8 +3,12 @@ import http from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import { createRequire } from 'node:module';
-import { setupPushRoutes } from '../../server/core/push-routes.js';
-import securityMiddleware from '../../security/middleware.js';
+// Both through the CJS require — the same instances routes.test.js's
+// mount chain uses (one loading style per module across all workers keeps
+// the v8 coverage merge honest; see the pushBus note above).
+import { createRequire } from 'node:module';
+const { setupPushRoutes } = createRequire(import.meta.url)('../../server/core/push-routes.js');
+const securityMiddleware = createRequire(import.meta.url)('../../security/middleware.js');
 
 // Load the bus through CJS require() — the SAME module instance the
 // routes' own require('./push-bus') resolves to. A bare ESM import of a

@@ -9,7 +9,12 @@ import https from 'node:https';
 // Real configureSSL (ssl.test.js mocks it for the bootstrap tests) + real
 // certs from the shared X.509 seeder, so the plaintext-into-TLS-port
 // behavior is exercised against an actual https.Server, not a mock.
-import { configureSSL, isPlainHttpRequestToTlsPort, respondPlainHttpOverRawSocket } from '../../server/core/ssl.js';
+// Real configureSSL through CJS require — the same instance style the
+// ssl.test.js / index.test.js bootstrap chains load (vi.mock cannot
+// intercept their internal requires). One loading style per module across
+// all workers keeps the v8 coverage merge honest.
+import { createRequire } from 'node:module';
+const { configureSSL, isPlainHttpRequestToTlsPort, respondPlainHttpOverRawSocket } = createRequire(import.meta.url)('../../server/core/ssl.js');
 import { seedCerts } from './helpers/seed-certs.js';
 
 describe('server/core/ssl.js — plain HTTP request on the HTTPS port', () => {

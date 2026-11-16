@@ -33,7 +33,10 @@ function fakeRequest(opts, cb) {
 
 Object.defineProperty(https, 'request', { value: fakeRequest, configurable: true, writable: true });
 
-const ewsClient = await import('../../email/protocols/ewsClient.js');
+// CJS require — the same instance style controller.test.js uses, so the
+// v8 coverage merge stays uniform across workers.
+const { createRequire } = await import('node:module');
+const ewsClient = createRequire(import.meta.url)('../../email/protocols/ewsClient.js');
 
 class FakePostalMime {
   async parse(raw) {

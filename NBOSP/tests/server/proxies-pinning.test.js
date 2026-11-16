@@ -20,7 +20,9 @@ const require = createRequire(import.meta.url);
 const dns = require('node:dns');
 const undici = require('undici');
 
-import proxies from '../../server/proxies.js';
+// CJS require — same instance style as proxies.test.js (uniform loading
+// across workers keeps the v8 coverage merge honest).
+const proxies = createRequire(import.meta.url)('../../server/proxies.js');
 const { _dnsResolvePrivate, _pinnedFetch, _dnsPrivateCache } = proxies._internal;
 
 // A host whose "DNS" says: one public IPv6 first (what verbatim order looks

@@ -4,10 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ensureEnv } from '../../scripts/env.js';
-import { ensureCerts } from '../../scripts/certs.js';
+// scripts loaded through CJS require — the same style startup.test.js's
+// bootstrap chain uses, keeping the coverage merge uniform across workers.
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { ensureEnv } = require('../../scripts/env.js');
+const { ensureCerts } = require('../../scripts/certs.js');
 import { seedCerts } from '../server/helpers/seed-certs.js';
-import { getRuntimeDataDir } from '../../scripts/runtime-data-dir.js';
+const { getRuntimeDataDir } = require('../../scripts/runtime-data-dir.js');
 
 describe('Linux runtime data directory', () => {
   let tempDir;

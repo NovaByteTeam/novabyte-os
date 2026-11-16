@@ -11,7 +11,11 @@ import express from 'express';
 process.env.NBOSP_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nbosp-coop-test-'));
 process.env.SESSION_SECRET = 'c'.repeat(64);
 
-const { setupMiddleware, closeSessionDb } = await import('../../server/middleware.js');
+// CJS require (after the env assignments above) — same instance style as
+// security/middleware.test.js's require chain; uniform loading keeps the
+// v8 coverage merge honest across workers.
+import { createRequire } from 'node:module';
+const { setupMiddleware, closeSessionDb } = createRequire(import.meta.url)('../../server/middleware.js');
 
 afterAll(() => {
     closeSessionDb();

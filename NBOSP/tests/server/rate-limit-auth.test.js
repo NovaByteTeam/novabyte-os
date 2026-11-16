@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import rateLimitAuth from '../../server/rate-limit-auth.js';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const rateLimitAuth = require('../../server/rate-limit-auth.js');
 
 const { isTrustedSystemAppRequest } = rateLimitAuth;
 
