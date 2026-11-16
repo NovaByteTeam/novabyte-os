@@ -118,6 +118,48 @@
 
   // ── Hydration ───────────────────────────────────────────────────────────
 
+  // 2026-11-15 scope redesign: keys that moved between hives. theme /
+  // accentColor / wallpaperId / devMode / rootAccessEnabled became PER-USER
+  // (HKNU), timezone became MACHINE-scoped (HKNS). On load, a legacy value
+  // is adopted into the new path when the new path has none, and the legacy
+  // value is removed either way — otherwise the generic-area scan in
+  // hydrateFromRegistry would keep resurrecting the old machine-scoped
+  // devMode/rootAccessEnabled (or the first user's personal timezone) over
+  // the new scope forever.
+  const SETTINGS_SCOPE_MIGRATIONS = Object.freeze({
+    theme: 'HKNS/shell/theme',
+    accentColor: 'HKNS/shell/accentColor',
+    wallpaperId: 'HKNS/shell/wallpaper',
+    devMode: 'HKNS/system/devMode',
+    rootAccessEnabled: 'HKNS/security/rootAccessEnabled',
+    timezone: 'HKNU/settings/timezone',
+  });
+
+  function migrateSettingsScopes(reg, logger) {
+    let migrated = 0;
+    for (const [key, from] of Object.entries(SETTINGS_SCOPE_MIGRATIONS)) {
+      let to = null;
+      try { to = reg.settingsPathFor(key); } catch (_) { continue; }
+      if (!to || to === from) continue;
+      let legacy, current;
+      try { legacy = reg.get(from); current = reg.get(to); } catch (_) { continue; }
+      if (legacy === undefined) continue;
+      try {
+        if (current === undefined) {
+          reg.set(to, legacy, { source: SOURCE, actor: 'shell' });
+          migrated += 1;
+        }
+        reg.remove(from, { source: SOURCE, actor: 'shell' });
+      } catch (err) {
+        (logger.warn || logger.log || function () {}).call(logger, `[SettingsShim] scope migration for "${key}" failed`, err);
+      }
+    }
+    if (migrated > 0) {
+      (logger.info || logger.log || function () {}).call(logger, `[SettingsShim] Migrated ${migrated} setting(s) to their new per-user/system scope`);
+    }
+    return migrated;
+  }
+
   function hydrateFromRegistry(OS, reg) {
     const cache = {};
     // 1. Explicitly mapped keys (theme, pins, security keys, ...).
@@ -196,6 +238,11 @@
             if (adopted > 0) logger.info(`[SettingsShim] Adopted ${adopted} legacy setting(s) into the registry`);
           }
         }
+        // Scope migrations run BEFORE hydration so adopted values are
+        // visible in this very load (best-effort; guarded).
+        try {
+          if (typeof reg.remove === 'function') migrateSettingsScopes(reg, logger);
+        } catch (_) { /* migration is best-effort; hydration still runs */ }
         this._cache = hydrateFromRegistry(OS, reg);
         // Excluded keys never enter the hive — serve them from the legacy
         // store on every boot.

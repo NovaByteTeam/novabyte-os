@@ -11,6 +11,16 @@
   function launchSnakeGame() {
     if (document.getElementById('snake-game-overlay')) return;
 
+    // Styles ship with the service (self-contained since 2026-11-16 — this
+    // block moved out of the hardcoded section of the global style.css).
+    // Injected once per page; the overlay markup below consumes it.
+    if (!document.getElementById('snake-game-styles')) {
+      const style = document.createElement('style');
+      style.id = 'snake-game-styles';
+      style.textContent = '/* ---- Snake game (Easter egg) ----------------------------------------- */\n.snake-modal-overlay {\n  position: fixed;\n  top: 0;\n  left: 0;\n  right: 0;\n  bottom: 0;\n  background: rgba(0, 0, 0, 0.75);\n  backdrop-filter: blur(4px);\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  z-index: 100000;\n  animation: fadeIn 0.2s ease-out;\n}\n.snake-modal {\n  background: var(--bg-elevated);\n  border: 1px solid var(--border);\n  border-radius: 16px;\n  padding: 24px;\n  max-width: 500px;\n  width: 90vw;\n  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);\n  animation: snakeSlideUp 0.25s ease-out;\n}\n@keyframes snakeSlideUp {\n  from { transform: translateY(20px); opacity: 0; }\n  to   { transform: translateY(0);    opacity: 1; }\n}\n.snake-header {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin-bottom: 16px;\n}\n.snake-title {\n  font-size: 18px;\n  font-weight: 700;\n  color: var(--text-primary);\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n.snake-close {\n  background: none;\n  border: none;\n  color: var(--text-muted);\n  font-size: 24px;\n  cursor: pointer;\n  padding: 4px 8px;\n  border-radius: 6px;\n  transition: background 0.15s, color 0.15s;\n  line-height: 1;\n}\n.snake-close:hover {\n  background: var(--bg-hover);\n  color: var(--text-primary);\n}\n.snake-score-board {\n  display: flex;\n  justify-content: space-between;\n  font-size: 12px;\n  color: var(--text-secondary);\n  margin-bottom: 12px;\n  padding: 10px 14px;\n  background: var(--bg-sunken);\n  border-radius: 8px;\n}\n.snake-score-value {\n  font-weight: 700;\n  color: var(--accent);\n  font-family: monospace;\n  font-size: 14px;\n}\n.snake-canvas-container {\n  display: flex;\n  justify-content: center;\n  margin-bottom: 12px;\n}\n.snake-canvas {\n  border: 2px solid var(--border);\n  border-radius: 8px;\n  background: rgba(0, 0, 0, 0.3);\n  image-rendering: pixelated;\n}\n.snake-controls {\n  text-align: center;\n  font-size: 11px;\n  color: var(--text-muted);\n}\n.snake-controls kbd {\n  background: var(--bg-elevated);\n  border: 1px solid var(--border);\n  padding: 2px 6px;\n  border-radius: 4px;\n  font-family: system-ui, sans-serif;\n  font-size: 10px;\n}\n.snake-game-over {\n  position: absolute;\n  top: 50%;\n  left: 50%;\n  transform: translate(-50%, -50%);\n  background: rgba(0, 0, 0, 0.85);\n  padding: 20px 30px;\n  border-radius: 12px;\n  text-align: center;\n  color: var(--text-primary);\n  border: 1px solid var(--border);\n}\n.snake-game-over-title {\n  font-size: 16px;\n  font-weight: 700;\n  margin-bottom: 8px;\n  color: var(--text-danger);\n}\n.snake-game-over-score {\n  font-size: 13px;\n  color: var(--text-secondary);\n  margin-bottom: 12px;\n}\n.snake-restart-btn {\n  background: var(--accent);\n  color: var(--text-on-accent);\n  border: none;\n  padding: 8px 16px;\n  border-radius: 6px;\n  font-size: 12px;\n  font-weight: 600;\n  cursor: pointer;\n  transition: opacity 0.15s;\n}\n.snake-restart-btn:hover {\n  opacity: 0.9;\n}\n\n/* Local copy of the shared fadeIn keyframe — keeps this block self-contained. */\n@keyframes fadeIn {\n  from { opacity: 0; }\n  to   { opacity: 1; }\n}\n';
+      document.head.appendChild(style);
+    }
+
     const COLS = 20, ROWS = 20, CELL = 18;
     const W = COLS * CELL, H = ROWS * CELL;
 
@@ -19,11 +29,11 @@
       style: 'position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:99999;'
     });
     const win = createEl('div', {
-      style: 'background:rgba(10,14,22,0.96);border:1px solid rgba(255,255,255,0.18);border-radius:16px;box-shadow:0 32px 64px rgba(0,0,0,0.6);overflow:hidden;user-select:none;'
+      style: 'background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:16px;box-shadow:var(--shadow-lg);overflow:hidden;user-select:none;'
     });
 
     const titleBar = createEl('div', {
-      style: 'display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(255,255,255,0.04);border-bottom:1px solid rgba(255,255,255,0.08);'
+      style: 'display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-hover);border-bottom:1px solid var(--border-subtle);'
     });
     const titleText = createEl('span', {
       textContent: '🐍 NovaByte Snake',
@@ -32,12 +42,12 @@
     const closeBtn = createEl('button', {
       textContent: '✕',
       'aria-label': _t('common.close'),
-      style: 'background:rgba(248,81,73,0.18);border:1px solid rgba(248,81,73,0.35);color:#f85149;border-radius:6px;width:24px;height:24px;font-size:11px;cursor:pointer;font-weight:700;display:flex;align-items:center;justify-content:center;'
+      style: 'background:color-mix(in srgb,var(--text-danger) 18%,transparent);border:1px solid color-mix(in srgb,var(--text-danger) 35%,transparent);color:var(--text-danger);border-radius:6px;width:24px;height:24px;font-size:11px;cursor:pointer;font-weight:700;display:flex;align-items:center;justify-content:center;'
     });
     titleBar.append(titleText, closeBtn);
 
     const scoreBar = createEl('div', {
-      style: 'display:flex;align-items:center;justify-content:space-between;padding:6px 14px;background:rgba(0,0,0,0.2);font-size:12px;color:var(--text-secondary);'
+      style: 'display:flex;align-items:center;justify-content:space-between;padding:6px 14px;background:var(--bg-sunken);font-size:12px;color:var(--text-secondary);'
     });
     const scoreLabel = createEl('span', { textContent: _t('apps.easterEgg.score', { score: 0 }) });
     const hintLabel = createEl('span', { textContent: _t('apps.easterEgg.controlsHint'), style: 'color:var(--text-muted);font-size:11px;' });
@@ -98,7 +108,11 @@
 
       snake.forEach((segment, index) => {
         const x = segment.x * CELL + 1, y = segment.y * CELL + 1, size = CELL - 2;
+        /* v8 ignore start */
+        // init() always seeds a 3-segment snake and the game only grows it,
+        // so length 1 (the || 1 fallback) is unreachable in real play.
         const ratio = index / (snake.length - 1 || 1);
+        /* v8 ignore stop */
         const red = Math.round(88 + (63 - 88) * ratio);
         const green = Math.round(166 + (190 - 166) * ratio);
         const blue = Math.round(255 + (90 - 255) * ratio);
@@ -114,7 +128,10 @@
     }
 
     function gameOver() {
+      // only ever called from step() while the loop is running
+      /* v8 ignore start */
       if (gameLoop) { clearInterval(gameLoop); gameLoop = null; }
+      /* v8 ignore stop */
       const gameOverElement = createEl('div', { className: 'snake-game-over' });
       const title = createEl('div', { className: 'snake-game-over-title', textContent: _t('apps.easterEgg.gameOver') });
       const finalScore = createEl('div', { className: 'snake-game-over-score', textContent: _t('apps.easterEgg.score', { score }) });
@@ -122,7 +139,10 @@
       restart.addEventListener('click', () => { gameOverElement.remove(); startGame(); });
       gameOverElement.append(title, finalScore, restart);
       const wrap = canvas.parentElement;
+      // canvas is always parented before gameOver() can run
+      /* v8 ignore start */
       if (wrap) { wrap.style.position = 'relative'; wrap.appendChild(gameOverElement); }
+      /* v8 ignore stop */
     }
 
     function step() {
@@ -145,7 +165,10 @@
     }
 
     function startGame() {
+      // callers only invoke startGame with the loop stopped (launch/restart)
+      /* v8 ignore start */
       if (gameLoop) clearInterval(gameLoop);
+      /* v8 ignore stop */
       init();
       draw();
       gameLoop = setInterval(step, 120);

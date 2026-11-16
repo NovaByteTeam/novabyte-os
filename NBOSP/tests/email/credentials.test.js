@@ -174,3 +174,56 @@ describe('email/credentials.js — requireCreds middleware', () => {
     credentials.sessionCredentials.delete('sess-next');
   });
 });
+
+describe('email/credentials.js — key derivation failure in-process', () => {
+  it('logs CRITICAL and throws when NBOSP_CRED_KEY is unset (fresh instance)', () => {
+    const resolved = require.resolve('../../email/credentials.js');
+    const saved = process.env.NBOSP_CRED_KEY;
+    delete process.env.NBOSP_CRED_KEY;
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      delete require.cache[resolved]; // fresh instance → key not yet derived
+      const fresh = require(resolved);
+      expect(() => fresh.encryptCreds(CREDS)).toThrow('NBOSP_CRED_KEY environment variable not set');
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('CRITICAL'));
+    } finally {
+      errSpy.mockRestore();
+      process.env.NBOSP_CRED_KEY = saved;
+      delete require.cache[resolved]; // drop the no-key instance
+    }
+  });
+});
+
+describe('email/credentials.js — expiry sweep on the cleanup tick', () => {
+  it('deletes only entries older than 24h, tolerates undated ones, and stops cleanly', async () => {
+    vi.useFakeTimers();
+    const resolved = require.resolve('../../email/credentials.js');
+    try {
+      // fresh instance so ITS 5-minute tick registers against the fake clock
+      delete require.cache[resolved];
+      const fresh = require(resolved);
+      fresh.sessionCredentials.set('old', { creds: CREDS, createdAt: Date.now() - 25 * 3600_000 });
+      fresh.sessionCredentials.set('young', { creds: CREDS, createdAt: Date.now() });
+      fresh.sessionCredentials.set('undated', { creds: CREDS }); // no createdAt → never swept
+
+      await vi.advanceTimersByTimeAsync(300_000); // first tick
+      expect(fresh.sessionCredentials.has('old')).toBe(false);
+      expect(fresh.sessionCredentials.has('young')).toBe(true);
+      expect(fresh.sessionCredentials.has('undated')).toBe(true);
+
+      // a second start while running is a no-op (single interval)
+      fresh.startCredentialCleanup();
+      // stop is idempotent
+      fresh.stopCredentialCleanup();
+      fresh.stopCredentialCleanup();
+
+      // after stopping, no further sweeps happen
+      fresh.sessionCredentials.set('stale-after-stop', { creds: CREDS, createdAt: Date.now() - 25 * 3600_000 });
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(fresh.sessionCredentials.has('stale-after-stop')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      delete require.cache[resolved]; // leave a clean cache for other suites
+    }
+  });
+});

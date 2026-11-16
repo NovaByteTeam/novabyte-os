@@ -208,7 +208,7 @@
       "pinEntryAria": "Ввод PIN-кода",
       "signIn": "Войти",
       "clearAria": "Прозрачный",
-      "backspaceAria": "Backspace",
+      "backspaceAria": "Назад",
       "useBiometric": "👆 Используйте биометрию",
       "lockedOut": "Заблокировано. Попробуйте еще раз в {{seconds}}с",
       "verificationUnavailable": "Проверка недоступна: {{message}}",
@@ -708,7 +708,10 @@
       "wipeEverything": "Протрите все",
       "wiping": "Удаление данных",
       "wipingBody": "Пожалуйста, подождите...",
-      "resetFailed": "Сброс не выполнен"
+      "resetFailed": "Сброс не выполнен",
+      "accountUsage": "Хранилище аккаунта",
+      "yourUsage": "Ваше хранилище",
+      "totalUsed": "Всего занято памяти"
     },
     "desktop": {
       "wallpaper": "Обои",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Приложения, которым предоставлены права администратора, теперь могут их использовать.",
       "adminModeDisabledBody": "Предоставление разрешений администратора теперь снова инертно.",
       "adminModeUpdateFailed": "Не удалось обновить режим администратора",
-      "tryAgain": "Попробуйте еще раз"
+      "tryAgain": "Попробуйте еще раз",
+      "exportTo": "Выберите, куда сохранить экспорт"
     },
     "root": {
       "intro": "Приложения root запускаются непосредственно на странице ОС с неограниченным доступом и могут выполнять операции реального администратора (root). Каждое корневое приложение сначала запрашивает ваше подтверждение в приглашении NovaByte, а не внутри приложения, и каждая привилегированная операция выполняется через проверяемый sudo без пароля (NOPASSWD) и записывается в журнал безопасности. Это не песочница или обычное разрешение приложения.",
@@ -957,6 +961,11 @@
       "pushRegistered": "нажать зарегистрированный",
       "queuedPushOne": "1 нажатие в очереди",
       "queuedPushesMany": "{{count}} push-уведомления в очереди"
+    },
+    "adminLock": {
+      "title": "Требуется администратор",
+      "body": "Этот параметр доступен только для аккаунтов администратора. Войдите с аккаунта администратора, чтобы изменить его.",
+      "switchUser": "Сменить пользователя"
     }
   },
   "apps": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "Команда «Сохранить как» не вернула путь к файлу.",
         "tooManyRedirects": "Слишком много перенаправлений",
         "unsupportedRedirect": "Неподдерживаемое перенаправление",
+        "localAddressBlocked": "Локальные и внутренние сетевые адреса нельзя скачивать.",
         "interrupted": "Ответ на загрузку был прерван",
         "closedEarly": "Загрузка файла была закрыта до завершения",
         "timedOut": "Время подключения истекло",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "Настройки не сбрасываются",
         "settingsResetTitle": "Сброс настроек",
         "settingsResetBody": "Все настройки браузера восстановлены до значений по умолчанию."
+      },
+      "omnibox": {
+        "searchWith": "Найти в {{engine}} \"{{query}}\""
       }
     },
     "files": {
@@ -1373,7 +1386,9 @@
         "viewIcons": "Вид: Значки",
         "viewList": "Просмотр: Список",
         "selectAll": "Выбрать все",
-        "delete": "Удалить"
+        "delete": "Удалить",
+        "pinToQuickAccess": "Закрепить в быстром доступе",
+        "unpinFromQuickAccess": "Открепить из быстрого доступа"
       },
       "dialogs": {
         "chooseDestinationFolder": "Выберите папку назначения",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "Файл заблокирован",
         "invalidDrop": "Удален неверный файл.",
         "failedToAdd": "Не удалось добавить файл.",
-        "couldNotVerify": "Не удалось проверить\"{{file}}\" — сбросил в безопасное состояние и пропустил."
+        "couldNotVerify": "Не удалось проверить\"{{file}}\" — сбросил в безопасное состояние и пропустил.",
+        "quickAccessFailed": "Не удалось обновить быстрый доступ",
+        "quickAccessNotSaved": "Не удалось сохранить закреплённые расположения.",
+        "quickAccessNotFolder": "Можно закреплять только существующие папки."
       },
       "linux": {
         "openParentFolder": "Открыть родительскую папку",
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "Сеть",
-        "fs": "ФС"
+        "fs": "Файловая система"
       },
       "network": {
         "desc": "Показывает маршруты прокси, состояние защиты SSRF и недавнюю конфигурацию сети.",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} отменен",
         "failed": ", {{count}} неуспешный",
         "total": "({{count}} общий)"
+      },
+      "editor": {
+        "open": "Редактировать",
+        "openTitle": "Редактировать код этого модуля в реальном времени и перезагрузить его",
+        "title": "Редактирование {{id}}",
+        "save": "Сохранить и перезагрузить",
+        "back": "← Назад к модулям",
+        "fetchFailed": "Не удалось загрузить {{path}}: HTTP {{status}}",
+        "saved": "Сохранено на диск и перезагружено в работающую ОС",
+        "saveFailed": "Не удалось сохранить: {{message}}",
+        "lines": "{{count}} строк",
+        "unsaved": "Изменено — ещё не сохранено",
+        "emptyRefused": "Сохранение пустого модуля запрещено"
       }
     },
     "install": {
@@ -1785,7 +1816,7 @@
       "memory": "Память",
       "domNodesByWindow": "Узлы DOM по окнам",
       "noWindowsOpen": "Ни одно окно не открыто",
-      "notAvailableShort": "н/д",
+      "notAvailableShort": "Недоступно",
       "longTaskLog": "Длинный журнал задач",
       "longTaskUnsupported": "Отслеживание длительных задач не поддерживается в этом браузере",
       "noLongTasks": "Длинных задач пока не записано",
@@ -1801,20 +1832,20 @@
       "noRequestsMatch": "Нет запросов, соответствующих текущему фильтру",
       "noRequestsRecorded": "Запросов пока не зарегистрировано",
       "sourceBrowser": "браузер · {{label}}",
-      "sourceOs": "ОС · {{label}}",
+      "sourceOs": "Операционная система · {{label}}",
       "showBody": "▸ тело",
       "hideBody": "▾ тело",
       "bodyNotCaptured": "тело не захвачено{{type}}",
-      "statusError": "ОШИБКА",
+      "statusError": "Ошибка",
       "unknownApp": "неизвестное приложение",
       "networkError": "сетевая ошибка",
       "bodyTruncated": "{{text}}…(усечено)",
-      "durationMs": "{{value}}РС",
+      "durationMs": "{{value}} мс",
       "fpsValue": "{{value}} кадр/с",
       "memoryValue": "{{value}} МБ",
       "longTasksValue": "{{count}} (>50 мс)",
       "none": "Никто",
-      "notAvailable": "Н/Д"
+      "notAvailable": "Недоступно"
     },
     "terminal": {
       "appDataMissing": "Отсутствует каталог данных приложения.",
@@ -1858,7 +1889,11 @@
       "errorLine": "Ошибка: {{message}}",
       "terminalError": "[ошибка терминала] {{message}}",
       "shellExited": "[Shell завершился со статусом {{status}}. Нажмите Enter, чтобы начать новый.]",
-      "unknownStatus": "неизвестный"
+      "unknownStatus": "неизвестный",
+      "shortcutsClearLine": "=очистить строку  ",
+      "shortcutsLineStart": "=начало строки  ",
+      "shortcutsLineEnd": "=конец строки  ",
+      "shortcutsPaste": "=вставить"
     },
     "myApps": {
       "appInstalledTitle": "Приложение установлено",
@@ -1948,8 +1983,8 @@
       "alarms": "Сигнализация",
       "add": "Добавлять",
       "noAlarms": "Никаких будильников не установлено. Нажмите + Добавить, чтобы создать его.",
-      "am": "ЯВЛЯЮСЬ",
-      "pm": "ПМ",
+      "am": "ДП",
+      "pm": "ПП",
       "repeatOnce": "Один раз",
       "repeatEveryDay": "Каждый день",
       "repeatWeekdays": "Будни",
@@ -2068,7 +2103,11 @@
       "inputPlaceholder": "Введите JS для оценки или `reg query HKNS\\shell` для реестра CLI.\nEnter для запуска · Shift+Enter для новой строки · ↑/↓ для истории",
       "run": "Запустить",
       "readyMessage": "Консоль готова. Введите выражение выше и нажмите Enter или Run.\nShift+Enter для перехода на новую строку, ↑/↓ для вызова предыдущих команд.",
-      "noOutputMatches": "(нет выходных совпадений \"{{query}}\")"
+      "noOutputMatches": "(нет выходных совпадений \"{{query}}\")",
+      "exportDialogTitle": "Экспорт вывода консоли",
+      "exportedTitle": "Вывод консоли экспортирован",
+      "exportedBody": "Сохранено в {{path}}",
+      "exportFailedTitle": "Не удалось экспортировать консоль"
     },
     "contacts": {
       "appDataMissing": "Отсутствует каталог данных приложения.",
@@ -2129,7 +2168,9 @@
       "alarm": "Тревога",
       "alarmFor": "Сигнализация для {{time}}",
       "email": "Электронная почта",
-      "emailNewMail": "{{count}} новое в {{account}}"
+      "emailNewMail": "{{count}} новое в {{account}}",
+      "timerDone": "Таймер завершён",
+      "timerDoneBody": "Ваш таймер завершился."
     },
     "store": {
       "releaseTrack": "Релиз трека",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "Позиция наложения отладки",
         "devNovaReg": "Состояние редактора NovaReg",
         "devNovaRegDesc": "Избранное этого редактора и история переходов."
-      }
+      },
+      "importDialogTitle": "Импорт данных реестра"
     },
     "appmanager": {
       "fallbackPackageName": "Этот пакет",
@@ -2740,7 +2782,7 @@
       "addWebAppSub": "Закрепите любой веб-сайт как приложение.",
       "urlLabel": "URL *",
       "nameLabel": "Имя *",
-      "namePlaceholder": "Мое приложение",
+      "namePlaceholder": "Моё приложение",
       "iconOptionalLabel": "Значок (необязательно)",
       "chooseImageBtn": "Выбрать изображение…",
       "iconNotImageError": "Пожалуйста, выберите файл изображения.",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "Запись файла недоступна в этой среде выполнения.",
         "csvExported": "CSV экспортирован в {{path}}",
         "csvExportFailed": "Экспорт CSV не удался: {{message}}"
-      }
+      },
+      "degradedRefresh": "Не удалось обновить список аккаунтов — показана последняя известная версия.",
+      "sessionExpired": "Ваш сеанс истёк — войдите снова.",
+      "retry": "Повторить",
+      "confirmPin": "Подтвердите PIN-код",
+      "pinMismatch": "PIN-коды не совпадают.",
+      "resetPinSelfWarning": "Сбросить PIN-код для {{name}}?",
+      "resetPinSelfWarningBody": "Сброс собственного PIN-кода завершит сеансы этого аккаунта везде — все сессии будут отозваны. Вы снова войдёте с временным PIN-кодом, который появится далее, а затем выберете новый.",
+      "resetPinSelfWarningConfirm": "Сбросить и выйти",
+      "resetPinSelfWarningDone": "Ваш PIN-код сброшен. Войдите снова с этим временным PIN-кодом — вам предложат выбрать новый."
     },
     "events": {
       "gate": {
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} новое в {{account}}",
         "newMailTitle": "{{email}} — {{count}} новый"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Быстрый доступ",
+      "home": "Главная",
+      "breadcrumbsAria": "Расположение",
+      "editPath": "Изменить путь",
+      "newFolder": "Новая папка",
+      "newFile": "Новый файл",
+      "createFailed": "Не удалось создать",
+      "createFolderFailed": "Не удалось создать папку: {{message}}",
+      "createFileFailed": "Не удалось создать файл: {{message}}",
+      "fileType": "Тип файлов",
+      "allTypes": "Все типы (*.*)",
+      "pinned": "Закреплённые",
+      "mounts": "Подключённые диски",
+      "saveFailed": "Не удалось сохранить файл",
+      "unavailable": "Системный диалог выбора файлов недоступен",
+      "search": "Поиск в этой папке",
+      "searchAria": "Поиск в этой папке",
+      "noMatches": "(Совпадений нет)"
     }
   }
 }

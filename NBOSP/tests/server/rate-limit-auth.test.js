@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import rateLimitAuth from '../../server/rate-limit-auth.js';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const rateLimitAuth = require('../../server/rate-limit-auth.js');
 
 const { isTrustedSystemAppRequest } = rateLimitAuth;
 
@@ -17,7 +19,7 @@ function makeRequest({ appId = APP_ID, timestamp = String(Date.now()), secret = 
         'x-nova-system-time': timestamp,
         'x-nova-system-signature': signature,
     };
-    return { get: (name) => headers[name.toLowerCase()] };
+    return { _headers: headers, get: (name) => headers[name.toLowerCase()] };
 }
 
 describe('system-app rate-limit authentication', () => {
@@ -44,5 +46,44 @@ describe('system-app rate-limit authentication', () => {
 
     it('does not trust a marker when the launch secret is unavailable', () => {
         expect(isTrustedSystemAppRequest(makeRequest())).toBe(false);
+    });
+
+    it('rejects requests without an app-id header before touching crypto', () => {
+        process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = SECRET;
+        const noApp = makeRequest();
+        delete noApp._headers['x-nova-system-app'];
+        expect(isTrustedSystemAppRequest(noApp)).toBe(false);
+    });
+
+    it('rejects requests with a malformed timestamp', () => {
+        process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = SECRET;
+        const badTime = makeRequest({ timestamp: 'not-a-epoch' });
+        expect(isTrustedSystemAppRequest(badTime)).toBe(false);
+        // 12 digits and 14 digits are both outside the exact-13-digit contract
+        expect(isTrustedSystemAppRequest(makeRequest({ timestamp: '123456789012' }))).toBe(false);
+        expect(isTrustedSystemAppRequest(makeRequest({ timestamp: '12345678901234' }))).toBe(false);
+    });
+
+    it('rejects requests with a missing or malformed signature header', () => {
+        process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = SECRET;
+        const noSig = makeRequest();
+        delete noSig._headers['x-nova-system-signature'];
+        expect(isTrustedSystemAppRequest(noSig)).toBe(false);
+
+        const badSig = makeRequest();
+        badSig._headers['x-nova-system-signature'] = 'zz'; // not 64 hex chars
+        expect(isTrustedSystemAppRequest(badSig)).toBe(false);
+    });
+
+    it('rejects requests whose timestamp header is missing entirely', () => {
+        process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = SECRET;
+        const noTime = makeRequest();
+        delete noTime._headers['x-nova-system-time'];
+        expect(isTrustedSystemAppRequest(noTime)).toBe(false);
+
+        // empty string is equally unusable
+        const emptyTime = makeRequest();
+        emptyTime._headers['x-nova-system-time'] = '';
+        expect(isTrustedSystemAppRequest(emptyTime)).toBe(false);
     });
 });

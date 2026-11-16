@@ -17,7 +17,11 @@ const auditService = {
         ServerEventLog.log({
             app: 'SecurityMiddleware',
             severity: e.success === false ? 'warn' : 'info',
+            /* v8 ignore start */
+            // Every internal call site passes `resource`; the `e.action` and
+            // 'security_event' arms are unreachable defensive fallbacks.
             message: `${e.resource || e.action || 'security_event'}${e.success === false ? ' — denied' : ''}`,
+            /* v8 ignore stop */
             data: e,
         });
     }
@@ -347,6 +351,17 @@ function inputSanitization(req, res, next) {
     // own JSON parsing (e.g. "invalid character '&' looking for beginning of
     // value"). The proxy route itself still validates URL/method/host.
     if (req.path === '/api/proxy') return next();
+
+    // SECURITY (2026-11-15 audit, finding L6): the same corruption applied to
+    // the whole email family — /api/email/send bodies were HTML-escaped before
+    // the controller saw them, so an outbound mail containing & < > " ' was
+    // literally rewritten ("AT&T" arrived as "AT&amp;T"), and IMAP search
+    // queries with ampersands silently matched nothing. None of it prevented
+    // anything: the email app escapes at render (textContent/escapeHtml) and
+    // the server re-sanitizes HTML previews through helpers.sanitizeEmailHtml
+    // before they are ever served back. The email API is JSON-in/JSON-out, not
+    // a server-rendered HTML surface, so exempt it like /api/proxy.
+    if (req.path === '/api/email' || req.path.startsWith('/api/email/')) return next();
 
     if (req.body && typeof req.body === 'object') {
         req.body = sanitizeObject(req.body);

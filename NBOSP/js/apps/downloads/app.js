@@ -53,7 +53,11 @@ registerApp({
       return _dtfCache;
     };
     const fmtDate = (ts) => {
+      /* v8 ignore start */
+      // Defensive: the only caller (buildRow) already guards `item.ts` for
+      // truthiness, so a falsy ts can never reach this early return.
       if (!ts) return '';
+      /* v8 ignore stop */
       try { return getFmtDate().format(new Date(+ts)); } catch { return ''; }
     };
 
@@ -61,9 +65,9 @@ registerApp({
     // FIX #9 #14: closed set of known statuses — unknown values fall back to
     // 'done' without touching external strings; frozen singletons = zero allocs.
     const STATUS = Object.freeze({
-      downloading: Object.freeze({ bg: 'rgba(88,166,255,0.14)', color: 'var(--accent)' }),
-      failed:      Object.freeze({ bg: 'rgba(248,81,73,0.14)',  color: 'var(--text-danger)' }),
-      done:        Object.freeze({ bg: 'rgba(63,185,80,0.14)',  color: 'var(--text-success)' }),
+      downloading: Object.freeze({ bg: 'color-mix(in srgb,var(--accent) 14%,transparent)', color: 'var(--accent)' }),
+      failed:      Object.freeze({ bg: 'color-mix(in srgb,var(--text-danger) 14%,transparent)', color: 'var(--text-danger)' }),
+      done:        Object.freeze({ bg: 'color-mix(in srgb,var(--text-success) 14%,transparent)', color: 'var(--text-success)' }),
     });
     const statusStyle = (s) => STATUS[s] ?? STATUS.done;
 

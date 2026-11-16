@@ -92,4 +92,57 @@ describe('server/security/admin-state.js — read/write cycle', () => {
     `], { cwd: process.cwd(), env: { ...process.env, NBOSP_DATA_DIR: dir2 }, encoding: 'utf8' });
     expect(JSON.parse(out.trim())).toEqual({ adminEnabled: false });
   });
+
+  it('reads a boolean adminEnabled from disk and coerces non-booleans (fresh in-worker instances)', () => {
+    const modulePath = require.resolve('../../server/security/admin-state.js');
+    const dataDirFor = (content) => {
+      const dir = tmp();
+      fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'data', 'admin-state.json'), content);
+      return dir;
+    };
+
+    const freshWith = (dir) => {
+      process.env.NBOSP_DATA_DIR = dir;
+      delete require.cache[modulePath];
+      return require(modulePath);
+    };
+
+    try {
+      // valid boolean on disk → cond-expr keeps the stored value
+      const booleanState = freshWith(dataDirFor(JSON.stringify({ adminEnabled: true })));
+      expect(booleanState.readState()).toEqual({ adminEnabled: true });
+
+      // non-boolean payload → falls back to the default (false)
+      const junkState = freshWith(dataDirFor(JSON.stringify({ adminEnabled: 'definitely' })));
+      expect(junkState.readState()).toEqual({ adminEnabled: false });
+    } finally {
+      delete require.cache[modulePath]; // restore the shared instance next require
+    }
+  });
+
+  it('logs and keeps the in-memory state when the atomic write fails', () => {
+    const modulePath = require.resolve('../../server/security/admin-state.js');
+    const dataDir2 = tmp();
+    process.env.NBOSP_DATA_DIR = dataDir2;
+    delete require.cache[modulePath];
+    const fresh = require(modulePath);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+      throw new Error('EACCES: read-only file system');
+    });
+    try {
+      expect(() => fresh.writeState({ adminEnabled: true })).not.toThrow();
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[AdminState] Atomic state write failed:',
+        'EACCES: read-only file system',
+      );
+      // the cache is still updated even though nothing hit the disk
+      expect(fresh.readState()).toEqual({ adminEnabled: true });
+    } finally {
+      writeSpy.mockRestore();
+      errorSpy.mockRestore();
+      delete require.cache[modulePath];
+    }
+  });
 });

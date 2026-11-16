@@ -87,6 +87,7 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     expect(layout.getAttribute('aria-label')).toBe('Keyboard layout');
     expect(layout.querySelectorAll('option').length).toBeGreaterThanOrEqual(2);
     expect(layout.value).toBe('us');
+    expect(layout.classList.contains('nvsetup-select')).toBe(true);
     const { next } = wizardButtons(content);
     expect(next.textContent).toBe('Start');
     expect(next.disabled).toBe(false);
@@ -248,7 +249,10 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     const dracula = themes.find(button => button.textContent === 'Dracula');
     dracula.click();
     expect(dracula.getAttribute('aria-pressed')).toBe('true');
-    expect(content.querySelector('style').textContent).toContain('.nvsetup-theme-options .nvsetup-row[aria-pressed="true"]');
+    expect(settingsWrites).toContainEqual(['theme', 'dracula']);
+    const setupStyles = content.querySelector('style').textContent;
+    expect(setupStyles).toContain('.nvsetup-theme-options .nvsetup-row[aria-pressed="true"]');
+    expect(setupStyles).toContain('.nvsetup-select option { background:var(--bg-base);color:var(--text-primary); }');
     next.click(); // Appearance -> All set
     await settle();
     expect(content.querySelector('.nvsetup-title').textContent).toBe('You\u2019re all set');

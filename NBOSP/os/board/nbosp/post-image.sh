@@ -23,6 +23,15 @@ cp "$BINARIES_DIR/rootfs.cpio.gz" "$ISO_ROOT/boot/initrd"
 cp "$SCRIPT_DIR/grub.cfg" "$ISO_ROOT/boot/grub/grub.cfg"
 gzip -1 -c "$BINARIES_DIR/rootfs.tar" > "$ISO_ROOT/nbosp/rootfs.tar.gz"
 stat --format='%s' "$BINARIES_DIR/rootfs.tar" > "$ISO_ROOT/nbosp/rootfs-size"
+# SECURITY (2026-11-15 audit, finding LOW-6): the installer previously had
+# no way to detect a modified/replaced payload — the whole ERASE ceremony
+# trusted the source bits blindly. Record digests for everything the
+# installer copies (paths as they sit on the media); nbosp-install-system
+# verifies them before touching the disk.
+(
+  cd "$ISO_ROOT"
+  sha256sum nbosp/rootfs.tar.gz nbosp/rootfs-size boot/vmlinuz boot/initrd
+) > "$ISO_ROOT/nbosp/SHA256SUMS"
 
 "$GRUB_MKRESCUE" -o "$BINARIES_DIR/nbosp-live.iso" "$ISO_ROOT"
 echo "Created $BINARIES_DIR/nbosp-live.iso"

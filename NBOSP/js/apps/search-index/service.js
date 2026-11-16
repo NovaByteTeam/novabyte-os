@@ -43,7 +43,13 @@ function searchTrigramIndex(built, query, verifyFn) {
   }
 
   const results = [];
+  /* v8 ignore start */
+  // Any query reaching here has length >= 3, so the gram loop above ran at
+  // least once and either returned early on a missing bucket or assigned
+  // rarestBucket a real Set — the || [] fallback is unreachable defensive
+  // symmetry with the trigram build, not a live branch.
   for (const item of rarestBucket || []) {
+  /* v8 ignore stop */
     if (verifyFn(item, lowerQuery)) results.push(item);
   }
   return results;

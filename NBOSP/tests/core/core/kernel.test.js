@@ -64,7 +64,7 @@ describe('OS kernel (js/core/core/kernel.js)', () => {
       const OS = loadKernel();
       expect(OS).toBeTypeOf('object');
       expect(OS.version).toBe('3.0.2');
-      expect(OS.securityPatch).toBe('2026-11-12');
+      expect(OS.securityPatch).toBe('2026-11-15');
       expect(typeof window.getPinSalt).toBe('function');
       expect(typeof OS.events.on).toBe('function');
       expect(typeof OS.events.off).toBe('function');
@@ -163,7 +163,7 @@ describe('OS kernel (js/core/core/kernel.js)', () => {
       expect(OS.settings.get('pinnedApps')).toEqual([{ id: 'a' }]);
     });
 
-    it('persists set() to the native Linux settings file and emits settings:changed', () => {
+    it.runIf(process.platform === 'linux')('persists set() to the native Linux settings file and emits settings:changed', () => {
       const OS = loadKernel();
       const changes = [];
       OS.events.on('settings:changed', (e) => changes.push(e));
@@ -215,7 +215,7 @@ describe('OS kernel (js/core/core/kernel.js)', () => {
       expect(OS.settings.get('fontSize')).toBe('14');
     });
 
-    it('load() hydrates the cache from the native Linux settings file', async () => {
+    it.runIf(process.platform === 'linux')('load() hydrates the cache from the native Linux settings file', async () => {
       nodeFs.mkdirSync(nodePath.dirname(nativeSettingsPath()), { recursive: true });
       nodeFs.writeFileSync(nativeSettingsPath(), JSON.stringify({ theme: 'restored-theme' }));
 
@@ -225,7 +225,7 @@ describe('OS kernel (js/core/core/kernel.js)', () => {
       expect(OS.settings.get('clockFormat')).toBe('12h'); // default still applies
     });
 
-    it('load() rethrows a corrupt (non-ENOENT) settings file failure instead of silently defaulting', async () => {
+    it.runIf(process.platform === 'linux')('load() rethrows a corrupt (non-ENOENT) settings file failure instead of silently defaulting', async () => {
       nodeFs.mkdirSync(nodePath.dirname(nativeSettingsPath()), { recursive: true });
       nodeFs.writeFileSync(nativeSettingsPath(), '{not json');
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -235,7 +235,7 @@ describe('OS kernel (js/core/core/kernel.js)', () => {
       expect(errSpy).toHaveBeenCalled();
     });
 
-    it('load() rejects a settings file whose JSON root is not an object', async () => {
+    it.runIf(process.platform === 'linux')('load() rejects a settings file whose JSON root is not an object', async () => {
       nodeFs.mkdirSync(nodePath.dirname(nativeSettingsPath()), { recursive: true });
       nodeFs.writeFileSync(nativeSettingsPath(), '[1,2,3]');
 

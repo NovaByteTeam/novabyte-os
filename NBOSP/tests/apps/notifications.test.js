@@ -1,5 +1,5 @@
 // tests/apps/notifications.test.js — service app: Notify (channels, pins, toasts, actions).
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { resetTestStorage } from '../setup.js';
 import { loadServiceApp, settle } from '../helpers/app-harness.js';
 import NovaRegistry from '../../js/platform/core/nova-registry.js';
@@ -326,6 +326,60 @@ describe('Notify service (js/apps/notifications)', () => {
     w2.Notify.loadPersisted();
     expect(os2.notifications).toEqual([]);
     expect(os2.notifUnread).toBe(0);
+  });
+
+  it('session:changed reloads the account feed and re-renders the panel (sign-in restore)', async () => {
+    // Regression for "notifications don't reappear after logging in": the
+    // per-user AppDirs remount seeds localStorage with the signed-in
+    // account's feed right before session:changed fires — the service must
+    // swap OS.notifications to it, fix the unread count and re-render the
+    // notification center so the restored feed is actually visible.
+    const events = {
+      handlers: {},
+      on(type, fn) { this.handlers[type] = fn; },
+      emit(type, payload) { this.handlers[type]?.(payload); },
+    };
+    const { window, document, os } = await load({ OS: { events } });
+    document.body.innerHTML = '<div id="notif-list"></div>';
+
+    // previous account's feed is still mounted; the remount just wrote the
+    // new account's feed into localStorage
+    os.notifications = [{ id: 'old', title: 'Previous account', read: true }];
+    os.notifUnread = 0;
+    window.localStorage.setItem('novaOS_notifications', JSON.stringify([
+      { id: 'n1', title: 'Timer Done', body: 'Your timer has finished.', read: false },
+      { id: 'n2', title: 'Alarm', read: true },
+    ]));
+
+    const renderSpy = vi.spyOn(window.Notify, 'renderPanel');
+    events.emit('session:changed', { uid: 'user-2', role: 'standard', via: 'login' });
+    await settle(50); // the handler defers one tick
+
+    expect(os.notifications).toHaveLength(2);
+    expect(os.notifications[0].id).toBe('n1');
+    expect(os.notifUnread).toBe(1);
+    expect(renderSpy).toHaveBeenCalled();
+    const rows = [...document.querySelectorAll('#notif-list .notif-item')];
+    expect(rows).toHaveLength(2);
+    expect(rows.some((r) => r.textContent.includes('Timer Done'))).toBe(true);
+  });
+
+  it('session:changed is ignored when the uid does not change (same account)', async () => {
+    const events = {
+      handlers: {},
+      on(type, fn) { this.handlers[type] = fn; },
+      emit(type, payload) { this.handlers[type]?.(payload); },
+    };
+    const { window, os } = await load({ OS: { events } });
+    os.notifications = [{ id: 'keep', title: 'Kept', read: false }];
+    window.localStorage.setItem('novaOS_notifications', JSON.stringify([{ id: 'other', read: false }]));
+    events.emit('session:changed', { uid: 'u1' });
+    await settle(50);
+    // first emit armed the uid; a repeat for the same uid must not re-swap
+    window.localStorage.setItem('novaOS_notifications', JSON.stringify([{ id: 'zzz', read: false }]));
+    events.emit('session:changed', { uid: 'u1' });
+    await settle(50);
+    expect(os.notifications[0].id).not.toBe('zzz');
   });
 
   it('removeAllAppState() wipes channels, overrides and queued actions of one app', async () => {

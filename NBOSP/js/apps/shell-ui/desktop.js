@@ -28,13 +28,15 @@ function getShellSystemSettingsSnapshot() {
 // FIX: themes object hoisted to module-level constant — was re-allocated on every applyTheme() call
 const THEMES = {
   'nova-dark': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#07090f',
     '--bg-base': '#07090f',
     '--bg-elevated': 'rgba(14, 18, 28, 0.80)',
     '--bg-overlay': 'rgba(20, 26, 40, 0.70)',
     '--bg-sunken': '#030508',
     '--text-primary': '#e6edf3',
     '--text-secondary': '#8b949e',
-    '--text-muted': '#484f58',
+    '--text-muted': '#9aa4b2',
     '--text-link': '#58a6ff',
     '--text-danger': '#f85149',
     '--text-success': '#3fb950',
@@ -65,18 +67,20 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'nova-light': {
+    '--color-scheme': 'light',
+    '--text-on-accent': '#ffffff',
     '--bg-base': '#ffffff',
     '--bg-elevated': '#f6f8fa',
     '--bg-overlay': '#ffffff',
     '--bg-sunken': '#eaeef2',
     '--text-primary': '#24292f',
     '--text-secondary': '#57606a',
-    '--text-muted': '#6e7781',
-    '--text-link': '#0969da',
-    '--text-danger': '#cf222e',
-    '--text-success': '#1a7f37',
-    '--text-warning': '#9a6700',
-    '--accent': '#0969da',
+    '--text-muted': '#626a73',
+    '--text-link': '#0966d3',
+    '--text-danger': '#cc222d',
+    '--text-success': '#197934',
+    '--text-warning': '#8f6000',
+    '--accent': '#0966d3',
     '--accent-hover': '#0550ae',
     '--accent-muted': 'rgba(9, 105, 218, 0.1)',
     '--window-bg': 'rgba(255, 255, 255, 0.82)',
@@ -102,18 +106,20 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'nord': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#2e3440',
     '--bg-base': '#2e3440',
     '--bg-elevated': '#3b4252',
     '--bg-overlay': '#434c5e',
     '--bg-sunken': '#242933',
     '--text-primary': '#eceff4',
     '--text-secondary': '#d8dee9',
-    '--text-muted': '#4c566a',
-    '--text-link': '#88c0d0',
-    '--text-danger': '#bf616a',
-    '--text-success': '#a3be8c',
+    '--text-muted': '#b9c0cc',
+    '--text-link': '#96c7d5',
+    '--text-danger': '#f0afb0',
+    '--text-success': '#afc79b',
     '--text-warning': '#ebcb8b',
-    '--accent': '#88c0d0',
+    '--accent': '#96c7d5',
     '--accent-hover': '#81a1c1',
     '--accent-muted': 'rgba(136, 192, 208, 0.15)',
     '--window-bg': 'rgba(46, 52, 64, 0.64)',
@@ -139,18 +145,20 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'dracula': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#282a36',
     '--bg-base': '#282a36',
     '--bg-elevated': '#44475a',
     '--bg-overlay': '#44475a',
     '--bg-sunken': '#21222c',
     '--text-primary': '#f8f8f2',
-    '--text-secondary': '#6272a4',
-    '--text-muted': '#484a66',
+    '--text-secondary': '#afb9df',
+    '--text-muted': '#b0b9dd',
     '--text-link': '#8be9fd',
-    '--text-danger': '#ff5555',
+    '--text-danger': '#ffa0a0',
     '--text-success': '#50fa7b',
     '--text-warning': '#f1fa8c',
-    '--accent': '#bd93f9',
+    '--accent': '#ccabfa',
     '--accent-hover': '#ff79c6',
     '--accent-muted': 'rgba(189, 147, 249, 0.15)',
     '--window-bg': 'rgba(40, 42, 54, 0.64)',
@@ -176,18 +184,20 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'catppuccin': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#1e1e2e',
     '--bg-base': '#1e1e2e',
     '--bg-elevated': '#313244',
     '--bg-overlay': '#45475a',
     '--bg-sunken': '#181825',
     '--text-primary': '#cdd6f4',
-    '--text-secondary': '#a6adc8',
-    '--text-muted': '#6c7086',
-    '--text-link': '#89b4fa',
-    '--text-danger': '#f38ba8',
+    '--text-secondary': '#b4b9d0',
+    '--text-muted': '#b4bacd',
+    '--text-link': '#95bcfb',
+    '--text-danger': '#f5a3ba',
     '--text-success': '#a6e3a1',
     '--text-warning': '#f9e2af',
-    '--accent': '#cba6f7',
+    '--accent': '#ceabf7',
     '--accent-hover': '#b4befe',
     '--accent-muted': 'rgba(203, 166, 247, 0.15)',
     '--window-bg': 'rgba(30, 30, 46, 0.64)',
@@ -213,18 +223,20 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'tokyo-night': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#1a1b26',
     '--bg-base': '#1a1b26',
     '--bg-elevated': '#24283b',
     '--bg-overlay': '#414868',
     '--bg-sunken': '#16161e',
     '--text-primary': '#c0caf5',
-    '--text-secondary': '#565f89',
-    '--text-muted': '#3b4261',
-    '--text-link': '#7aa2f7',
-    '--text-danger': '#f7768e',
+    '--text-secondary': '#b3bbda',
+    '--text-muted': '#b3bbd7',
+    '--text-link': '#9fbcf9',
+    '--text-danger': '#faa4b4',
     '--text-success': '#9ece6a',
-    '--text-warning': '#e0af68',
-    '--accent': '#7aa2f7',
+    '--text-warning': '#e2b572',
+    '--accent': '#9fbcf9',
     '--accent-hover': '#bb9af7',
     '--accent-muted': 'rgba(122, 162, 247, 0.15)',
     '--window-bg': 'rgba(22, 24, 38, 0.64)',
@@ -250,16 +262,18 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'gruvbox': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#282828',
     '--bg-base': '#282828',
     '--bg-elevated': '#3c3836',
     '--bg-overlay': '#504945',
     '--bg-sunken': '#1d2021',
     '--text-primary': '#ebdbb2',
     '--text-secondary': '#d5c4a1',
-    '--text-muted': '#665c54',
-    '--text-link': '#83a598',
-    '--text-danger': '#fb4934',
-    '--text-success': '#b8bb26',
+    '--text-muted': '#c8bca5',
+    '--text-link': '#abc2ba',
+    '--text-danger': '#ffa69c',
+    '--text-success': '#c1c341',
     '--text-warning': '#fabd2f',
     '--accent': '#fabd2f',
     '--accent-hover': '#fe8019',
@@ -287,15 +301,17 @@ const THEMES = {
     '--window-blur': 'blur(28px) saturate(160%)'
   },
   'high-contrast': {
+    '--color-scheme': 'dark',
+    '--text-on-accent': '#000000',
     '--bg-base': '#000000',
     '--bg-elevated': '#1a1a1a',
     '--bg-overlay': '#333333',
     '--bg-sunken': '#000000',
     '--text-primary': '#ffffff',
     '--text-secondary': '#cccccc',
-    '--text-muted': '#999999',
+    '--text-muted': '#9e9e9e',
     '--text-link': '#ffff00',
-    '--text-danger': '#ff0000',
+    '--text-danger': '#ff7070',
     '--text-success': '#00ff00',
     '--text-warning': '#ffff00',
     '--accent': '#ffff00',
@@ -312,13 +328,13 @@ const THEMES = {
     '--surface-border-subtle': '#cccccc',
     '--surface-rim': '#ffffff',
     '--surface-highlight': '#222222',
-    '--window-border': '3px solid #ffffff',
+    '--window-border': '#ffffff',
     '--window-shadow': '0 8px 32px rgba(255,255,255,0.2), 0 2px 8px rgba(255,255,255,0.1)',
     '--taskbar-bg': 'rgba(0, 0, 0, 0.95)',
-    '--taskbar-border': '2px solid #ffffff',
-    '--border-subtle': '2px solid #ffffff',
-    '--border-default': '3px solid #ffffff',
-    '--border-strong': '4px solid #ffffff',
+    '--taskbar-border': '#ffffff',
+    '--border-subtle': '#cccccc',
+    '--border-default': '#ffffff',
+    '--border-strong': '#ffffff',
     '--r-window': '0px',
     '--font-size': '16px',
     '--window-blur': 'none'
@@ -331,7 +347,29 @@ function applyTheme(theme) {
   for (const [k, v] of Object.entries(t)) {
     root.style.setProperty(k, v);
   }
+  const colorScheme = t['--color-scheme'] || 'dark';
+  root.style.colorScheme = colorScheme;
+  const colorSchemeMeta = document.querySelector('meta[name="color-scheme"]');
+  if (colorSchemeMeta) colorSchemeMeta.content = colorScheme;
   window.dispatchEvent(new CustomEvent('theme:changed', { detail: { theme } }));
+}
+
+function getAccentTextColor(accent) {
+  const hex = /^#[\da-f]{6}$/i.test(accent) ? accent.slice(1) : null;
+  if (!hex) return getComputedStyle(document.documentElement).getPropertyValue('--text-on-accent').trim();
+  const channels = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const luminance = channels
+    .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0);
+  return luminance > 0.179 ? '#000000' : '#ffffff';
+}
+
+function applyAccentColor(accent) {
+  const root = document.documentElement;
+  root.style.setProperty('--accent', accent);
+  root.style.setProperty('--accent-hover', accent + 'dd');
+  root.style.setProperty('--accent-muted', accent + '22');
+  root.style.setProperty('--text-on-accent', getAccentTextColor(accent));
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1647,6 +1685,12 @@ const AppDirs = {
     // Permissions — event-log read cutoff
     'nbosp_permissions_log_cutoff': { pkg: 'com.nbosp.permissions', subdir: 'shared_prefs', file: 'log-cutoff.json' },
 
+    // Notifications — the visible feed (js/apps/notifications/service.js
+    // keeps this LS copy in sync). Bugfix: the key was missing from this map,
+    // so the feed never flushed/remounted with the account and stayed
+    // machine-global — every user saw every other user's notifications.
+    'novaOS_notifications': { pkg: 'com.nbosp.service.notifications', subdir: 'databases', file: 'notifications.json' },
+
     // Settings — custom keyboard shortcuts moved into the NovaByte Registry
     // (HKNU/shell/shortcuts via RegistryPrefs); no localStorage key to mirror.
   },
@@ -1705,10 +1749,19 @@ const AppDirs = {
     for (const lsKey of Object.keys(this.LS_MAP)) {
       const raw = localStorage.getItem(lsKey);
       if (raw === null) continue;
+      // Order matters: drop the localStorage key FIRST, then write the
+      // per-user file. localStorage.removeItem is patched (see
+      // _installNativeBrowserStatePersistence) to unlink the backing file,
+      // so a write-then-remove order would delete the stratum we just
+      // flushed — the account's notifications (and every other LS_MAP
+      // stratum) were being destroyed at every logout/suspend/switch, so
+      // nothing could be restored on the next sign-in.
+      try {
+        localStorage.removeItem(lsKey);
+      } catch { /* silent */ }
       try {
         this._writeNativeStorageKey(lsKey, raw);
       } catch { /* silent */ }
-      localStorage.removeItem(lsKey);
     }
   },
 
@@ -1875,6 +1928,13 @@ function openFileWithApp(fileNode, appId, rememberDefault = false, requireHandle
   }
 
   const options = { fileId: fileNode.id };
+  // Bugfix: clicking a desktop file opened TextEdit EMPTY on Linux. There the
+  // FS node id IS the absolute path (fs.js nodeForPath), but Linux TextEdit
+  // only understands options.path / options.filePath — fileId alone left it
+  // untitled. Forward the id as a path too when it is an absolute path.
+  if (typeof fileNode.id === 'string' && fileNode.id.startsWith('/')) {
+    options.path = fileNode.id;
+  }
   if (canHandle) {
     options.fileIntent = {
       action: 'open',
@@ -2022,20 +2082,12 @@ OS.events.on('settings:changed', async ({ key }) => {
       case 'theme': {
         applyTheme(getShellSystemSetting('theme') || 'nova-dark');
         const accent = getShellSystemSetting('accentColor');
-        if (accent) {
-          document.documentElement.style.setProperty('--accent', accent);
-          document.documentElement.style.setProperty('--accent-hover', accent + 'dd');
-          document.documentElement.style.setProperty('--accent-muted', accent + '22');
-        }
+        if (accent) applyAccentColor(accent);
         break;
       }
       case 'accentColor': {
         const accent = getShellSystemSetting('accentColor');
-        if (accent) {
-          document.documentElement.style.setProperty('--accent', accent);
-          document.documentElement.style.setProperty('--accent-hover', accent + 'dd');
-          document.documentElement.style.setProperty('--accent-muted', accent + '22');
-        }
+        if (accent) applyAccentColor(accent);
         break;
       }
       case 'reduceMotion':

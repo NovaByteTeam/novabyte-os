@@ -11,9 +11,9 @@ function makeOS(devMode) {
 }
 
 // Loads the console app with the dev-mode gate open and a wm.js-style state.
-async function loadConsole({ devMode = true } = {}) {
+async function loadConsole({ devMode = true, systemDialogs = { saveContent: vi.fn(async () => null) } } = {}) {
   const loaded = await loadWindowApp('devconsole', {
-    stubs: { extra: { OS: makeOS(devMode), Notify: { show: vi.fn() } } },
+    stubs: { extra: { OS: makeOS(devMode), Notify: { show: vi.fn() }, SystemDialogs: systemDialogs } },
   });
   const { app, window } = loaded;
   const state = { cleanups: [] };
@@ -121,6 +121,26 @@ describe('Console app (js/apps/devconsole)', () => {
     expect(output.textContent).toContain('[Function: namedFn]');
     await runCommand(window, content, 'document.createElement("span")');
     expect(output.textContent).toContain('[SPAN]');
+  });
+
+  it('exports session output through SystemDialogs and reports the saved path', async () => {
+    const systemDialogs = { saveContent: vi.fn(async () => ({ path: 'C:\\exports\\console.txt' })) };
+    const { content, window } = await loadConsole({ systemDialogs });
+    const Notify = window.Notify;
+    await runCommand(window, content, '6 * 7');
+
+    [...content.querySelectorAll('button')].find(button => button.textContent === 'Export').click();
+    await settle();
+
+    expect(systemDialogs.saveContent).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Export Console Output', accept: '.txt' }),
+      expect.stringContaining('42')
+    );
+    expect(Notify.show).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Console output exported',
+      body: 'Saved to C:\\exports\\console.txt',
+      type: 'success',
+    }));
   });
 
   it('autocompletes dotted paths: suggests, accepts with Enter, hides with Escape', async () => {

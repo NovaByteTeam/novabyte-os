@@ -30,7 +30,11 @@ function winState(over = {}) {
   return { id: 'w1', appId: 'com.nbosp.clock', x: 10, y: 20, width: 800, height: 600, minimized: false, maximized: false, content: {}, ...over };
 }
 
-async function loadInspector({ windows = new Map(), focusedWindowId = null } = {}) {
+async function loadInspector({
+  windows = new Map(),
+  focusedWindowId = null,
+  systemDialogs = { saveContent: vi.fn(async () => null) },
+} = {}) {
   const loaded = await loadWindowApp('inspector', {
     stubs: {
       extra: {
@@ -38,6 +42,7 @@ async function loadInspector({ windows = new Map(), focusedWindowId = null } = {
         APP_REGISTRY: REGISTRY,
         WM: { focusWindow: vi.fn(), closeWindow: vi.fn(), createWindow: vi.fn() },
         Notify: { show: vi.fn() },
+        SystemDialogs: systemDialogs,
         // Inspector installs a 2s polling fallback; stub it out in tests.
         setInterval: () => 0,
       },
@@ -174,12 +179,10 @@ describe('Inspector app (js/apps/inspector)', () => {
     expect(content.innerHTML).toBe(htmlBefore);
   });
 
-  it('exports the filtered snapshot as JSON through a blob download', async () => {
+  it('exports the filtered snapshot as JSON through SystemDialogs', async () => {
     const windows = new Map([['w1', winState()]]);
-    const { content, window } = await loadInspector({ windows, focusedWindowId: 'w1' });
-    const created = [];
-    window.URL.createObjectURL = (blob) => { created.push(blob); return 'blob:test'; };
-    window.URL.revokeObjectURL = () => {};
+    const systemDialogs = { saveContent: vi.fn(async () => ({ path: 'C:\\exports\\inspector.json' })) };
+    const { content, window } = await loadInspector({ windows, focusedWindowId: 'w1', systemDialogs });
 
     const filter = content.querySelector('input');
     filter.value = 'clock';
@@ -188,8 +191,11 @@ describe('Inspector app (js/apps/inspector)', () => {
     exportBtn.click();
     await settle();
 
-    expect(created).toHaveLength(1);
-    const payload = JSON.parse(await created[0].text());
+    expect(systemDialogs.saveContent).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Export', accept: '.json' }),
+      expect.any(String)
+    );
+    const payload = JSON.parse(systemDialogs.saveContent.mock.calls[0][1]);
     expect(payload.filter).toBe('clock');
     expect(payload.apps.map((a) => a.id)).toEqual(['com.nbosp.clock']);
     expect(payload.apps[0]).toMatchObject({ name: 'Clock', verified: true, launchCount: 4 });

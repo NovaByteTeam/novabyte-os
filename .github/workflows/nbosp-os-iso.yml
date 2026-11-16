@@ -2,6 +2,15 @@ name: Build NBOSP OS ISO
 
 on:
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Release — production NW.js flavor (normal), dev chromium-args/dev_tools stripped. Development — NW.js SDK flavor, dev flags kept (remote debugging port, devtools, --disable-web-security)."
+        required: true
+        default: "release"
+        type: choice
+        options:
+          - release
+          - development
 
 permissions:
   contents: write
@@ -73,6 +82,10 @@ jobs:
 
       - name: Build Linux NW.js app
         working-directory: NBOSP
+        env:
+          # Release/Development dropdown — build.mjs derives both the NW.js
+          # flavor and the dev chromium-args stripping from this one switch.
+          NBOSP_BUILD_TYPE: ${{ inputs.build_type }}
         run: node build.mjs linux
 
       - name: Verify Linux NW.js runtime libraries

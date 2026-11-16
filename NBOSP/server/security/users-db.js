@@ -847,9 +847,11 @@ function touchLogin(uid) {
 // so actual session-row destruction is injected by the auth routes via
 // setSessionRevoker(). users.db only owns the sid ↔ uid map.
 let sessionRevoker = null;
+let closeSessionRevoker = null;
 
-function setSessionRevoker(fn) {
+function setSessionRevoker(fn, close) {
     if (typeof fn === 'function') sessionRevoker = fn;
+    if (typeof close === 'function') closeSessionRevoker = close;
 }
 
 function registerSessionSid(sid, uid) {
@@ -1035,6 +1037,11 @@ function resetOwnerCredentialRecovery() {
 }
 
 function close() {
+    if (closeSessionRevoker) {
+        try { closeSessionRevoker(); } catch (_) { /* already closed */ }
+        closeSessionRevoker = null;
+        sessionRevoker = null;
+    }
     if (!db) return;
     try { db.close(); } catch (_) { }
     db = null;

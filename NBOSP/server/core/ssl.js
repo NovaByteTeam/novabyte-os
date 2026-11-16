@@ -100,10 +100,16 @@ function configureSSL(app) {
   // else (bad certs, protocol junk, truncated handshakes) still gets Node's
   // default destroy-without-response.
   server.on('tlsClientError', (err, tlsSocket) => {
-    if (!isPlainHttpRequestToTlsPort(err)) return;
+    if (!isPlainHttpRequestToTlsPort(err)) {
+      return;
+    }
     const raw = tlsSocket && tlsSocket._parent;
     if (!respondPlainHttpOverRawSocket(raw)) {
-      try { if (tlsSocket && typeof tlsSocket.destroy === 'function') tlsSocket.destroy(); } catch (_) {}
+      try {
+        if (tlsSocket && typeof tlsSocket.destroy === 'function') {
+          tlsSocket.destroy();
+        }
+      } catch (_) {}
     }
   });
 

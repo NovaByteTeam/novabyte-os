@@ -61,7 +61,7 @@ describe('scripts/logger.js — createLogStream', () => {
 });
 
 describe('scripts/logger.js — createConout', () => {
-  it('returns null on non-Windows platforms', () => {
+  it.runIf(process.platform !== 'win32')('returns null on non-Windows platforms', () => {
     expect(process.platform).not.toBe('win32');
     expect(createConout()).toBeNull();
   });
@@ -96,6 +96,21 @@ describe('scripts/logger.js — createConout', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     try {
       expect(createConout()).toBeNull();
+    } finally {
+      Object.defineProperty(process, 'platform', origDescriptor);
+    }
+  });
+
+  it('returns null when opening CONOUT$ throws synchronously', () => {
+    const origDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    process.env.NW_SHOW_CONSOLE = 'true';
+    const boom = vi.spyOn(fs, 'createWriteStream').mockImplementation(() => {
+      throw new Error('CONOUT$ unavailable');
+    });
+    try {
+      expect(createConout()).toBeNull();
+      expect(boom).toHaveBeenCalledWith('\\\\.\\CONOUT$', { flags: 'a' });
     } finally {
       Object.defineProperty(process, 'platform', origDescriptor);
     }
@@ -157,5 +172,41 @@ describe('scripts/logger.js — makeTee', () => {
     expect(() => tee('safe\n')).not.toThrow();
     expect(logStream.write).not.toHaveBeenCalled();
     expect(stdout).toHaveBeenCalledWith('safe\n');
+  });
+
+  it('disables the conout permanently when its write() throws', () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const throwingConout = {
+      writable: true,
+      on: vi.fn(),
+      write() { throw new Error('EPIPE'); },
+    };
+    const tee = makeTee(null, throwingConout);
+    expect(() => tee('first\n')).not.toThrow(); // caught → live = null
+    expect(stdout).not.toHaveBeenCalled();      // first call still took the conout path
+    tee('second\n');                             // live is null now → stdout fallback
+    expect(stdout).toHaveBeenCalledWith('second\n');
+    expect(() => tee('third\n')).not.toThrow();
+  });
+
+  it('skips the console fallback entirely when stdout is not writable', () => {
+    const origStdout = Object.getOwnPropertyDescriptor(process, 'stdout');
+    const origStderr = Object.getOwnPropertyDescriptor(process, 'stderr');
+    Object.defineProperty(process, 'stdout', {
+      value: { writable: false, write: vi.fn() }, configurable: true,
+    });
+    Object.defineProperty(process, 'stderr', {
+      value: { writable: false, write: vi.fn() }, configurable: true,
+    });
+    try {
+      const tee = makeTee(null, null);
+      expect(() => tee('muted\n')).not.toThrow();
+      expect(() => tee('muted\n', true)).not.toThrow();
+      expect(process.stdout.write).not.toHaveBeenCalled();
+      expect(process.stderr.write).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, 'stdout', origStdout);
+      Object.defineProperty(process, 'stderr', origStderr);
+    }
   });
 });

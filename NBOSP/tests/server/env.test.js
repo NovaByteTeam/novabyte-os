@@ -165,4 +165,57 @@ describe('server/core/env.js — validateEnvironment', () => {
     expect(result.threw).toBe(true);
     expect(result.error.message).toContain('RATE_LIMIT_WINDOW_MS');
   });
+
+  it('throws when a numeric variable is missing entirely (undefined)', () => {
+    const result = runValidation({
+      NBOSP_CRED_KEY: 'a'.repeat(64),
+      SESSION_SECRET: 'b'.repeat(64),
+      // PORT deliberately absent → "PORT is missing" + continue
+      RATE_LIMIT_WINDOW_MS: '900000',
+      RATE_LIMIT_MAX_REQUESTS: '100',
+      CORS_ORIGIN: 'https://localhost:3003',
+    });
+    expect(result.threw).toBe(true);
+    expect(result.error.message).toContain('PORT is missing');
+    // the missing var short-circuits before the range check
+    expect(result.error.message).not.toContain('must be an integer between');
+  });
+
+  it('passes without CORS_ORIGIN configured at all', () => {
+    const result = runValidation({
+      NBOSP_CRED_KEY: 'a'.repeat(64),
+      SESSION_SECRET: 'b'.repeat(64),
+      PORT: '3003',
+      RATE_LIMIT_WINDOW_MS: '900000',
+      RATE_LIMIT_MAX_REQUESTS: '100',
+      // no CORS_ORIGIN key → the whole origins block is skipped
+    });
+    expect(result.threw).toBe(false);
+  });
+
+  it('trims and filters a multi-origin CORS list before validating', () => {
+    const result = runValidation({
+      NBOSP_CRED_KEY: 'a'.repeat(64),
+      SESSION_SECRET: 'b'.repeat(64),
+      PORT: '3003',
+      RATE_LIMIT_WINDOW_MS: '900000',
+      RATE_LIMIT_MAX_REQUESTS: '100',
+      CORS_ORIGIN: 'https://a.example ,  http://localhost:8080 ,,, https://b.example',
+    });
+    expect(result.threw).toBe(false);
+  });
+
+  it('reports every invalid origin in a multi-origin list', () => {
+    const result = runValidation({
+      NBOSP_CRED_KEY: 'a'.repeat(64),
+      SESSION_SECRET: 'b'.repeat(64),
+      PORT: '3003',
+      RATE_LIMIT_WINDOW_MS: '900000',
+      RATE_LIMIT_MAX_REQUESTS: '100',
+      CORS_ORIGIN: 'ftp://old.example, https://good.example',
+    });
+    expect(result.threw).toBe(true);
+    expect(result.error.message).toContain('ftp://old.example');
+    expect(result.error.message).not.toContain('https://good.example');
+  });
 });

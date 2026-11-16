@@ -35,33 +35,34 @@ const WALLPAPER_PRESETS = Object.freeze({
   },
 });
 
+function styleFor(wallpaperId, customWallpaper) {
+  const preset = WALLPAPER_PRESETS[wallpaperId] || WALLPAPER_PRESETS['stock-blue'];
+  return {
+    backgroundImage: customWallpaper ? `url(${JSON.stringify(String(customWallpaper))})` : preset.gradient,
+    backgroundSize: customWallpaper ? 'cover' : '',
+    backgroundPosition: customWallpaper ? 'center' : '',
+    backgroundRepeat: customWallpaper ? 'no-repeat' : '',
+  };
+}
+
 function applyWallpaper(settings) {
   if (typeof settings !== 'function') {
     throw new TypeError('Wallpaper settings reader must be a function');
   }
 
-  const customWallpaper = settings('customWallpaper');
-  const wallpaperId = settings('wallpaperId');
   const wallpaper = document.getElementById('wallpaper');
   const desktop = document.getElementById('desktop');
   const targets = [wallpaper, desktop].filter(Boolean);
   if (targets.length === 0) return false;
 
-  const preset = WALLPAPER_PRESETS[wallpaperId] || WALLPAPER_PRESETS['stock-blue'];
-  for (const target of targets) {
-    const style = target.style;
-    style.backgroundImage = customWallpaper
-      ? `url(${JSON.stringify(String(customWallpaper))})`
-      : preset.gradient;
-    style.backgroundSize = customWallpaper ? 'cover' : '';
-    style.backgroundPosition = customWallpaper ? 'center' : '';
-    style.backgroundRepeat = customWallpaper ? 'no-repeat' : '';
-  }
+  const look = styleFor(settings('wallpaperId'), settings('customWallpaper'));
+  for (const target of targets) Object.assign(target.style, look);
   return true;
 }
 
 window.WallpaperService = Object.freeze({
   apply: applyWallpaper,
+  styleFor,
   getPresets: () => Object.entries(WALLPAPER_PRESETS).map(([id, preset]) => ({
     id,
     name: preset.name,

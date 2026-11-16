@@ -18,6 +18,14 @@
         },
         (error, stdout, stderr) => {
           if (error) {
+            // 2026-11-15: an ENOENT on the binary itself means the
+            // management tool simply isn't installed — surface a clean,
+            // human-readable message instead of Node's raw
+            // "Command failed: /usr/bin/bluetoothctl show" string.
+            if (error.code === 'ENOENT') {
+              reject(new Error(`${command} is not available on this system.`));
+              return;
+            }
             const detail = String(stderr || stdout || error.message).trim();
             reject(new Error(detail || `${command} failed`));
             return;
@@ -26,6 +34,27 @@
         }
       );
     });
+  }
+
+  // 2026-11-15: pre-flight the bluetoothctl binary. Machines without it
+  // (or runtimes where the path simply doesn't exist) used to surface the
+  // raw exec error in the Settings Internet section. Probe once, cache,
+  // and let getStatus()/actions report a clean "unavailable" state.
+  const toolAvailability = new Map();
+  function toolAvailable(command) {
+    if (toolAvailability.has(command)) return toolAvailability.get(command);
+    let available = false;
+    try {
+      available = Boolean(require('fs').existsSync(command));
+    } catch (_) { available = false; }
+    toolAvailability.set(command, available);
+    return available;
+  }
+
+  function requireBluetoothTool() {
+    if (!toolAvailable(COMMANDS.bluetoothctl)) {
+      throw new Error('Bluetooth management is not available on this system.');
+    }
   }
 
   function splitNmcliFields(line) {
@@ -96,11 +125,19 @@
     if (!isLinux()) {
       return { supported: false, reason: 'Connectivity controls are available in NBOSP Linux.' };
     }
+    // 2026-11-15: when bluetoothctl is missing, do not even spawn it — a
+    // clean "unavailable" state (bluetoothEnabled: null, no bluetoothError)
+    // renders as the existing "Bluetooth unavailable" toggle instead of an
+    // error-styled command failure line.
+    const bluetoothReady = toolAvailable(COMMANDS.bluetoothctl);
+    const bluetoothProbe = bluetoothReady
+      ? run(COMMANDS.bluetoothctl, ['show'])
+      : Promise.reject(new Error('Bluetooth management is not available on this system.'));
     const [general, networking, wifiRadio, bluetoothOutput] = await Promise.allSettled([
       run(COMMANDS.nmcli, ['-t', '-f', 'STATE,CONNECTIVITY', 'general']),
       run(COMMANDS.nmcli, ['-t', '-f', 'NETWORKING', 'general']),
       run(COMMANDS.nmcli, ['radio', 'wifi']),
-      run(COMMANDS.bluetoothctl, ['show']),
+      bluetoothProbe,
     ]);
 
     const network = general.status === 'fulfilled'
@@ -122,8 +159,9 @@
         : null,
       wifiEnabled,
       bluetoothEnabled: bluetoothMatch ? bluetoothMatch[1].toLowerCase() === 'yes' : null,
+      bluetoothAvailable: bluetoothReady,
       wifiError: wifiRadio.status === 'rejected' ? wifiRadio.reason.message : null,
-      bluetoothError: bluetoothOutput.status === 'rejected' ? bluetoothOutput.reason.message : null,
+      bluetoothError: (bluetoothReady && bluetoothOutput.status === 'rejected') ? bluetoothOutput.reason.message : null,
     };
   }
 
@@ -170,10 +208,12 @@
 
   async function setBluetoothEnabled(enabled) {
     if (typeof enabled !== 'boolean') throw new TypeError('Bluetooth state must be a boolean');
+    requireBluetoothTool();
     return run(COMMANDS.bluetoothctl, ['power', enabled ? 'on' : 'off']);
   }
 
   async function scanBluetooth() {
+    requireBluetoothTool();
     await run(COMMANDS.bluetoothctl, ['--timeout', '12', 'scan', 'on'], { timeout: 20000 });
     const [allOutput, pairedOutput, connectedOutput] = await Promise.all([
       run(COMMANDS.bluetoothctl, ['devices']),
@@ -190,6 +230,7 @@
   }
 
   async function pairBluetooth(address) {
+    requireBluetoothTool();
     const deviceAddress = validateBluetoothAddress(address);
     if (!deviceAddress) throw new TypeError('Invalid Bluetooth device address');
     return run(COMMANDS.bluetoothctl, [
@@ -198,18 +239,21 @@
   }
 
   async function connectBluetooth(address) {
+    requireBluetoothTool();
     const deviceAddress = validateBluetoothAddress(address);
     if (!deviceAddress) throw new TypeError('Invalid Bluetooth device address');
     return run(COMMANDS.bluetoothctl, ['connect', deviceAddress], { timeout: 30000 });
   }
 
   async function disconnectBluetooth(address) {
+    requireBluetoothTool();
     const deviceAddress = validateBluetoothAddress(address);
     if (!deviceAddress) throw new TypeError('Invalid Bluetooth device address');
     return run(COMMANDS.bluetoothctl, ['disconnect', deviceAddress]);
   }
 
   async function forgetBluetooth(address) {
+    requireBluetoothTool();
     const deviceAddress = validateBluetoothAddress(address);
     if (!deviceAddress) throw new TypeError('Invalid Bluetooth device address');
     return run(COMMANDS.bluetoothctl, ['remove', deviceAddress]);

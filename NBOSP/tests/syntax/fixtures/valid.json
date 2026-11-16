@@ -1,0 +1,5 @@
+{
+  "fixture": "deliberately valid JSON",
+  "ok": true,
+  "nested": { "list": [1, 2, 3] }
+}

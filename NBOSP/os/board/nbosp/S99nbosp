@@ -98,6 +98,17 @@ if [ "@STRACE@" = 1 ] && [ -x /usr/bin/strace ]; then
 fi
 exec /usr/bin/Xwayland "$@" -verbose 10 >> "$LOG" 2>&1
 XWRAP
+  # SECURITY (2026-11-15 audit, finding LOW-11): NBOSP_GL_STRACE comes from
+  # the kernel cmdline with no validation; the sed below substituted it raw
+  # into a root-written, world-executable wrapper the kiosk user then runs.
+  # Whitespace to anything but 0/1 here (contrast the keyboard_layout
+  # allowlist further down) — an attacker who can set the boot cmdline
+  # already has console access, but this path must not become a free
+  # code-execution primitive on top of it.
+  case "$NBOSP_GL_STRACE" in
+    1) ;;
+    *) NBOSP_GL_STRACE=0 ;;
+  esac
   sed -i "s/@STRACE@/${NBOSP_GL_STRACE:-0}/" /run/nbosp-debug-bin/Xwayland
   chmod 0755 /run/nbosp-debug-bin/Xwayland
   rm -f /var/log/nbosp/xwayland-debug.log /var/log/nbosp/xwayland-ld.* /var/log/nbosp/xwayland.strace

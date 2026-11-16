@@ -775,7 +775,26 @@ const WM = window.WM = (() => {
           'input:not([type=hidden]):not([disabled]), textarea:not([disabled]), [contenteditable="true"]'
         );
         if (focusable) {
-          requestAnimationFrame(() => focusable.focus());
+          requestAnimationFrame(() => {
+            // Chromium matches :focus-visible for text inputs even on
+            // script focus, so without this mark every fresh window whose
+            // first focusable is a text input showed the 2px accent
+            // outline with zero user interaction. data-wm-autofocus
+            // suppresses that ring (NBOSP/style.css), and the one-shot
+            // capture listeners below clear the mark on the first REAL
+            // keydown/pointerdown inside the window so genuine keyboard
+            // navigation gets its outlines back.
+            const contentRoot = win.querySelector('.window-content') || win;
+            const clearAutoFocusMark = () => {
+              focusable.removeAttribute('data-wm-autofocus');
+              contentRoot.removeEventListener('keydown', clearAutoFocusMark, true);
+              contentRoot.removeEventListener('pointerdown', clearAutoFocusMark, true);
+            };
+            contentRoot.addEventListener('keydown', clearAutoFocusMark, { capture: true });
+            contentRoot.addEventListener('pointerdown', clearAutoFocusMark, { capture: true });
+            focusable.setAttribute('data-wm-autofocus', '1');
+            focusable.focus();
+          });
         } else {
           const contentEl = win.querySelector('.window-content');
           if (contentEl) { contentEl.tabIndex = -1; contentEl.focus({ preventScroll: true }); }

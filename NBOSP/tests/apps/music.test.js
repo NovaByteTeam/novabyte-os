@@ -135,7 +135,7 @@ describe("'Music' app (js/apps/music)", () => {
     expect(audio.src).toMatch(/^blob:mock\//); // src untouched — no re-load
   });
 
-  it('selects and autoplays a file opened from Files even outside the Music library', async () => {
+  it('autoplays a file opened from Files even outside the Music library', async () => {
     const openedFile = { id: 'opened-track', name: 'voice.aac', mimeType: 'audio/aac', content: 'opened-audio-bytes' };
     const { content, play } = await loadMusic({
       media: TRACKS,
@@ -149,6 +149,81 @@ describe("'Music' app (js/apps/music)", () => {
     expect(row.dataset.current).toBe('true');
     expect(audio.src).toMatch(/^blob:mock\//);
     expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('autoplays the opened file when it arrives via the WM options argument', async () => {
+    // Regression: WM.createWindow hands launch options to init() as its third
+    // argument — the app used to read only state.fileId, so files opened from
+    // Files/desktop never reached the player.
+    const openedFile = { id: 'opened-track', name: 'voice.aac', mimeType: 'audio/aac', content: 'opened-audio-bytes' };
+    const fsFiles = new Map([...TRACKS, openedFile].map((t) => [t.id, { ...t, type: 'file' }]));
+    const loaded = await loadWindowApp('music', {
+      stubs: {
+        extra: {
+          FS: { files: fsFiles },
+          NovaByteMediaStore: makeMediaStore(TRACKS),
+          Notify: makeNotify(),
+        },
+      },
+    });
+    const play = patchBrowserMedia(loaded.window);
+    const content = loaded.document.createElement('div');
+    loaded.app.init(content, { cleanups: [] }, { fileId: openedFile.id });
+    await settle(10);
+
+    const audio = content.querySelector('audio');
+    const row = content.querySelector('[data-track-id="opened-track"]');
+    expect(row).toBeTruthy();
+    expect(row.dataset.current).toBe('true');
+    expect(audio.src).toMatch(/^blob:mock\//);
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops at the end of the queue when the last track ends (repeat off)', async () => {
+    // Regression: 'ended' used to call playIdx(queueIdx + 1), whose modulo
+    // wrap restarted the queue from track 0 forever even with repeat OFF.
+    const { content, window, play } = await loadMusic({ media: TRACKS });
+    const audio = content.querySelector('audio');
+
+    content.querySelector('[data-track-id="m1"]').click();
+    await settle(10);
+
+    // Mid-queue, 'ended' still advances sequentially.
+    audio.dispatchEvent(new window.Event('ended'));
+    await settle(10);
+    expect(content.querySelector('[data-track-id="m2"]').dataset.current).toBe('true');
+    expect(play).toHaveBeenCalledTimes(2);
+
+    // At the end of the queue playback stops: no wrap back to track 0.
+    const srcAtEnd = audio.src;
+    audio.dispatchEvent(new window.Event('ended'));
+    await settle(10);
+    expect(audio.src).toBe(srcAtEnd); // m2's blob, not reloaded/restarted
+    expect(play).toHaveBeenCalledTimes(2); // stopAtEnd pauses, never replays
+    expect(content.querySelector('[data-track-id="m1"]').dataset.current).toBe('false');
+    expect(content.querySelector('[data-track-id="m2"]').dataset.current).toBe('true');
+    // Player chrome settles on "paused at 0:00".
+    const playBtn = [...content.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Play');
+    expect(playBtn).toBeTruthy();
+    expect(audio.currentTime).toBe(0);
+  });
+
+  it('loops the current track when repeat is on', async () => {
+    const { content, window, play } = await loadMusic({ media: TRACKS });
+    const audio = content.querySelector('audio');
+    const repeatBtn = [...content.querySelectorAll('button')].find((b) => b.title === 'Repeat');
+    repeatBtn.click();
+
+    content.querySelector('[data-track-id="m1"]').click();
+    await settle(10);
+    const callsBefore = play.mock.calls.length;
+
+    audio.dispatchEvent(new window.Event('ended'));
+    await settle(10);
+    // Repeat replays the SAME track: no src swap, one more play() call.
+    expect(play.mock.calls.length).toBe(callsBefore + 1);
+    expect(content.querySelector('[data-track-id="m1"]').dataset.current).toBe('true');
+    expect(content.querySelector('[data-track-id="m2"]').dataset.current).toBe('false');
   });
 
   it('notifies via Notify when the MediaStore service is unavailable', async () => {
@@ -171,13 +246,13 @@ describe("'Music' app (js/apps/music)", () => {
 
     shuffleBtn.click();
     expect(shuffleBtn.getAttribute('aria-pressed')).toBe('true');
-    expect(shuffleBtn.style.color).toBe('rgb(74, 222, 128)');
+    expect(shuffleBtn.style.color).toBe('var(--text-success)');
     let prefs = JSON.parse(window.localStorage.getItem(PREFS_KEY));
     expect(prefs.shuffle).toBe(true);
 
     repeatBtn.click();
     expect(repeatBtn.getAttribute('aria-pressed')).toBe('true');
-    expect(repeatBtn.style.color).toBe('rgb(74, 222, 128)');
+    expect(repeatBtn.style.color).toBe('var(--text-success)');
     prefs = JSON.parse(window.localStorage.getItem(PREFS_KEY));
     expect(prefs.repeat).toBe(true);
 

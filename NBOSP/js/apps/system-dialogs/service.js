@@ -3,7 +3,11 @@
  * ─────────────────────────────────────────────────────────────────────────
  * Filesystem picker dialog. Browses the host disk via Node's fs
  * module — no GTK or native OS picker. Rendered entirely in the
- * NovaByte shell window.
+ * NovaByte shell window. Windows-Explorer-style layout: a quick-access
+ * sidebar, a breadcrumb address bar that toggles into an editable path
+ * field, and in-dialog "New folder" / "New file" creation. The folder
+ * the user last visited is remembered per account via the HKNU
+ * (per-user) registry hive.
  *
  * Usage:
  *   // Open a file — resolves to null if cancelled, otherwise:
@@ -51,6 +55,36 @@ const SystemDialogs = (() => {
       console.warn('[SystemDialogs] Could not resolve the mounted account root:', error);
     }
     return DEFAULT_START;
+  }
+
+  // ── Per-user "last directory" memory ──────────────────────────────────
+  // HKNU is the per-user registry hive (mounted per login by the session
+  // manager), so a value written there is inherently per-user. Every call
+  // is guarded: without a registry engine (stripped-down host contexts,
+  // tests) the feature degrades silently.
+  const LAST_DIR_KEY = 'HKNU/shell/sysdialog/lastDir';
+
+  function persistLastDir(dirPath) {
+    try {
+      const reg = (typeof window !== 'undefined') ? window.NovaRegistry : null;
+      if (reg && typeof reg.set === 'function' && typeof dirPath === 'string' && dirPath) {
+        reg.set(LAST_DIR_KEY, dirPath, { source: 'sysdialog' });
+      }
+    } catch (_) { /* fail silent — memory is a nicety, never a blocker */ }
+  }
+
+  function readLastDir() {
+    try {
+      const reg = (typeof window !== 'undefined') ? window.NovaRegistry : null;
+      if (!reg || typeof reg.get !== 'function') return null;
+      const value = reg.get(LAST_DIR_KEY);
+      if (typeof value !== 'string' || !value.trim()) return null;
+      // Validate the remembered folder still exists and is a directory —
+      // removable media / deleted homes must never trap the dialog.
+      const stat = fs.statSync(value);
+      if (!stat.isDirectory()) return null;
+      return value;
+    } catch (_) { return null; }
   }
 
   // ── Mime guessing (enough for common types) ────────────────────────────
@@ -131,6 +165,26 @@ const SystemDialogs = (() => {
     };
   }
 
+  // The extension a "New file" should carry: the single extension implied by
+  // the active accept list (".json" or ".txt,.text/plain" style lists where
+  // every rule is the SAME extension), else the suggested name's extension,
+  // else ".txt" — the Windows default.
+  function impliedExtension(opts) {
+    try {
+      const rules = String(opts.accept || '').split(',').map(r => r.trim().toLowerCase())
+        .filter(r => /^\.[\w+-]+$/.test(r) || /^[\w.+-]+\/(\*|[\w.+-]+)$/.test(r));
+      const exts = rules.filter(r => r.startsWith('.'));
+      if (exts.length && exts.length === rules.length) {
+        const unique = [...new Set(exts)];
+        if (unique.length === 1) return unique[0];
+      }
+    } catch (_) { /* fall through to the defaults below */ }
+    const suggested = typeof opts.suggestedName === 'string' ? opts.suggestedName.trim() : '';
+    const match = suggested.match(/\.[\w+-]+$/);
+    if (match) return match[0].toLowerCase();
+    return '.txt';
+  }
+
   // ── Icon SVGs (minimal, inline) ────────────────────────────────────────
   function folderIcon() {
     return `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L10.414 6.5A1 1 0 0 0 11.121 6.793H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>`;
@@ -138,11 +192,34 @@ const SystemDialogs = (() => {
   function fileIcon() {
     return `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
   }
+  function sideIcon(name, size = 16) {
+    if (typeof svgIcon === 'function') return svgIcon(name, size);
+    if (name === 'folder') return folderIcon().replaceAll('28', String(size));
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 15h.01M12 15h.01"/></svg>`;
+  }
   function chevronLeft() {
     return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
   }
   function chevronUp() {
     return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>`;
+  }
+  function chevronRight() {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
+  }
+  function homeIcon() {
+    return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`;
+  }
+  function pencilIcon() {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>`;
+  }
+  function searchIcon() {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
+  }
+  function folderPlusIcon() {
+    return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L10.414 6.5A1 1 0 0 0 11.121 6.793H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>`;
+  }
+  function filePlusIcon() {
+    return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="12" x2="12" y2="18"/><line x1="9" y1="15" x2="15" y2="15"/></svg>`;
   }
 
   // ── Read a directory, sorted (folders first) ───────────────────────────
@@ -171,6 +248,92 @@ const SystemDialogs = (() => {
     return [...dirs, ...files];
   }
 
+  function isDirectorySafe(target) {
+    try { return fs.statSync(target).isDirectory(); } catch (_) { return false; }
+  }
+
+  function getMountedVolumes() {
+    const mounted = new Map();
+    const platform = typeof process !== 'undefined'
+      ? process.platform
+      : (path.sep === '\\' ? 'win32' : 'linux');
+    const add = mountPath => {
+      if (typeof mountPath !== 'string' || !path.isAbsolute(mountPath) || !isDirectorySafe(mountPath)) return;
+      const resolved = path.resolve(mountPath);
+      if (mounted.has(resolved)) return;
+      mounted.set(resolved, {
+        label: path.basename(resolved) || resolved,
+        path: resolved,
+        icon: 'hard-drive',
+      });
+    };
+
+    if (platform === 'win32') {
+      for (let code = 65; code <= 90; code++) add(String.fromCharCode(code) + ':\\');
+    } else if (platform === 'darwin') {
+      add('/');
+      try {
+        for (const name of fs.readdirSync('/Volumes')) add(path.join('/Volumes', name));
+      } catch (error) {
+        if (error.code !== 'ENOENT') console.warn('[SystemDialogs] Could not enumerate mounted volumes:', error);
+      }
+    } else {
+      try {
+        const contents = fs.readFileSync('/proc/self/mountinfo', 'utf8');
+        const pseudoFilesystems = new Set([
+          'autofs', 'bpf', 'cgroup', 'cgroup2', 'configfs', 'debugfs',
+          'devpts', 'devtmpfs', 'fusectl', 'mqueue', 'overlay', 'proc',
+          'pstore', 'securityfs', 'sysfs', 'tmpfs', 'tracefs',
+        ]);
+        for (const line of contents.split('\n')) {
+          const separator = line.indexOf(' - ');
+          if (separator < 0) continue;
+          const fields = line.slice(0, separator).split(' ');
+          const filesystem = line.slice(separator + 3).split(' ')[0];
+          if (pseudoFilesystems.has(filesystem)) continue;
+          const mountPath = fields[4]?.replace(/\\([0-7]{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+          add(mountPath);
+        }
+      } catch (error) {
+        console.warn('[SystemDialogs] Could not read mounted volumes:', error);
+      }
+    }
+
+    return [...mounted.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  function readPinnedHostPaths() {
+    try {
+      const bag = window.NovaRegistry?.get('HKNU/shell/bags/files');
+      if (!Array.isArray(bag?.pinnedHostPaths)) return [];
+      return [...new Set(bag.pinnedHostPaths.filter(target =>
+        typeof target === 'string' && path.isAbsolute(target) && isDirectorySafe(target)
+      ).map(target => path.resolve(target)))];
+    } catch (error) {
+      console.warn('[SystemDialogs] Could not read pinned locations:', error);
+      return [];
+    }
+  }
+
+  // Sidebar "Quick access" common folders, Windows order.
+  const QUICK_FOLDERS = ['Desktop', 'Documents', 'Downloads', 'Pictures', 'Music'];
+
+  // "New folder" / "New file" base names — on-disk artifact names, matching
+  // the Windows convention (kept literal, not localised, so tests and callers
+  // can rely on the exact bytes created in the host filesystem).
+  const NEW_FOLDER_BASE = 'New folder';
+  const NEW_FILE_BASE = 'New file';
+
+  // First free name in dirPath: base+ext, then "base (2)+ext", "base (3)+ext"…
+  // (Windows numbering — the second artifact is "(2)", not "(1)".)
+  function firstFreeName(dirPath, baseName, ext) {
+    const candidate = (n) => (n === 0 ? `${baseName}${ext}` : `${baseName} (${n + 1})${ext}`);
+    for (let n = 0; n < 1000; n++) {
+      try { fs.statSync(path.join(dirPath, candidate(n))); } catch (_) { return candidate(n); }
+    }
+    return `${baseName} (${Date.now()})${ext}`;
+  }
+
   // ── Core dialog ────────────────────────────────────────────────────────
   function _show(opts) {
     const isSave    = opts.mode === 'save';
@@ -188,9 +351,61 @@ const SystemDialogs = (() => {
     // accept: an <input accept> style list, combined with filter if both are given.
     const customFilter = typeof opts.filter === 'function' ? opts.filter : null;
     const acceptRule   = acceptFilter(opts.accept);
-    const filter    = (name, isDir) =>
-      (!customFilter || customFilter(name, isDir)) && (!acceptRule || acceptRule(name, isDir));
-    let   cwd       = opts.startPath || getDefaultStartPath();
+
+    // ── Type / extension dropdown (Windows "Save as type" row) ──────────
+    // The extension(s) the calling app asked for come first and are
+    // pre-selected; "All types (*.*)" is always the escape hatch. Only
+    // extension rules can drive the dropdown — MIME rules keep the legacy
+    // silent filtering. Save mode falls back to the suggested name's
+    // extension so an export still pre-selects its type.
+    const typeExts = (() => {
+      const rules = String(opts.accept || '').split(',').map(r => r.trim().toLowerCase())
+        .filter(r => /^\.[\w+-]+$/.test(r));
+      const unique = [...new Set(rules)];
+      if (unique.length) return unique;
+      if (isSave && typeof opts.suggestedName === 'string') {
+        const match = opts.suggestedName.trim().match(/\.[\w+-]+$/);
+        if (match) return [match[0].toLowerCase()];
+      }
+      return [];
+    })();
+    let activeType = typeExts.length ? typeExts[0] : '';
+    // "All types" is only the RELAXED state once the user picks it from the
+    // dropdown — a dialog opened with a MIME-only accept list keeps its
+    // accept rule until then (extension rules already went into activeType).
+    let typeRelaxed = false;
+
+    // Effective visibility rule. A selected extension overrides the accept
+    // rule, the relaxed "All types" entry drops it, and the untouched default
+    // keeps the legacy accept filtering.
+    // Callers like the app manager pass both accept and a filter fn for the
+    // same extension. If the fn survived "All types" the dropdown would do
+    // nothing, so picking it relaxes the fn too, but only when there's a real
+    // type to switch away from. A filter-only dialog keeps its filter.
+    const currentFilter = (name, isDir) => {
+      const dropdownOverridesFilter = typeRelaxed && typeExts.length > 0;
+      if (customFilter && !dropdownOverridesFilter && !customFilter(name, isDir)) return false;
+      if (activeType) return isDir || name.toLowerCase().endsWith(activeType);
+      if (typeRelaxed) return true;
+      if (acceptRule && !acceptRule(name, isDir)) return false;
+      return true;
+    };
+    // Start folder: an explicit startPath always wins; otherwise the folder
+    // this user last visited (validated to still exist), else the account root.
+    let   cwd       = opts.startPath || readLastDir() || getDefaultStartPath();
+    // Sidebar anchor: the mounted account root, or — in host contexts without
+    // one — the dialog's starting directory, so quick access stays meaningful.
+    const homePath  = getDefaultStartPath();
+    let   quickBase = null;
+    try {
+      if (typeof FS !== 'undefined' && FS.rootId && typeof FS.getPath === 'function') {
+        const userRoot = FS.getPath(FS.rootId);
+        if (typeof userRoot === 'string' && path.isAbsolute(userRoot)) quickBase = userRoot;
+      }
+    } catch (_) { /* fall through */ }
+    if (!quickBase) {
+      quickBase = (opts.startPath && path.isAbsolute(opts.startPath)) ? opts.startPath : homePath;
+    }
 
     return new Promise((resolve) => {
       let settled = false;
@@ -246,8 +461,15 @@ const SystemDialogs = (() => {
       upBtn.setAttribute('aria-label', _t('shell.files.parentFolder'));
       upBtn.innerHTML = chevronUp();
 
+      // Address bar: breadcrumb mode by default, editable path mode on
+      // demand (edit button, or a click on the bar's empty space).
       const pathBarWrap = document.createElement('div');
       pathBarWrap.className = 'system-file-dialog-path-wrap';
+
+      const crumbs = document.createElement('div');
+      crumbs.className = 'system-file-dialog-breadcrumbs';
+      crumbs.setAttribute('role', 'navigation');
+      crumbs.setAttribute('aria-label', _t('apps.sysdialog.breadcrumbsAria'));
 
       const pathBar = document.createElement('input');
       pathBar.className = 'system-file-dialog-path';
@@ -255,18 +477,184 @@ const SystemDialogs = (() => {
       pathBar.spellcheck = false;
       pathBar.type = 'text';
 
-      pathBarWrap.appendChild(pathBar);
-      toolbar.append(backBtn, upBtn, pathBarWrap);
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'system-file-dialog-path-edit';
+      editBtn.title = _t('apps.sysdialog.editPath');
+      editBtn.setAttribute('aria-label', _t('apps.sysdialog.editPath'));
+      editBtn.innerHTML = pencilIcon();
 
-      // ── File grid ────────────────────────────────────────────────────
+      pathBarWrap.append(crumbs, pathBar, editBtn);
+
+      // "New folder" (both modes) and "New file" (save mode only).
+      const newFolderBtn = document.createElement('button');
+      newFolderBtn.type = 'button';
+      newFolderBtn.className = 'system-file-dialog-action-btn';
+      newFolderBtn.title = _t('apps.sysdialog.newFolder');
+      newFolderBtn.setAttribute('aria-label', _t('apps.sysdialog.newFolder'));
+      const newFolderIcon = document.createElement('span');
+      newFolderIcon.className = 'system-file-dialog-action-icon';
+      newFolderIcon.innerHTML = folderPlusIcon();
+      const newFolderLabel = document.createElement('span');
+      newFolderLabel.className = 'system-file-dialog-action-label';
+      newFolderLabel.textContent = _t('apps.sysdialog.newFolder');
+      newFolderBtn.append(newFolderIcon, newFolderLabel);
+
+      let newFileBtn = null;
+      if (isSave) {
+        newFileBtn = document.createElement('button');
+        newFileBtn.type = 'button';
+        newFileBtn.className = 'system-file-dialog-action-btn';
+        newFileBtn.title = _t('apps.sysdialog.newFile');
+        newFileBtn.setAttribute('aria-label', _t('apps.sysdialog.newFile'));
+        const newFileIcon = document.createElement('span');
+        newFileIcon.className = 'system-file-dialog-action-icon';
+        newFileIcon.innerHTML = filePlusIcon();
+        const newFileLabel = document.createElement('span');
+        newFileLabel.className = 'system-file-dialog-action-label';
+        newFileLabel.textContent = _t('apps.sysdialog.newFile');
+        newFileBtn.append(newFileIcon, newFileLabel);
+      }
+
+      // Narrows the current folder as you type. Not recursive, and it resets
+      // when you move to another folder (same as Explorer).
+      const searchWrap = document.createElement('div');
+      searchWrap.className = 'system-file-dialog-search-wrap';
+      const searchIconEl = document.createElement('span');
+      searchIconEl.className = 'system-file-dialog-search-icon';
+      searchIconEl.innerHTML = searchIcon();
+      const searchInput = document.createElement('input');
+      searchInput.className = 'system-file-dialog-search';
+      searchInput.type = 'text';
+      searchInput.spellcheck = false;
+      searchInput.autocomplete = 'off';
+      searchInput.placeholder = _t('apps.sysdialog.search');
+      searchInput.setAttribute('role', 'searchbox');
+      searchInput.setAttribute('aria-label', _t('apps.sysdialog.searchAria'));
+      searchWrap.append(searchIconEl, searchInput);
+      let searchQuery = '';
+
+      toolbar.append(backBtn, upBtn, pathBarWrap, searchWrap, newFolderBtn);
+      if (newFileBtn) toolbar.appendChild(newFileBtn);
+
+      // ── Dialog body: sidebar + file grid ─────────────────────────────
+      const body = document.createElement('div');
+      body.className = 'system-file-dialog-body';
+
+      const sidebar = document.createElement('nav');
+      sidebar.className = 'system-file-dialog-sidebar';
+      sidebar.setAttribute('aria-label', _t('apps.sysdialog.quickAccess'));
+
+      const sideHeader = document.createElement('div');
+      sideHeader.className = 'system-file-dialog-side-header';
+      sideHeader.textContent = _t('apps.sysdialog.quickAccess');
+      sidebar.appendChild(sideHeader);
+
+      // Quick access entries: Home (account root), then the common folders
+      // that actually exist on disk — hidden when their target is missing.
+      const sideButtons = [];
+      const quickEntries = [];
+      if (isDirectorySafe(homePath)) {
+        quickEntries.push({ label: _t('apps.sysdialog.home'), target: homePath, icon: homeIcon });
+      }
+      for (const folder of QUICK_FOLDERS) {
+        const target = path.join(quickBase, folder);
+        if (isDirectorySafe(target)) {
+          quickEntries.push({ label: folder, target, icon: folderIcon });
+        }
+      }
+      for (const entry of quickEntries) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'system-file-dialog-side-item';
+        btn.setAttribute('aria-label', entry.label);
+        const icon = document.createElement('span');
+        icon.className = 'system-file-dialog-side-icon';
+        icon.innerHTML = entry.icon();
+        const label = document.createElement('span');
+        label.className = 'system-file-dialog-side-name';
+        label.textContent = entry.label;
+        btn.append(icon, label);
+        btn.addEventListener('click', () => {
+          if (path.resolve(entry.target) === path.resolve(cwd)) return;
+          navigateTo(entry.target);
+        });
+        sidebar.appendChild(btn);
+        sideButtons.push({ el: btn, target: path.resolve(entry.target) });
+      }
+
+      const pinnedPaths = readPinnedHostPaths().filter(target =>
+        !quickEntries.some(entry => path.resolve(entry.target) === target)
+      );
+      if (pinnedPaths.length) {
+        const pinnedHeader = document.createElement('div');
+        pinnedHeader.className = 'system-file-dialog-side-header';
+        pinnedHeader.textContent = _t('apps.sysdialog.pinned');
+        sidebar.appendChild(pinnedHeader);
+        for (const target of pinnedPaths) {
+          const entry = { label: path.basename(target) || target, target, icon: () => sideIcon('folder', 16) };
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'system-file-dialog-side-item';
+          btn.setAttribute('aria-label', entry.label);
+          const icon = document.createElement('span');
+          icon.className = 'system-file-dialog-side-icon';
+          icon.innerHTML = entry.icon();
+          const label = document.createElement('span');
+          label.className = 'system-file-dialog-side-name';
+          label.textContent = entry.label;
+          btn.append(icon, label);
+          btn.addEventListener('click', () => {
+            if (path.resolve(entry.target) !== path.resolve(cwd)) navigateTo(entry.target);
+          });
+          sidebar.appendChild(btn);
+          sideButtons.push({ el: btn, target: path.resolve(entry.target) });
+        }
+      }
+
+      const mountedVolumes = getMountedVolumes();
+      if (mountedVolumes.length) {
+        const mountedHeader = document.createElement('div');
+        mountedHeader.className = 'system-file-dialog-side-header';
+        mountedHeader.textContent = _t('apps.sysdialog.mounts');
+        sidebar.appendChild(mountedHeader);
+        for (const entry of mountedVolumes) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'system-file-dialog-side-item';
+          btn.setAttribute('aria-label', entry.label);
+          const icon = document.createElement('span');
+          icon.className = 'system-file-dialog-side-icon';
+          icon.innerHTML = sideIcon(entry.icon, 16);
+          const label = document.createElement('span');
+          label.className = 'system-file-dialog-side-name';
+          label.textContent = entry.label;
+          btn.append(icon, label);
+          btn.addEventListener('click', () => {
+            if (path.resolve(entry.path) !== path.resolve(cwd)) navigateTo(entry.path);
+          });
+          sidebar.appendChild(btn);
+          sideButtons.push({ el: btn, target: path.resolve(entry.path) });
+        }
+      }
+
       const grid = document.createElement('div');
       grid.className = 'system-file-dialog-grid';
       grid.setAttribute('role', 'grid');
       grid.setAttribute('aria-label', _t('shell.files.filesAria'));
 
+      body.append(sidebar, grid);
+
       // ── Footer ───────────────────────────────────────────────────────
       const footer = document.createElement('div');
       footer.className = 'system-file-dialog-footer';
+
+      // Status line for in-dialog creation feedback (errors surface here
+      // instead of crashing the dialog).
+      const statusEl = document.createElement('div');
+      statusEl.className = 'system-file-dialog-status';
+      statusEl.setAttribute('role', 'status');
+      statusEl.setAttribute('aria-live', 'polite');
 
       const nameInput = document.createElement('input');
       nameInput.className = 'input';
@@ -281,13 +669,47 @@ const SystemDialogs = (() => {
       cancelBtn.className = 'btn btn-sm';
       cancelBtn.textContent = _t('common.cancel');
 
+      // Type/extension dropdown — the Windows "Save as type" row: the
+      // extension the calling app asked for comes first (pre-selected), and
+      // "All types (*.*)" is always available to switch the grid loose.
+      // Not shown for folder pickers (nothing to filter).
+      let typeSelect = null;
+      if (!pickDir) {
+        typeSelect = document.createElement('select');
+        typeSelect.className = 'system-file-dialog-type';
+        typeSelect.setAttribute('aria-label', _t('apps.sysdialog.fileType'));
+        for (const ext of typeExts) {
+          const option = document.createElement('option');
+          option.value = ext;
+          option.textContent = `*${ext}`;
+          typeSelect.appendChild(option);
+        }
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = _t('apps.sysdialog.allTypes');
+        typeSelect.appendChild(allOption);
+        typeSelect.value = activeType;
+        typeSelect.addEventListener('change', () => {
+          activeType = typeSelect.value;
+          typeRelaxed = activeType === '';
+          selectedName = null;
+          selectedSet.clear();
+          clearSelection();
+          if (!isSave) { nameInput.value = ''; confirmBtn.disabled = !pickDir; }
+          setStatus('');
+          renderGrid();
+        });
+      }
+
       const confirmBtn = document.createElement('button');
       confirmBtn.className = 'btn btn-sm btn-primary';
       confirmBtn.textContent = isSave ? _t('common.save') : pickDir ? _t('common.select') : _t('common.open');
       confirmBtn.disabled = pickDir ? false : (!isSave || !nameInput.value.trim());
 
-      footer.append(nameInput, cancelBtn, confirmBtn);
-      dialog.append(header, toolbar, grid, footer);
+      footer.append(statusEl, nameInput);
+      if (typeSelect) footer.appendChild(typeSelect);
+      footer.append(cancelBtn, confirmBtn);
+      dialog.append(header, toolbar, body, footer);
       overlay.appendChild(dialog);
 
       // ── Navigation state ─────────────────────────────────────────────
@@ -302,6 +724,21 @@ const SystemDialogs = (() => {
         histIdx = history.length - 1;
       }
 
+      function setStatus(message, isError) {
+        statusEl.textContent = message || '';
+        statusEl.classList.toggle('is-error', Boolean(isError && message));
+      }
+
+      // Everything that visualises the current cwd: path bar value, back/up
+      // button state, breadcrumb segments and the sidebar's active entry.
+      function syncChrome() {
+        pathBar.value = cwd;
+        upBtn.disabled = (path.dirname(cwd) === cwd); // at root
+        backBtn.disabled = histIdx <= 0;
+        renderBreadcrumbs();
+        updateSidebarActive();
+      }
+
       async function navigateTo(dirPath, { record = true } = {}) {
         const nextPath = path.resolve(dirPath);
         try {
@@ -312,20 +749,23 @@ const SystemDialogs = (() => {
           if (typeof Notify !== 'undefined') {
             Notify.show({ title: 'Folder unavailable', body: error.message, type: 'error' });
           }
-          return;
+          return false;
         }
         cwd = nextPath;
         if (record) pushHistory(dirPath);
+        searchQuery = '';
+        searchInput.value = '';
         selectedName = null;
         selectedSet.clear();
         if (!isSave) {
           nameInput.value = '';
           confirmBtn.disabled = !pickDir;
         }
-        pathBar.value = cwd;
-        upBtn.disabled = (path.dirname(cwd) === cwd); // at root
-        backBtn.disabled = histIdx <= 0;
+        setStatus('');
+        persistLastDir(cwd); // per-user last-directory memory (cheap, on navigation)
+        syncChrome();
         await renderGrid();
+        return true;
       }
 
       backBtn.addEventListener('click', async () => {
@@ -335,9 +775,9 @@ const SystemDialogs = (() => {
         selectedName = null;
         selectedSet.clear();
         if (!isSave) { nameInput.value = ''; confirmBtn.disabled = !pickDir; }
-        pathBar.value = cwd;
-        upBtn.disabled = (path.dirname(cwd) === cwd);
-        backBtn.disabled = histIdx <= 0;
+        setStatus('');
+        persistLastDir(cwd);
+        syncChrome();
         await renderGrid();
       });
 
@@ -346,12 +786,180 @@ const SystemDialogs = (() => {
         if (parent !== cwd) navigateTo(parent);
       });
 
+      // ── Breadcrumb address bar ───────────────────────────────────────
+      function renderBreadcrumbs() {
+        crumbs.innerHTML = '';
+        const parts = [];
+        const rel = path.relative(homePath, cwd);
+        const underHome = rel === '' || (rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+        if (underHome) {
+          // "Home > Documents > …" when the cwd lives under the account root.
+          parts.push({ label: _t('apps.sysdialog.home'), target: homePath });
+          let acc = homePath;
+          if (rel) {
+            for (const seg of rel.split(path.sep).filter(Boolean)) {
+              acc = path.join(acc, seg);
+              parts.push({ label: seg, target: acc });
+            }
+          }
+        } else {
+          // Otherwise root-anchored segments: "/ > tmp > …".
+          const resolved = path.resolve(cwd);
+          const root = path.parse(resolved).root || path.sep;
+          parts.push({ label: root, target: root });
+          let acc = root;
+          for (const seg of resolved.slice(root.length).split(path.sep).filter(Boolean)) {
+            acc = path.join(acc, seg);
+            parts.push({ label: seg, target: acc });
+          }
+        }
+        parts.forEach((part, idx) => {
+          const isCurrent = idx === parts.length - 1;
+          if (idx > 0) {
+            const sep = document.createElement('span');
+            sep.className = 'system-file-dialog-crumb-sep';
+            sep.setAttribute('aria-hidden', 'true');
+            sep.innerHTML = chevronRight();
+            crumbs.appendChild(sep);
+          }
+          if (isCurrent) {
+            const current = document.createElement('span');
+            current.className = 'system-file-dialog-crumb-current';
+            current.textContent = part.label;
+            crumbs.appendChild(current);
+          } else {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'system-file-dialog-crumb';
+            btn.textContent = part.label;
+            btn.setAttribute('aria-label', part.label);
+            btn.title = part.target;
+            btn.addEventListener('click', () => navigateTo(part.target));
+            crumbs.appendChild(btn);
+          }
+        });
+      }
+
+      function updateSidebarActive() {
+        const current = path.resolve(cwd);
+        for (const { el, target } of sideButtons) {
+          const on = target === current;
+          el.classList.toggle('active', on);
+          el.setAttribute('aria-current', on ? 'true' : 'false');
+        }
+      }
+
+      function enterEditMode() {
+        if (pathBarWrap.classList.contains('editing')) return;
+        pathBar.value = cwd;
+        pathBarWrap.classList.add('editing');
+        requestAnimationFrame(() => { pathBar.focus(); pathBar.select(); });
+      }
+
+      function exitEditMode() {
+        pathBarWrap.classList.remove('editing');
+      }
+
+      editBtn.addEventListener('click', enterEditMode);
+      // Clicking the breadcrumb bar's empty space toggles the path editor,
+      // like the Windows Explorer address bar.
+      crumbs.addEventListener('click', e => { if (e.target === crumbs) enterEditMode(); });
+
       pathBar.addEventListener('keydown', event => {
-        if (event.key !== 'Enter') return;
-        event.preventDefault();
-        const target = pathBar.value.trim();
-        if (target) navigateTo(target);
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          const target = pathBar.value.trim();
+          if (!target) { exitEditMode(); return; }
+          navigateTo(target).then((ok) => { if (ok) exitEditMode(); });
+        } else if (event.key === 'Escape') {
+          // Escape while editing the path reverts the edit — it must NOT
+          // cancel the whole dialog, so stop the event before the overlay's
+          // cancel handler sees it.
+          event.stopPropagation();
+          event.preventDefault();
+          pathBar.value = cwd;
+          exitEditMode();
+        }
       });
+
+      searchInput.addEventListener('input', () => {
+        searchQuery = searchInput.value.trim().toLowerCase();
+        // Drop any selection so a file the search just hid can't still be confirmed.
+        selectedName = null;
+        selectedSet.clear();
+        clearSelection();
+        if (!isSave) { nameInput.value = ''; confirmBtn.disabled = !pickDir; }
+        renderGrid();
+      });
+      searchInput.addEventListener('keydown', event => {
+        // First Escape clears the box; with nothing typed it falls through
+        // and closes the dialog like it does everywhere else.
+        if (event.key === 'Escape' && searchInput.value) {
+          event.stopPropagation();
+          event.preventDefault();
+          searchInput.value = '';
+          searchInput.dispatchEvent(new Event('input'));
+        }
+      });
+
+      // ── In-dialog creation (Windows killer feature) ──────────────────
+      function selectEntry(name, isDirEntry) {
+        const item = [...grid.querySelectorAll('.system-file-dialog-item')]
+          .find(el => el.getAttribute('aria-label') === name);
+        if (!item) return;
+        clearSelection();
+        item.classList.add('selected');
+        item.setAttribute('aria-selected', 'true');
+        if (isDirEntry) {
+          if (pickDir) { selectedName = name; nameInput.value = name; }
+        } else {
+          selectedName = name;
+          nameInput.value = name;
+          confirmBtn.disabled = isSave ? !nameInput.value.trim() : false;
+        }
+      }
+
+      function reportCreateFailure(message, error) {
+        setStatus(message, true);
+        if (typeof Notify !== 'undefined') {
+          Notify.show({ title: _t('apps.sysdialog.createFailed'), body: error.message, type: 'error' });
+        }
+      }
+
+      async function createNewFolder() {
+        try {
+          const name = firstFreeName(cwd, NEW_FOLDER_BASE, '');
+          await fs.promises.mkdir(path.join(cwd, name));
+          setStatus('');
+          await renderGrid();
+          selectEntry(name, true);
+        } catch (error) {
+          reportCreateFailure(_t('apps.sysdialog.createFolderFailed', { message: error.message }), error);
+        }
+      }
+
+      async function createNewFile() {
+        try {
+          // The dropdown's active type wins; the legacy derivation covers
+          // MIME-only accept lists and no-accept save flows.
+          const ext = activeType || impliedExtension(opts);
+          const name = firstFreeName(cwd, NEW_FILE_BASE, ext);
+          await fs.promises.writeFile(path.join(cwd, name), '');
+          setStatus('');
+          await renderGrid();
+          selectEntry(name, false);
+          // Pre-fill the save-mode filename input so Save can happen
+          // immediately (still editable for a rename-before-save).
+          nameInput.value = name;
+          confirmBtn.disabled = !nameInput.value.trim();
+          requestAnimationFrame(() => { nameInput.focus(); nameInput.select(); });
+        } catch (error) {
+          reportCreateFailure(_t('apps.sysdialog.createFileFailed', { message: error.message }), error);
+        }
+      }
+
+      newFolderBtn.addEventListener('click', () => { createNewFolder(); });
+      if (newFileBtn) newFileBtn.addEventListener('click', () => { createNewFile(); });
 
       if (isSave) {
         nameInput.addEventListener('input', () => {
@@ -374,14 +982,17 @@ const SystemDialogs = (() => {
           }
           return;
         }
-        const visible = pickDir
+        const typeVisible = pickDir
           ? entries.filter(e => e.isDir)
-          : entries.filter(e => e.isDir || filter(e.name, false));
+          : entries.filter(e => e.isDir || currentFilter(e.name, false));
+        const visible = searchQuery
+          ? typeVisible.filter(e => e.name.toLowerCase().includes(searchQuery))
+          : typeVisible;
 
         if (visible.length === 0) {
           const empty = document.createElement('div');
           empty.style.cssText = 'grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted);font-size:12px;';
-          empty.textContent = _t('shell.files.emptyFolder');
+          empty.textContent = searchQuery ? _t('apps.sysdialog.noMatches') : _t('shell.files.emptyFolder');
           grid.appendChild(empty);
           return;
         }
@@ -464,6 +1075,7 @@ const SystemDialogs = (() => {
         if (confirmBtn.disabled) return;
         if (pickDir) {
           const dir = selectedName ? path.join(cwd, selectedName) : cwd;
+          persistLastDir(cwd);
           finish({ path: dir, name: path.basename(dir) || dir });
           return;
         }
@@ -490,10 +1102,11 @@ const SystemDialogs = (() => {
               return;
             }
           }
+          persistLastDir(cwd);
           finish(results);
           return;
         }
-        const name = nameInput.value.trim();
+        let name = nameInput.value.trim();
         if (!name) return;
         if (isSave && (name === '.' || name === '..' || name.includes('\0') ||
             path.basename(name) !== name)) {
@@ -502,9 +1115,16 @@ const SystemDialogs = (() => {
           }
           return;
         }
+        // Windows behaviour for the type dropdown: the selected type's
+        // extension is appended when the typed name carries none (a name
+        // with a different extension is an explicit user override).
+        if (isSave && activeType && !/\.[\w+-]+$/.test(name)) {
+          name += activeType;
+        }
         const fullPath = path.join(cwd, name);
 
         if (isSave) {
+          persistLastDir(cwd);
           finish({ path: fullPath, name });
         } else if (pathOnly) {
           fs.stat(fullPath, (err, stat) => {
@@ -514,6 +1134,7 @@ const SystemDialogs = (() => {
               }
               return;
             }
+            persistLastDir(cwd);
             finish({ path: fullPath, name, mimeType: lookupMime(name), size: stat.size });
           });
         } else {
@@ -527,6 +1148,7 @@ const SystemDialogs = (() => {
             }
             const mime = guessMime(name);
             const isText = mime.startsWith('text/') || mime === 'application/json' || mime === 'application/x-sh' || mime === 'application/xml';
+            persistLastDir(cwd);
             finish({
               path: fullPath,
               name,
@@ -572,6 +1194,13 @@ const SystemDialogs = (() => {
   return {
     open(opts = {}) { return _show({ ...opts, mode: 'open' }); },
     save(opts = {}) { return _show({ ...opts, mode: 'save' }); },
+    async saveContent(opts = {}, content) {
+      const destination = await _show({ ...opts, mode: 'save' });
+      if (!destination) return null;
+      await fs.promises.writeFile(destination.path, content);
+      return destination;
+    },
+    getMountedVolumes,
   };
 })();
 

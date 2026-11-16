@@ -109,7 +109,7 @@ function _highlightMatches(target, text, query) {
     }
     if (idx > i) target.appendChild(document.createTextNode(text.slice(i, idx)));
     const mark = document.createElement('mark');
-    mark.style.cssText = 'background:var(--accent);color:#fff;border-radius:2px;padding:0 2px;';
+    mark.style.cssText = 'background:var(--accent);color:var(--text-on-accent);border-radius:2px;padding:0 2px;';
     mark.textContent = text.slice(idx, idx + q.length);
     target.appendChild(mark);
     i = idx + q.length;
@@ -458,7 +458,7 @@ function appendWebAppItem(webApp, grid) {
 
   const name = createEl('div', { className: 'launchpad-name', textContent: webApp.name });
   const indicator = createEl('div', {
-    style: 'position:absolute;bottom:4px;right:4px;width:8px;height:8px;background:#58a6ff;border-radius:50%;border:1px solid rgba(255,255,255,0.3);',
+    style: 'position:absolute;bottom:4px;right:4px;width:8px;height:8px;background:var(--accent);border-radius:50%;border:1px solid var(--border-strong);',
     title: _t('shell.launchpad.webApp')
   });
 
@@ -545,7 +545,7 @@ function attachLaunchpadDragHandlers(item, displayName, payload) {
     e.dataTransfer.setData('application/json', JSON.stringify(payload));
     e.dataTransfer.setData('text/plain', displayName);
     const dragImg = createEl('div', {
-      style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:8px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;'
+      style: 'padding:8px 16px;background:var(--accent);color:var(--text-on-accent);border-radius:8px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;'
     });
     dragImg.textContent = displayName;
     document.body.appendChild(dragImg);
@@ -1402,7 +1402,10 @@ function renderDesktopIcons() {
           WM.createWindow(shortcutData.target);
         }
       } else if (f.type === 'folder') {
-        WM.createWindow('files', { folderId: f.id });
+        // Bugfix: double-clicking a desktop folder did nothing. 'files' is a
+        // short id that no app registers under (apps register under full ids
+        // like com.nbosp.files), so WM.createWindow('files') never resolved.
+        WM.createWindow('com.nbosp.files', { folderId: f.id });
       } else {
         openFileWithDefaultApp(f);
       }
@@ -1425,7 +1428,9 @@ function renderDesktopIcons() {
                 WM.createWindow(shortcutData.target);
               }
             } else if (f.type === 'folder') {
-              WM.createWindow('files', { folderId: f.id });
+              // Same fix as the dblclick handler above: the full registered id,
+              // not the short 'files' slug.
+              WM.createWindow('com.nbosp.files', { folderId: f.id });
             } else {
               openFileWithDefaultApp(f);
             }
@@ -1736,6 +1741,12 @@ function updateTaskbar() {
 // ── Window preview popup ───────────────────────────────────────────────────────
 function showWindowPreview(btn, appId, windows) {
   document.querySelector('.taskbar-window-preview')?.remove();
+  // The remove() above bypasses closePreview, so drop any registration the
+  // replaced preview still held before wiring the fresh one below.
+  window.ShellPopupCoordinator?.unregister('window-preview');
+  // One flyout at a time: opening the preview closes every other shell
+  // popup (volume/wifi/calendar flyouts, power menu, notification panel).
+  window.ShellPopupCoordinator?.closeAllExcept('window-preview');
 
   const preview = createEl('div', { className: 'taskbar-window-preview' });
   let   dismissFn = null;
@@ -1744,11 +1755,13 @@ function showWindowPreview(btn, appId, windows) {
   // removes the dismiss listener — no orphaned document handlers.
   const closePreview = () => {
     preview.remove();
+    window.ShellPopupCoordinator?.unregister('window-preview');
     if (dismissFn !== null) {
       document.removeEventListener('pointerdown', dismissFn);
       dismissFn = null;
     }
   };
+  window.ShellPopupCoordinator?.register('window-preview', closePreview);
 
   for (const [index, w] of windows.entries()) {
     const app      = OS.apps[appId];

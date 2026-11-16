@@ -137,11 +137,11 @@ describe('settings shim (js/platform/core/settings-shim.js)', () => {
     expect(audit[0].actor).toBe('shell');
   });
 
-  it('routes mapped keys to their canonical paths (theme → HKNS/shell/theme)', () => {
+  it('routes mapped keys to their canonical paths (theme → HKNU/shell/theme — per-user since 2026-11-15)', () => {
     const { OS } = freshOS();
     const Reg = attachAll(OS);
     OS.settings.set('theme', 'dracula');
-    expect(Reg.get('HKNS/shell/theme')).toBe('dracula');
+    expect(Reg.get('HKNU/shell/theme')).toBe('dracula');
     expect(Reg.stat('HKNU/settings/theme')).toBeNull();
   });
 
@@ -170,7 +170,7 @@ describe('settings shim (js/platform/core/settings-shim.js)', () => {
     OS.settings._cache.prohibitWallpaperChange = true;
 
     expect(OS.settings.set('wallpaperId', 'stock-red')).toBe(false);
-    expect(Reg.get('HKNS/shell/wallpaper')).toBeUndefined();
+    expect(Reg.get('HKNU/shell/wallpaper')).toBeUndefined();
     expect(settingsEvents(bus).filter((e) => e.key === 'wallpaperId')).toEqual([]);
   });
 
@@ -179,7 +179,7 @@ describe('settings shim (js/platform/core/settings-shim.js)', () => {
     const Reg = attachAll(OS);
     OS.settings.volatile = true;
     OS.settings.set('theme', 'nord');
-    expect(Reg.get('HKNS/shell/theme')).toBeUndefined();
+    expect(Reg.get('HKNU/shell/theme')).toBeUndefined();
     expect(OS.settings.get('theme')).toBe('nord');
     expect(settingsEvents(bus).filter((e) => e.key === 'theme')).toEqual([{ key: 'theme', value: 'nord' }]);
   });
@@ -207,7 +207,7 @@ describe('settings shim (js/platform/core/settings-shim.js)', () => {
       await OS.settings.load();
 
       expect(OS.settings.get('theme')).toBe('dracula'); // adopted over the seed
-      expect(Reg.get('HKNS/shell/theme')).toBe('dracula');
+      expect(Reg.get('HKNU/shell/theme')).toBe('dracula');
       expect(OS.settings.get('clockFormat')).toBe('24h');
       expect(OS.settings.get('autoLock')).toBe('30');
       expect(OS.settings.get('customWallpaper')).toBe('data:image/png;base64,xyz');
@@ -250,7 +250,7 @@ describe('settings shim (js/platform/core/settings-shim.js)', () => {
       OS.settings.set('theme', 'dracula');
       const before = settingsEvents(bus).length;
 
-      Reg.set('HKNS/shell/theme', 'gruvbox', { source: 'app', appId: 'com.nbosp.novareg' });
+      Reg.set('HKNU/shell/theme', 'gruvbox', { source: 'app', appId: 'com.nbosp.novareg' });
 
       expect(OS.settings.get('theme')).toBe('gruvbox');
       const evts = settingsEvents(bus).filter((e) => e.key === 'theme');

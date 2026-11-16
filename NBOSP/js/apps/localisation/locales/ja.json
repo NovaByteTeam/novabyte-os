@@ -708,7 +708,10 @@
       "wipeEverything": "すべてをワイプ",
       "wiping": "データの消去",
       "wipingBody": "お待ちください...",
-      "resetFailed": "リセット失敗"
+      "resetFailed": "リセット失敗",
+      "accountUsage": "アカウントのストレージ",
+      "yourUsage": "あなたのストレージ",
+      "totalUsed": "使用中の合計ストレージ"
     },
     "desktop": {
       "wallpaper": "壁紙",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "管理者権限を付与されたアプリはそれらを使用できるようになります。",
       "adminModeDisabledBody": "管理者権限の付与は再び無効になりました。",
       "adminModeUpdateFailed": "管理者モードを更新できませんでした",
-      "tryAgain": "もう一度やり直してください"
+      "tryAgain": "もう一度やり直してください",
+      "exportTo": "エクスポートの保存先を選択してください"
     },
     "root": {
       "intro": "ルート アプリは、無制限のアクセス権で OS ページ内で直接実行され、実際の管理者 (ルート) 操作を実行できます。 Every root app first asks for your confirmation inside a NovaByte prompt — never inside the app — and every privileged operation runs through audited, passwordless sudo (NOPASSWD) and is written to the security log.これはサンドボックスや通常のアプリの権限ではありません。",
@@ -957,6 +961,11 @@
       "pushRegistered": "プッシュ登録済み",
       "queuedPushOne": "1 つのキューに入れられたプッシュ",
       "queuedPushesMany": "{{count}} キューに入れられたプッシュ"
+    },
+    "adminLock": {
+      "title": "管理者が必要",
+      "body": "この設定は管理者アカウントのみが利用できます。変更するには管理者アカウントでサインインしてください。",
+      "switchUser": "ユーザーの切り替え"
     }
   },
   "apps": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "[名前を付けて保存] ではファイル パスが返されませんでした。",
         "tooManyRedirects": "リダイレクトが多すぎる",
         "unsupportedRedirect": "サポートされていないリダイレクト",
+        "localAddressBlocked": "ローカルおよび内部ネットワークアドレスはダウンロードできません。",
         "interrupted": "ダウンロード応答が中断されました",
         "closedEarly": "ダウンロード ファイルが完了する前に閉じられました",
         "timedOut": "接続がタイムアウトしました",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "設定がリセットされない",
         "settingsResetTitle": "設定のリセット",
         "settingsResetBody": "すべてのブラウザ設定がデフォルトに復元されました。"
+      },
+      "omnibox": {
+        "searchWith": "{{engine}} で \"{{query}}\" を検索"
       }
     },
     "files": {
@@ -1373,7 +1386,9 @@
         "viewIcons": "ビュー: アイコン",
         "viewList": "表示: リスト",
         "selectAll": "すべて選択",
-        "delete": "消去"
+        "delete": "消去",
+        "pinToQuickAccess": "クイックアクセスにピン留め",
+        "unpinFromQuickAccess": "クイックアクセスからピン留めを解除"
       },
       "dialogs": {
         "chooseDestinationFolder": "宛先フォルダーの選択",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "ファイルがブロックされました",
         "invalidDrop": "無効なファイルがドロップされました。",
         "failedToAdd": "ファイルの追加に失敗しました。",
-        "couldNotVerify": "確認できませんでした」{{file}}\" — 安全な状態でドロップされ、スキップされました。"
+        "couldNotVerify": "確認できませんでした」{{file}}\" — 安全な状態でドロップされ、スキップされました。",
+        "quickAccessFailed": "クイックアクセスを更新できませんでした",
+        "quickAccessNotSaved": "ピン留めした場所を保存できませんでした。",
+        "quickAccessNotFolder": "存在するフォルダーのみピン留めできます。"
       },
       "linux": {
         "openParentFolder": "親フォルダーを開く",
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "ネットワーク",
-        "fs": "FS"
+        "fs": "ファイルシステム"
       },
       "network": {
         "desc": "プロキシ ルート、SSRF ガード状態、および最近のネットワーク構成を表示します。",
@@ -1695,6 +1713,19 @@
         "cancelled": "、 {{count}} キャンセル",
         "failed": "、 {{count}} 失敗した",
         "total": "({{count}} 合計）"
+      },
+      "editor": {
+        "open": "編集",
+        "openTitle": "このモジュールのコードをライブ編集してホットリロードする",
+        "title": "{{id}} を編集中",
+        "save": "保存してリロード",
+        "back": "← モジュールに戻る",
+        "fetchFailed": "{{path}} を読み込めませんでした: HTTP {{status}}",
+        "saved": "ディスクに保存され、実行中のOSに再読み込みされました",
+        "saveFailed": "保存に失敗しました: {{message}}",
+        "lines": "{{count}} 行",
+        "unsaved": "編集済み — まだ未保存",
+        "emptyRefused": "空のモジュールの保存は拒否されました"
       }
     },
     "install": {
@@ -1785,7 +1816,7 @@
       "memory": "メモリ",
       "domNodesByWindow": "ウィンドウ別の DOM ノード",
       "noWindowsOpen": "窓は開いていません",
-      "notAvailableShort": "該当なし",
+      "notAvailableShort": "利用不可",
       "longTaskLog": "長いタスクログ",
       "longTaskUnsupported": "このブラウザでは長いタスクの追跡はサポートされていません",
       "noLongTasks": "長いタスクはまだ記録されていません",
@@ -1801,7 +1832,7 @@
       "noRequestsMatch": "現在のフィルターに一致するリクエストはありません",
       "noRequestsRecorded": "まだリクエストは記録されていません",
       "sourceBrowser": "ブラウザ・ {{label}}",
-      "sourceOs": "オス・ {{label}}",
+      "sourceOs": "オペレーティングシステム · {{label}}",
       "showBody": "▸ ボディ",
       "hideBody": "▾本体",
       "bodyNotCaptured": "遺体は捕らえられていない{{type}}",
@@ -1809,12 +1840,12 @@
       "unknownApp": "不明なアプリ",
       "networkError": "ネットワークエラー",
       "bodyTruncated": "{{text}}…(切り捨てられました)",
-      "durationMs": "{{value}}MS",
+      "durationMs": "{{value}}ミリ秒",
       "fpsValue": "{{value}} fps",
       "memoryValue": "{{value}} MB",
       "longTasksValue": "{{count}} (50ms以上)",
       "none": "なし",
-      "notAvailable": "該当なし"
+      "notAvailable": "利用不可"
     },
     "terminal": {
       "appDataMissing": "アプリデータディレクトリがありません。",
@@ -1858,7 +1889,11 @@
       "errorLine": "エラー： {{message}}",
       "terminalError": "[端末エラー] {{message}}",
       "shellExited": "[シェルはステータスとともに終了しました {{status}}。新しいものを開始するには Enter を押してください。]",
-      "unknownStatus": "未知"
+      "unknownStatus": "未知",
+      "shortcutsClearLine": "=行をクリア  ",
+      "shortcutsLineStart": "=行頭  ",
+      "shortcutsLineEnd": "=行末  ",
+      "shortcutsPaste": "=ペースト"
     },
     "myApps": {
       "appInstalledTitle": "アプリがインストールされました",
@@ -1953,13 +1988,13 @@
       "repeatOnce": "一度",
       "repeatEveryDay": "毎日",
       "repeatWeekdays": "平日",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
-      "dayInitialTue": "T",
-      "dayInitialWed": "W",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
-      "dayInitialSat": "S",
+      "dayInitialSun": "日",
+      "dayInitialMon": "月",
+      "dayInitialTue": "火",
+      "dayInitialWed": "水",
+      "dayInitialThu": "木",
+      "dayInitialFri": "金",
+      "dayInitialSat": "土",
       "daySun": "太陽",
       "dayMon": "月",
       "dayTue": "火",
@@ -2001,13 +2036,13 @@
       "dayThu": "木",
       "dayFri": "金",
       "daySat": "土",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
-      "miniDayTue": "T",
-      "miniDayWed": "W",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
-      "miniDaySat": "S",
+      "miniDaySun": "日",
+      "miniDayMon": "月",
+      "miniDayTue": "火",
+      "miniDayWed": "水",
+      "miniDayThu": "木",
+      "miniDayFri": "金",
+      "miniDaySat": "土",
       "upcoming": "今後の予定",
       "newEvent": "新しいイベント",
       "today": "今日",
@@ -2068,7 +2103,11 @@
       "inputPlaceholder": "評価する JS を入力するか、レジストリ CLI の「reg query HKNS\\shell」を入力します。\nEnter で実行 · Shift+Enter で改行 · ↑/↓ で履歴",
       "run": "走る",
       "readyMessage": "コンソールの準備ができました。上に式を入力し、Enter または Run を押します。\nShift+Enter で改行、↑/↓ で前のコマンドを呼び出します。",
-      "noOutputMatches": "(一致する出力はありません \"{{query}}\")"
+      "noOutputMatches": "(一致する出力はありません \"{{query}}\")",
+      "exportDialogTitle": "コンソール出力をエクスポート",
+      "exportedTitle": "コンソール出力をエクスポートしました",
+      "exportedBody": "{{path}} に保存しました",
+      "exportFailedTitle": "コンソールのエクスポートに失敗しました"
     },
     "contacts": {
       "appDataMissing": "アプリデータディレクトリがありません。",
@@ -2129,7 +2168,9 @@
       "alarm": "アラーム",
       "alarmFor": "アラーム {{time}}",
       "email": "電子メール",
-      "emailNewMail": "{{count}} 新しい {{account}}"
+      "emailNewMail": "{{count}} 新しい {{account}}",
+      "timerDone": "タイマー終了",
+      "timerDoneBody": "タイマーが終了しました。"
     },
     "store": {
       "releaseTrack": "リリーストラック",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "デバッグオーバーレイの位置",
         "devNovaReg": "NovaReg エディターの状態",
         "devNovaRegDesc": "編集者のお気に入りとジャンプ履歴。"
-      }
+      },
+      "importDialogTitle": "レジストリデータをインポート"
     },
     "appmanager": {
       "fallbackPackageName": "このパッケージ",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "このランタイムではファイルの書き込みは利用できません。",
         "csvExported": "CSV のエクスポート先 {{path}}",
         "csvExportFailed": "CSV エクスポートに失敗しました: {{message}}"
-      }
+      },
+      "degradedRefresh": "アカウント一覧を更新できませんでした — 最後に取得した一覧を表示しています。",
+      "sessionExpired": "セッションの有効期限が切れました — 再度サインインしてください。",
+      "retry": "再試行",
+      "confirmPin": "PINの確認",
+      "pinMismatch": "PINが一致しません。",
+      "resetPinSelfWarning": "{{name}} のPINをリセットしますか？",
+      "resetPinSelfWarningBody": "自分のPINをリセットすると、このアカウントのすべてのセッションが取り消され、どこでもログアウトされます。次に表示される一時的なPINで再ログインし、その後新しいPINを選択します。",
+      "resetPinSelfWarningConfirm": "リセットしてログアウト",
+      "resetPinSelfWarningDone": "PINがリセットされました。この一時的なPINで再ログインしてください — 新しいPINの選択を求められます。"
     },
     "events": {
       "gate": {
@@ -3006,7 +3057,7 @@
         "newest": "新しい順",
         "oldest": "古い順",
         "severity": "重大度",
-        "az": "A-Z"
+        "az": "あ-ん"
       },
       "toolbar": {
         "saveView": "+ ビューを保存",
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} 新しい {{account}}",
         "newMailTitle": "{{email}} — {{count}} 新しい"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "クイック アクセス",
+      "home": "ホーム",
+      "breadcrumbsAria": "場所",
+      "editPath": "パスを編集",
+      "newFolder": "新しいフォルダー",
+      "newFile": "新しいファイル",
+      "createFailed": "作成に失敗しました",
+      "createFolderFailed": "フォルダーを作成できませんでした: {{message}}",
+      "createFileFailed": "ファイルを作成できませんでした: {{message}}",
+      "fileType": "ファイルの種類",
+      "allTypes": "すべてのファイル (*.*)",
+      "pinned": "ピン留め済み",
+      "mounts": "マウント済みドライブ",
+      "saveFailed": "ファイルを保存できませんでした",
+      "unavailable": "システムファイルダイアログを利用できません",
+      "search": "このフォルダーを検索",
+      "searchAria": "このフォルダーを検索",
+      "noMatches": "(一致する項目はありません)"
     }
   }
 }

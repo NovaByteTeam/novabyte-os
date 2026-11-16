@@ -35,7 +35,7 @@ function writeNativeSettings(settings) {
 
 const OS = {
   version: '3.0.2',
-  securityPatch: '2026-11-12',  // NovaByte security patch date — globally readable
+  securityPatch: '2026-11-15',  // NovaByte security patch date — globally readable
   username: 'user',
   workers: {},
   windows: new Map(),
@@ -209,6 +209,9 @@ const OS = {
       region: 'en-US',
       language: 'en',
       keyboardLayout: 'us',
+      // 2026-11-15: system audio volume — per-user preference (HKNU hive),
+      // applied by the tray on session mount and after each change.
+      volume: 80,
       timezone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
         ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
         : 'UTC',

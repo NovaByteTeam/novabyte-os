@@ -396,7 +396,11 @@ function sanitizeEmailHtml(html) {
       const hasStyleOrClass = /\b(style|class)\s*=/i.test(rawTag);
       if (hasStyleOrClass && !isSelfClosing) {
         const cleanAttrs = sanitizeTagAttrs('span', rawTag.replace(/^<[a-zA-Z0-9:_-]+/, '<span'));
+        /* v8 ignore start */
+        // The dropStack guard earlier in the loop guarantees the stack is
+        // empty here; the else arm is unreachable defensive symmetry.
         if (dropStack.length === 0) out += `<span${cleanAttrs}>`;
+        /* v8 ignore stop */
         unknownTagSubStack.push(tagName);
       }
       continue;

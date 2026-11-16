@@ -17,6 +17,14 @@ registerApp({
     const APP_ID      = 'com.nbosp.calendar';
     const DB_FILE     = 'events.json';
     const COLORS      = Object.freeze(['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#ff7b72','#79c0ff','#56d364']);
+    const textOnColor = color => {
+      if (!/^#[\da-f]{6}$/i.test(color)) return 'var(--text-on-accent)';
+      const channels = [0, 2, 4].map(i => parseInt(color.slice(i + 1, i + 3), 16) / 255);
+      const luminance = channels
+        .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+        .reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0);
+      return luminance > 0.179 ? '#000000' : '#ffffff';
+    };
     const COLOR_NAMES = Object.freeze([_t('apps.calendar.colorBlue'), _t('apps.calendar.colorGreen'), _t('apps.calendar.colorYellow'), _t('apps.calendar.colorRed'), _t('apps.calendar.colorPurple'), _t('apps.calendar.colorSalmon'), _t('apps.calendar.colorSky'), _t('apps.calendar.colorLime')]);
     const VALID_VIEWS = Object.freeze(['month','week','day','agenda']);
     const DAYS_SHORT  = Object.freeze([_t('apps.calendar.daySun'), _t('apps.calendar.dayMon'), _t('apps.calendar.dayTue'), _t('apps.calendar.dayWed'), _t('apps.calendar.dayThu'), _t('apps.calendar.dayFri'), _t('apps.calendar.daySat')]);
@@ -190,7 +198,7 @@ registerApp({
         const cell = createEl('div', {
           className: 'mini-day',
           textContent: String(d),
-          style: `padding:2px;border-radius:4px;cursor:pointer;${isToday ? 'background:var(--accent);color:#fff;font-weight:700;' : ''}`
+          style: `padding:2px;border-radius:4px;cursor:pointer;${isToday ? 'background:var(--accent);color:var(--text-on-accent);font-weight:700;' : ''}`
         });
         if (hasDot && !isToday) cell.style.textDecoration = 'underline';
         cell.addEventListener('click', () => {
@@ -233,7 +241,7 @@ registerApp({
       viewBtnsWrap.querySelectorAll('button').forEach(b => {
         const active = b.dataset.view === view;
         b.style.background = active ? 'var(--accent)' : 'transparent';
-        b.style.color = active ? '#fff' : 'var(--text-primary)';
+        b.style.color = active ? 'var(--text-on-accent)' : 'var(--text-primary)';
       });
     }
 
@@ -276,7 +284,7 @@ registerApp({
           const label = (ev.timeStart ? ev.timeStart + ' ' : '') + ev.title;
           const evEl  = createEl('div', {
             textContent: label,
-            style: `font-size:10px;background:${ev.color};color:#fff;border-radius:3px;padding:1px 4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;`
+            style: `font-size:10px;background:${ev.color};color:${textOnColor(ev.color)};border-radius:3px;padding:1px 4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;`
           });
           evEl.addEventListener('click', e => { e.stopPropagation(); openEventModal(parseDate(dateStr), ev); });
           cell.appendChild(evEl);
@@ -331,7 +339,7 @@ registerApp({
         const allDay  = (byDate[dStr] ?? []).filter(ev => !ev.timeStart);
         const cell    = createEl('div', { style: 'border-top:1px solid var(--border-subtle);border-left:1px solid var(--border-subtle);min-height:28px;padding:1px;' });
         allDay.forEach(ev => {
-          const evEl = createEl('div', { textContent: ev.title, style: `font-size:10px;background:${ev.color};color:#fff;border-radius:3px;padding:2px 4px;cursor:pointer;margin-bottom:1px;` });
+          const evEl = createEl('div', { textContent: ev.title, style: `font-size:10px;background:${ev.color};color:${textOnColor(ev.color)};border-radius:3px;padding:2px 4px;cursor:pointer;margin-bottom:1px;` });
           evEl.addEventListener('click', () => openEventModal(dt, ev));
           cell.appendChild(evEl);
         });
@@ -351,7 +359,7 @@ registerApp({
           // Old: parseInt(ev.timeStart || '99') — broke when timeStart was empty ('99' !== any hr)
           const hrEvs = (byDate[dStr] ?? []).filter(ev => ev.timeStart && Number(ev.timeStart.split(':')[0]) === hr);
           hrEvs.forEach(ev => {
-            const evEl = createEl('div', { textContent: ev.title, style: `font-size:10px;background:${ev.color};color:#fff;border-radius:3px;padding:2px 4px;cursor:pointer;` });
+            const evEl = createEl('div', { textContent: ev.title, style: `font-size:10px;background:${ev.color};color:${textOnColor(ev.color)};border-radius:3px;padding:2px 4px;cursor:pointer;` });
             evEl.addEventListener('click', () => openEventModal(dt, ev));
             cell.appendChild(evEl);
           });
@@ -517,12 +525,12 @@ registerApp({
       const colorBtns = COLORS.map((c, i) => {
         const cb = createEl('button', {
           title: COLOR_NAMES[i],
-          style: `width:22px;height:22px;border-radius:50%;background:${c};border:2px solid ${c === selectedColor ? '#fff' : 'transparent'};cursor:pointer;`
+          style: `width:22px;height:22px;border-radius:50%;background:${c};border:2px solid ${c === selectedColor ? 'var(--text-primary)' : 'transparent'};cursor:pointer;`
         });
         cb.setAttribute('aria-label', COLOR_NAMES[i]);
         cb.addEventListener('click', () => {
           selectedColor = c;
-          colorBtns.forEach((b, j) => b.style.borderColor = COLORS[j] === c ? '#fff' : 'transparent');
+          colorBtns.forEach((b, j) => b.style.borderColor = COLORS[j] === c ? 'var(--text-primary)' : 'transparent');
         }, { signal: sig });
         colorRow.appendChild(cb);
         return cb;

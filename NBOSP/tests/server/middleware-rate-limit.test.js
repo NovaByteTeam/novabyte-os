@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import middleware from '../../server/middleware.js';
+// CJS require — same instance style as security/middleware.test.js's
+// require chain (uniform loading keeps the coverage merge honest).
+import { createRequire } from 'node:module';
+const middleware = createRequire(import.meta.url)('../../server/middleware.js');
 
 const { shouldSkipGlobalApiRateLimit } = middleware;
 

@@ -227,17 +227,35 @@ describe('AppScheduler (js/platform/security/app-scheduler.js)', () => {
       expect(Scheduler._pendingWakes.size).toBe(0);
     });
 
-    it('destroys the owned sandbox when the wake push dispatch throws (e.g. Temporal missing)', () => {
+    it('destroys the owned sandbox when the wake push dispatch throws', () => {
       setupWorld({ apps: { bg: bgApp('bg') }, grants: { bg: true } });
-      // Node runtimes have no Temporal — the wake push cannot even build its
-      // payload. The scheduler must fail closed: no half-woken sandbox left.
+      // The dispatch itself is the failure point — the scheduler must fail
+      // closed: no half-woken sandbox left.
+      // (2026-11-15 fix, finding L4: a missing Temporal no longer throws —
+      // the wake payload falls back to a Date-based ISO string — so this
+      // test drives the throw through dispatchBackgroundWake directly.)
+      globalThis.AppSandbox.dispatchBackgroundWake = vi.fn(() => { throw new Error('dispatch exploded'); });
+
+      Scheduler.runWakeCycle();
+
+      expect(globalThis.AppSandbox.destroy).toHaveBeenCalledWith('sb-owned-1');
+      expect(Scheduler._pendingWakes.size).toBe(0);
+    });
+
+    it('still dispatches when Temporal is unavailable (2026-11-15 fix, finding L4)', () => {
+      setupWorld({ apps: { bg: bgApp('bg') }, grants: { bg: true } });
+      // Node runtimes have no Temporal — previously every wake silently died
+      // at payload build time; the scheduler now falls back to Date-based
+      // ISO timestamps so the wake still goes out.
       vi.stubGlobal('Temporal', undefined);
 
       Scheduler.runWakeCycle();
 
-      expect(globalThis.AppSandbox.dispatchBackgroundWake).not.toHaveBeenCalled();
-      expect(globalThis.AppSandbox.destroy).toHaveBeenCalledWith('sb-owned-1');
-      expect(Scheduler._pendingWakes.size).toBe(0);
+      expect(globalThis.AppSandbox.dispatchBackgroundWake).toHaveBeenCalledWith(
+        'sb-owned-1',
+        expect.objectContaining({ deadlineMs: WAKE_DEADLINE_MS, wokeAt: expect.any(String) }),
+      );
+      expect(Scheduler._pendingWakes.size).toBe(1);
     });
 
     it('one app failing its wake does not cost the other apps their wake', () => {

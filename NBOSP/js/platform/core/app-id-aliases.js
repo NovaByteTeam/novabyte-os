@@ -5,10 +5,19 @@
     'com.nbosp.quill': 'com.nbosp.textedit',
     'com.nbosp.shell': 'com.nbosp.terminal',
     'com.nbosp.vault': 'com.nbosp.files',
-    quill: 'textedit',
+    // Canonical aliases for the short slugs several call sites use (e.g. the
+    // WM generic drop fallback and launcher folder opens). Without these,
+    // canonicalize('files'/'textedit') returned the short id itself, which is
+    // never a key in OS.apps — app registers under full ids — so windows
+    // created with those ids silently failed to resolve their app.
+    files: 'com.nbosp.files',
+    textedit: 'com.nbosp.textedit',
+    // Slug aliases resolve directly to the canonical full id (not to another
+    // slug) so a single canonicalize() pass always lands on a registered id.
+    quill: 'com.nbosp.textedit',
     shell: 'com.nbosp.terminal',
     terminal: 'com.nbosp.terminal',
-    vault: 'files',
+    vault: 'com.nbosp.files',
   });
 
   const canonicalize = id => typeof id === 'string' ? aliases[id] || id : id;

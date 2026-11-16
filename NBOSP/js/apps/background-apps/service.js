@@ -139,6 +139,24 @@
 
     function nowMs() { return Date.now(); }
 
+    // Format a stored "HH:MM" (24h) alarm time for notifications, honouring
+    // the user's clockFormat preference. Bugfix: the alarm body interpolated
+    // the raw 24h string, so 12h users saw "Alarm for 13:30" while every
+    // other clock surface showed 1:30 PM. Fully guarded — this is a
+    // background service and must never throw when OS/settings are absent.
+    function formatAlarmTime(hhmm) {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm ?? ''));
+      if (!m) return String(hhmm ?? '');
+      let use24 = false;
+      try {
+        use24 = typeof OS !== 'undefined' && OS?.settings?.get?.('clockFormat') === '24h';
+      } catch { use24 = false; }
+      if (use24) return `${String(m[1]).padStart(2, '0')}:${m[2]}`;
+      const h = Number(m[1]);
+      const h12 = h % 12 || 12;
+      return `${h12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+    }
+
     function timerMs() {
       normaliseState();
       if (state.timer.running && state.timer.endAt) {
@@ -152,6 +170,23 @@
           bgBeep(880, 0.7);
           setTimeout(() => bgBeep(1047, 0.7), 350);
           setTimeout(() => bgBeep(1319, 1.0), 700);
+          // Bugfix: timer expiry only chimed — no notification fired, so a
+          // backgrounded Clock window gave no visible cue that time was up.
+          // Mirror the alarm path's guarded Notify.show so the feed gets a
+          // timer card too (same try + typeof guards as alarmTick below).
+          try {
+            if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
+              Notify.show({
+                title: _t('apps.backgroundApps.timerDone'),
+                body: _t('apps.backgroundApps.timerDoneBody'),
+                type: 'info',
+                appName: 'Clock',
+                appId: 'com.nbosp.clock',
+                category: 'timer',
+                icon: 'bell'
+              });
+            }
+          } catch { /* notification UI is best effort; the timer chime still fires */ }
           return 0;
         }
         return rem;
@@ -281,7 +316,9 @@
             if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
               Notify.show({
                 title: al.label || _t('apps.backgroundApps.alarm'),
-                body: _t('apps.backgroundApps.alarmFor', { time: al.time }),
+                // Bugfix: render the alarm time in the user's chosen 12/24h
+                // format instead of interpolating the raw 24h "HH:MM" string.
+                body: _t('apps.backgroundApps.alarmFor', { time: formatAlarmTime(al.time) }),
                 type: 'info',
                 appName: 'Clock',
                 appId: 'com.nbosp.clock',

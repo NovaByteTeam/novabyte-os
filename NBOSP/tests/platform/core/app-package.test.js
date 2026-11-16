@@ -367,6 +367,167 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
         compiled_at: pkg.compiled_at,
       });
     });
+
+    describe('close-before-replace (2026-11-16)', () => {
+      // installPackage() funnels every force-replace of an already-installed
+      // .novaapp (Packages tool "Force overwrite", MyAppsManager forced
+      // installs, boot reconcile, the system-bundle watcher). A replacement
+      // must shut the running instances of the OLD app down BEFORE the
+      // registry entry / package-store record are swapped underneath them.
+      //
+      // NOTE on restore scope: the second half of THIS FILE runs at file
+      // top level (outside the describe with the shared beforeEach), so it
+      // inherits whatever globalThis.AppRegistry the last test here left
+      // behind. Snapshot and restore the mock implementations too, not just
+      // the WM/OS/AppSandbox/Notify globals.
+      const snapshot = () => ({
+        WM: globalThis.WM,
+        OS: globalThis.OS,
+        AppSandbox: globalThis.AppSandbox,
+        Notify: globalThis.Notify,
+        registryGetApp: globalThis.AppRegistry?.getApp,
+        registryRegisterApp: globalThis.AppRegistry?.registerApp,
+      });
+      const restore = (snap) => {
+        for (const key of ['WM', 'OS', 'AppSandbox', 'Notify']) {
+          if (snap[key] === undefined) delete globalThis[key];
+          else globalThis[key] = snap[key];
+        }
+        if (globalThis.AppRegistry) {
+          if (snap.registryGetApp === undefined) delete globalThis.AppRegistry.getApp;
+          else globalThis.AppRegistry.getApp = snap.registryGetApp;
+          if (snap.registryRegisterApp === undefined) delete globalThis.AppRegistry.registerApp;
+          else globalThis.AppRegistry.registerApp = snap.registryRegisterApp;
+        }
+      };
+      let snap;
+
+      beforeEach(() => { snap = snapshot(); });
+      afterEach(() => restore(snap));
+
+      const runningEnvironment = () => {
+        const order = [];
+        globalThis.WM = {
+          closeWindow: vi.fn(async (wid) => { order.push(`closeWindow:${wid}`); }),
+        };
+        globalThis.OS = {
+          windows: new Map([
+            ['win-1', { appId: 'com.test.app' }],
+            ['win-2', { appId: 'com.test.app' }],
+            ['win-3', { appId: 'com.other.app' }],
+          ]),
+        };
+        globalThis.AppSandbox = {
+          getAllSandboxes: vi.fn(() => [
+            { appId: 'com.test.app', sandboxId: 'sb-bg', backgrounded: true },
+            { appId: 'com.test.app', sandboxId: 'sb-fg', backgrounded: false },
+            { appId: 'com.other.app', sandboxId: 'sb-other', backgrounded: true },
+          ]),
+          terminateBackground: vi.fn((sid) => { order.push(`terminateBackground:${sid}`); }),
+        };
+        globalThis.Notify = { unpin: vi.fn() };
+        return order;
+      };
+
+      it('force-replacing a running app closes its windows and backgrounded sandboxes BEFORE the registry swap', async () => {
+        const { installPackage } = await import('../../../js/platform/core/app-package.js');
+        const order = runningEnvironment();
+        globalThis.AppRegistry.getApp = vi.fn(() => ({ id: 'com.test.app', name: 'Test App', version: '1.0.0' }));
+        const registerApp = vi.fn((config) => { order.push('registerApp'); return config; });
+        globalThis.AppRegistry.registerApp = registerApp;
+
+        const pkg = {
+          novabyte_app: '1.0',
+          compiled_at: 123456789,
+          manifest: { ...validManifest, version: '2.0.0' },
+          files: { 'index.html': '' },
+          signature: null,
+          signing: null,
+          integrity: { method: 'none' },
+        };
+        const result = await installPackage(pkg, { skipVerify: true, force: true });
+
+        expect(result.success).toBe(true);
+        // Only the replaced app's windows, each with forceKill so a
+        // system:background:live grant can't leave an orphaned webview.
+        expect(globalThis.WM.closeWindow).toHaveBeenCalledTimes(2);
+        expect(globalThis.WM.closeWindow).toHaveBeenCalledWith('win-1', { forceKill: true });
+        expect(globalThis.WM.closeWindow).toHaveBeenCalledWith('win-2', { forceKill: true });
+        // Only the replaced app's BACKGROUNDED sandbox; the foreground one
+        // belongs to a window the close above already handled, and other
+        // apps' sandboxes are untouched.
+        expect(globalThis.AppSandbox.terminateBackground).toHaveBeenCalledTimes(1);
+        expect(globalThis.AppSandbox.terminateBackground).toHaveBeenCalledWith('sb-bg');
+        expect(globalThis.Notify.unpin).toHaveBeenCalledWith('pin_bg_com.test.app');
+        // Strict ordering: full shutdown of the old instance, then swap.
+        expect(order.indexOf('registerApp')).toBeGreaterThan(order.indexOf('terminateBackground:sb-bg'));
+        for (const wid of ['win-1', 'win-2']) {
+          expect(order.indexOf(`closeWindow:${wid}`)).toBeLessThan(order.indexOf('registerApp'));
+        }
+      });
+
+      it('a fresh install (nothing registered under the id) closes nothing', async () => {
+        const { installPackage } = await import('../../../js/platform/core/app-package.js');
+        runningEnvironment();
+        globalThis.AppRegistry.getApp = vi.fn(() => null);
+
+        const pkg = {
+          novabyte_app: '1.0',
+          compiled_at: 123456789,
+          manifest: validManifest,
+          files: { 'index.html': '' },
+          signature: null,
+          signing: null,
+          integrity: { method: 'none' },
+        };
+        const result = await installPackage(pkg, { skipVerify: true });
+
+        expect(result.success).toBe(true);
+        expect(globalThis.WM.closeWindow).not.toHaveBeenCalled();
+        expect(globalThis.AppSandbox.terminateBackground).not.toHaveBeenCalled();
+      });
+
+      it('a non-forced duplicate still throws and closes nothing', async () => {
+        const { installPackage } = await import('../../../js/platform/core/app-package.js');
+        runningEnvironment();
+        globalThis.AppRegistry.getApp = vi.fn(() => ({ id: 'com.test.app', name: 'Test App', version: '1.0.0' }));
+
+        const pkg = {
+          novabyte_app: '1.0',
+          compiled_at: 123456789,
+          manifest: validManifest,
+          files: { 'index.html': '' },
+          signature: null,
+          signing: null,
+          integrity: { method: 'none' },
+        };
+        await expect(installPackage(pkg, { skipVerify: true }))
+          .rejects.toThrow(/already installed/i);
+        expect(globalThis.WM.closeWindow).not.toHaveBeenCalled();
+        expect(globalThis.AppSandbox.terminateBackground).not.toHaveBeenCalled();
+        expect(globalThis.AppRegistry.registerApp).not.toHaveBeenCalled();
+      });
+
+      it('survives hosts without WM/AppSandbox (bare test VMs, pre-window boot)', async () => {
+        const { installPackage, closeRunningAppInstances } = await import('../../../js/platform/core/app-package.js');
+        // No WM/OS/AppSandbox/Notify globals at all — closeRunningAppInstances
+        // must be a silent no-op, not a crash.
+        await expect(closeRunningAppInstances('com.test.app')).resolves.toBe(false);
+
+        globalThis.AppRegistry.getApp = vi.fn(() => ({ id: 'com.test.app', name: 'Test App', version: '1.0.0' }));
+        const pkg = {
+          novabyte_app: '1.0',
+          compiled_at: 123456789,
+          manifest: { ...validManifest, version: '2.0.0' },
+          files: { 'index.html': '' },
+          signature: null,
+          signing: null,
+          integrity: { method: 'none' },
+        };
+        const result = await installPackage(pkg, { skipVerify: true, force: true });
+        expect(result.success).toBe(true);
+      });
+    });
   });
 });
 

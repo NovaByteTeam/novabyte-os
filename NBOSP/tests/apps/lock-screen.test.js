@@ -72,11 +72,17 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     { uid: 'u-sam-002', displayName: 'Sam', username: 'sam', role: 'standard', roleLabel: 'Standard', status: 'active', locked: false, pinLength: 4, hasPassphrase: false, hasBiometric: false, mustChangePin: false },
   ];
 
-  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' } } = {}) {
+  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }, changePinResult = null, webauthnResult = null, status = 'loggedout', extraStubs = {} } = {}) {
     const loginCalls = [];
+    const changePinCalls = [];
+    const webauthnCalls = [];
+    const suspendCalls = [];
     const workerCalls = [];
+    // Mirrors the real SessionManager: suspendForSwitch() flips the local
+    // status to 'suspended' even when the server call fails.
+    const stateBox = { status };
     const manager = {
-      state: () => ({ status: 'loggedout', uid: null, uname: null, displayName: null, role: null }),
+      state: () => ({ status: stateBox.status, uid: stateBox.status === 'loggedout' ? null : 'u-ada-001', uname: stateBox.status === 'loggedout' ? null : 'ada', displayName: stateBox.status === 'loggedout' ? null : 'Ada', role: stateBox.status === 'loggedout' ? null : 'owner' }),
       active: () => false,
       isActive: () => false,
       isAdmin: () => false,
@@ -85,9 +91,14 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
       login: async (args) => { loginCalls.push(args); return loginResult; },
       unlock: async (secret) => ({ ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }),
       resumeUser: async () => ({ ok: false }),
-      suspendForSwitch: async () => ({ ok: true }),
+      suspendForSwitch: async () => { suspendCalls.push(1); stateBox.status = 'suspended'; return { ok: true }; },
       guestLogin: async () => ({ ok: true, guest: true }),
-      webauthnLogin: async () => ({ ok: false, code: 'UNAVAILABLE', message: 'no webauthn' }),
+      changePin: changePinResult
+        ? async (currentSecret, newPin) => { changePinCalls.push([currentSecret, newPin]); return changePinResult; }
+        : async () => ({ ok: false, code: 'CHANGE_PIN_FAILED', message: 'no stub' }),
+      webauthnLogin: webauthnResult
+        ? async (args) => { webauthnCalls.push(args); return webauthnResult; }
+        : async () => ({ ok: false, code: 'UNAVAILABLE', message: 'no webauthn' }),
       on: () => () => {},
     };
     const scope = {
@@ -115,12 +126,13 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
           renderDesktopIcons: () => wmCalls.push('renderDesktopIcons'),
           NovaUserScope: scope,
           SessionManager: manager,
+          ...extraStubs,
         },
       },
     });
     dom = loaded.dom;
     loaded.document.body.innerHTML = LOCK_SCREEN_MARKUP;
-    return { ...loaded, manager, loginCalls, wmCalls, workerCalls, scope };
+    return { ...loaded, manager, loginCalls, changePinCalls, webauthnCalls, suspendCalls, wmCalls, workerCalls, scope };
   }
 
   async function loadFirstBoot({
@@ -273,6 +285,29 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     expect(document.getElementById('lock-screen').className).toContain('active');
   });
 
+  it('switchUser() suspends the active session first, then shows the picker (dead-button fix)', async () => {
+    // Regression: Settings' "Switch user" / Users' "Sign in" used to call
+    // showLoginPicker() directly, which bails while a session is locally
+    // active (M10 guard) — the buttons did nothing. switchUser() must do the
+    // suspend-then-picker dance the lock screen's own button does.
+    const { window, document, suspendCalls } = await loadMultiUser({ status: 'active' });
+    expect(window.SessionManager.state().status).toBe('active');
+
+    // direct picker call is still correctly refused for an active session
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    expect(suspendCalls).toEqual([]);
+    expect(document.querySelector('.lock-picker')).toBeNull();
+
+    // the switch verb suspends first — then the picker opens
+    await window.LockScreenService.switchUser();
+    await settle();
+    expect(suspendCalls).toEqual([1]);
+    expect(window.LockScreenService.state()).toBe('picker');
+    expect(document.querySelector('.lock-picker')).toBeTruthy();
+    expect([...document.querySelectorAll('.lp-tile')]).toHaveLength(3);
+  });
+
   it('selecting an account shows the adaptive sheet — 6 dots for a 6-digit PIN account', async () => {
     const { window, document } = await loadMultiUser();
     await window.LockScreenService.showLoginPicker();
@@ -285,6 +320,51 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     expect(numpadButtons(document)).toHaveLength(12);
     // Passphrase affordance only for accounts that carry one.
     expect(document.getElementById('lock-passphrase-toggle')).toBeTruthy();
+  });
+
+  it('shows stock blue on the picker and only switches to an account\'s wallpaper on its PIN screen', async () => {
+    // keyed by uid, like the registry's user:<uid>:HKNU documents (the usernames differ)
+    const stored = { 'u-ada-001': { id: 'stock-red' }, 'u-sam-002': { id: 'stock-green' } };
+    const { window, document } = await loadMultiUser({
+      extraStubs: {
+        // the machine's desktop is still wearing whoever logged off last
+        WallpaperService: { styleFor: (id) => ({ backgroundImage: `url("${id}.png")` }) },
+        NovaRegistry: { peekUserValue: (segment, path) => (path === 'HKNU/shell/wallpaper' ? stored[segment]?.id : undefined) },
+      },
+    });
+    const layerImage = () => document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage;
+
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    expect(layerImage()).toBe('url("stock-blue.png")');
+
+    [...document.querySelectorAll('.lp-tile')][0].click(); // Ada
+    await settle();
+    expect(layerImage()).toBe('url("stock-red.png")');
+
+    document.getElementById('lock-picker-back').click();
+    await settle();
+    expect(layerImage()).toBe('url("stock-blue.png")');
+    // the PIN screen's back button must not linger above the picker
+    expect(document.getElementById('lock-picker-back').style.display).toBe('none');
+
+    [...document.querySelectorAll('.lp-tile')][1].click(); // Sam
+    await settle();
+    expect(layerImage()).toBe('url("stock-green.png")');
+  });
+
+  it('falls back to stock blue for an account whose hive has no wallpaper yet', async () => {
+    const { window, document } = await loadMultiUser({
+      extraStubs: {
+        WallpaperService: { styleFor: (id) => ({ backgroundImage: `url("${id}.png")` }) },
+        NovaRegistry: { peekUserValue: () => undefined },
+      },
+    });
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][0].click();
+    await settle();
+    expect(document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage).toBe('url("stock-blue.png")');
   });
 
   it('sheet verification is a server round-trip: failed login surfaces the server message', async () => {
@@ -326,6 +406,69 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     expect(document.getElementById('lock-screen').className).not.toContain('active');
     expect(manager.state()).toBeTruthy(); // the guest tile path ran through the manager
   });
+
+  it('a must-change login lands on the forced-PIN card: chrome hidden, digits never leak into unlock attempts, success tears the gate down', async () => {
+    const { window, document, loginCalls, changePinCalls } = await loadMultiUser({
+      loginResult: { ok: true, user: ACCOUNTS[1], mustChangePin: true },
+      changePinResult: { ok: true },
+    });
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][1].click(); // Sam, 4-digit PIN
+    await settle();
+    await pressPin(document, window, '4321'); // 4th digit auto-submits the sheet
+    await settle(50);
+
+    // The forced-PIN card is up and the sheet chrome underneath is hidden.
+    const card = document.getElementById('lock-forced-pin');
+    expect(card).toBeTruthy();
+    expect(document.getElementById('lock-screen').className).toContain('active');
+    expect(window.LockScreenService.state()).toBe('forced-pin');
+    expect(document.getElementById('lock-numpad').style.display).toBe('none');
+    expect(document.getElementById('lock-username').style.display).toBe('none');
+
+    // Digit keys while the card is up never fall through into a new
+    // verify/unlock round-trip (they drive the card's inputs or nothing).
+    await pressPin(document, window, '9999');
+    await settle(30);
+    expect(loginCalls).toHaveLength(1); // only the original sheet verification
+
+    // A successful save restores the chrome visibility and takes the whole
+    // gate down — the overlay cannot stick with a dead 'forced-pin' surface.
+    document.getElementById('fp-pin').value = '5678';
+    document.getElementById('fp-pin2').value = '5678';
+    card.querySelector('.fw-submit').click();
+    await settle(50);
+    expect(changePinCalls).toEqual([[null, '5678']]);
+    expect(document.getElementById('lock-forced-pin')).toBeNull();
+    expect(document.getElementById('lock-screen').className).not.toContain('active');
+    expect(window.LockScreenService.state()).toBe('hidden');
+    expect(document.getElementById('lock-numpad').style.display).toBe(''); // chrome restored for the next lock
+  });
+
+  it('a biometric login of a must-change account routes onto the forced-PIN card too', async () => {
+    const { window, document, webauthnCalls } = await loadMultiUser({
+      webauthnResult: { ok: true, mustChangePin: true },
+    });
+    // jsdom has no WebAuthn: provide the platform-authenticator surface the
+    // button and the unlock path probe.
+    window.PublicKeyCredential = {
+      isUserVerifyingPlatformAuthenticatorAvailable: async () => true,
+    };
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][0].click(); // Ada (hasBiometric)
+    await settle();
+    const bioBtn = document.querySelector('#lock-screen .biometric-btn');
+    expect(bioBtn).toBeTruthy();
+    bioBtn.click();
+    await settle(50);
+
+    expect(webauthnCalls).toEqual([{ uid: 'u-ada-001' }]);
+    expect(document.getElementById('lock-forced-pin')).toBeTruthy();
+    expect(window.LockScreenService.state()).toBe('forced-pin');
+    expect(document.getElementById('lock-screen').className).toContain('active');
+  });
 });
 
 describe('LockScreenService service (js/apps/lock-screen)', () => {
@@ -338,9 +481,10 @@ describe('LockScreenService service (js/apps/lock-screen)', () => {
     const svc = dom.window.LockScreenService;
     expect(svc).toBeTruthy();
     expect(Object.isFrozen(svc)).toBe(true);
-    expect(Object.keys(svc)).toEqual(['lockScreen', 'showLoginPicker', 'lockForUser', 'state']);
+    expect(Object.keys(svc)).toEqual(['lockScreen', 'showLoginPicker', 'switchUser', 'lockForUser', 'state']);
     expect(typeof svc.lockScreen).toBe('function');
     expect(typeof svc.showLoginPicker).toBe('function');
+    expect(typeof svc.switchUser).toBe('function');
     expect(typeof svc.lockForUser).toBe('function');
   });
 

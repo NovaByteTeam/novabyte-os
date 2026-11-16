@@ -25,6 +25,13 @@ function loadSystemFetch() {
 }
 
 describe('system-fetch (js/platform/security/system-fetch.js)', () => {
+  it('stays dormant when the window has no fetch (load-time guard)', () => {
+    delete window.fetch;
+    loadSystemFetch();
+    expect(window.__novaSystemFetchInstalled).toBeUndefined();
+    expect(window.fetch).toBeUndefined();
+  });
+
   beforeEach(() => {
     // Same-origin anchor the wrapper resolves relative URLs against.
     window.location = { href: 'https://localhost/index.html', origin: 'https://localhost' };

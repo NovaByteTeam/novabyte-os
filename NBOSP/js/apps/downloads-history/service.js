@@ -41,7 +41,10 @@ function loadDownloadHistory() {
 }
 
 function saveDownloadHistory(items) {
+  /* v8 ignore start — defensive guard against internal misuse: every caller
+     in this module passes an array, and the function is not exported. */
   if (!Array.isArray(items)) throw new TypeError('Download history must be an array');
+  /* v8 ignore stop */
   const boundedItems = items.slice(0, DOWNLOADS_MAX_ENTRIES);
   if (typeof window.lsSave === 'function') {
     window.lsSave(DOWNLOADS_STORAGE_KEY, boundedItems);

@@ -76,6 +76,8 @@ registerApp({
       .nvsetup-input { padding:11px 14px;border-radius:10px;border:1px solid var(--border-default);background:var(--bg-overlay);color:var(--text-primary);font-size:14px;outline:none;width:100%;box-sizing:border-box; }
       .nvsetup-input:focus { border-color:var(--accent); }
       .nvsetup-input.bad { border-color:var(--text-danger); }
+      .nvsetup-select { -webkit-appearance:none;appearance:none;padding-right:40px;color-scheme:var(--color-scheme,dark);background-image:linear-gradient(45deg,transparent 50%,var(--text-secondary) 50%),linear-gradient(135deg,var(--text-secondary) 50%,transparent 50%);background-position:calc(100% - 19px) 50%,calc(100% - 14px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat; }
+      .nvsetup-select option { background:var(--bg-base);color:var(--text-primary); }
       .nvsetup-grid2 { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
       .nvsetup-row { display:flex;align-items:center;gap:10px;padding:11px 14px;border:1px solid var(--border-default);border-radius:10px;background:var(--bg-overlay);font-size:13px;cursor:pointer; }
       .nvsetup-row .nvsetup-row-text { flex:1; }
@@ -96,7 +98,7 @@ registerApp({
       .nvsetup-bottom { flex-shrink:0;display:flex;justify-content:space-between;gap:10px;padding:16px 34px 22px;border-top:1px solid var(--border-subtle); }
       .nvsetup-btn { padding:10px 22px;border-radius:10px;border:1px solid var(--border-default);background:var(--bg-elevated);color:var(--text-primary);font-size:13px;cursor:pointer; }
       .nvsetup-btn.ghost { background:transparent;border-color:transparent;color:var(--text-muted); }
-      .nvsetup-btn.primary { border-color:var(--accent);background:var(--accent);color:var(--text-primary);font-weight:600; }
+      .nvsetup-btn.primary { border-color:var(--accent);background:var(--accent);color:var(--text-on-accent);font-weight:600; }
       .nvsetup-btn.primary:disabled { opacity:.5;cursor:default; }
       .nvsetup-swatches { display:flex;gap:10px;justify-content:center;flex-wrap:wrap; }
       .nvsetup-swatch { width:34px;height:34px;border-radius:50%;border:2px solid transparent;cursor:pointer; }
@@ -244,7 +246,7 @@ registerApp({
       const languageLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-language', textContent: _t('setup.welcome.language') });
       const languageSelect = createEl('select', {
         id: 'nvsetup-language',
-        className: 'nvsetup-input nvsetup-layout',
+        className: 'nvsetup-input nvsetup-layout nvsetup-select',
         'aria-label': _t('setup.welcome.languageAria'),
       });
       const languages = (typeof window.NovaI18n?.getLanguages === 'function')
@@ -268,7 +270,7 @@ registerApp({
       const layoutLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-keyboard-layout', textContent: _t('setup.welcome.keyboardLayout') });
       const layoutSelect = createEl('select', {
         id: 'nvsetup-keyboard-layout',
-        className: 'nvsetup-input nvsetup-layout',
+        className: 'nvsetup-input nvsetup-layout nvsetup-select',
         'aria-label': _t('setup.welcome.keyboardAria'),
       });
       for (const layout of KEYBOARD_LAYOUTS) {
@@ -336,7 +338,7 @@ registerApp({
       const regionLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-region', textContent: _t('setup.region.regionFormat') });
       const regionSelect = createEl('select', {
         id: 'nvsetup-region',
-        className: 'nvsetup-input nvsetup-layout',
+        className: 'nvsetup-input nvsetup-layout nvsetup-select',
         'aria-label': _t('setup.region.regionFormatAria'),
       });
       const regions = [...REGIONS];
@@ -352,7 +354,7 @@ registerApp({
       const timezoneLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-timezone', textContent: _t('setup.region.timezone') });
       const timezoneSelect = createEl('select', {
         id: 'nvsetup-timezone',
-        className: 'nvsetup-input nvsetup-layout',
+        className: 'nvsetup-input nvsetup-layout nvsetup-select',
         'aria-label': _t('setup.region.timezone'),
       });
       for (const timezone of TIMEZONES) {
@@ -463,7 +465,9 @@ registerApp({
       body.replaceChildren(card);
       setButtons({ next: _t('setup.account.createAccount'), nextDisabled: true });
       validate();
-      display.focus();
+      // No explicit display.focus() here: wm.js's focusWindow already
+      // auto-focuses the first input of a fresh window (with the
+      // data-wm-autofocus focus-ring suppression applied).
     }
 
     async function createOwner(statusEl) {
@@ -500,6 +504,7 @@ registerApp({
         btn.appendChild(text);
         btn.addEventListener('click', () => {
           pending.theme = theme.id;
+          OS.settings.set('theme', theme.id);
           for (const other of themeRows.children) other.setAttribute('aria-pressed', 'false');
           btn.setAttribute('aria-pressed', 'true');
         });

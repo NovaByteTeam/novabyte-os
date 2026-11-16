@@ -87,22 +87,22 @@
   }
 
   /* ANSI-like colour classes emitted by the shell's syntax highlighter. */
-  .shell-green   { color: #3fb950; }
-  .shell-blue    { color: #58a6ff; }
-  .shell-red     { color: #f85149; }
-  .shell-yellow  { color: #d29922; }
-  .shell-cyan    { color: #56d4dd; }
-  .shell-magenta { color: #bc8cff; }
+  .shell-green   { color: var(--text-success); }
+  .shell-blue    { color: var(--text-link); }
+  .shell-red     { color: var(--text-danger); }
+  .shell-yellow  { color: var(--text-warning); }
+  .shell-cyan    { color: var(--text-link); }
+  .shell-magenta { color: var(--accent); }
   .shell-bold    { font-weight: 700; }
   .shell-dim     { opacity: 0.6; }
-  .shell-cmd     { color: #58a6ff; font-weight: 600; }
-  .shell-flag    { color: #d29922; }
-  .shell-string  { color: #a5d6ff; }
-  .shell-var     { color: #ff7b72; }
-  .shell-pipe    { color: #f85149; font-weight: 700; }
-  .shell-operator{ color: #f85149; font-weight: 700; }
-  .shell-path    { color: #79c0ff; }
-  .shell-number  { color: #79c0ff; }
+  .shell-cmd     { color: var(--accent); font-weight: 600; }
+  .shell-flag    { color: var(--text-warning); }
+  .shell-string  { color: var(--text-success); }
+  .shell-var     { color: var(--text-danger); }
+  .shell-pipe    { color: var(--text-danger); font-weight: 700; }
+  .shell-operator{ color: var(--text-danger); font-weight: 700; }
+  .shell-path    { color: var(--text-link); }
+  .shell-number  { color: var(--text-link); }
 }
 
 @layer windows {

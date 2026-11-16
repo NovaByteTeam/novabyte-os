@@ -12,6 +12,19 @@ const APP_REGISTRY = [];
           getAllApps() { return load(); },
           getApp(id) { return load().find(a => a.id === id) || null; },
           addApp(data) {
+            // SECURITY (2026-11-15 audit, finding M12): the URL is the launch
+            // src of a <webview>/iframe (buildWebAppEntry → guest.navigate /
+            // iframe.src). Anything other than http(s) — data:, file:,
+            // javascript:-adjacent junk — must not be persistable here: the
+            // properly-validating module (js/platform/ui/web-app-manager.js,
+            // isValidHttpUrl) is never loaded at runtime, so this store is
+            // the only live gate. Empty urls keep their legacy bare-defaults
+            // behavior (they never navigate anywhere).
+            if (data && typeof data.url === 'string' && data.url !== '') {
+              let parsed;
+              try { parsed = new URL(data.url); } catch { return null; }
+              if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+            }
             const apps = load();
             const app = { id: genId(), name: data.name || 'Web App', url: data.url || '', icon: data.icon || '🌐', addedAt: Date.now(), launchCount: 0 };
             apps.push(app); save(apps); return app;
@@ -63,7 +76,7 @@ const APP_REGISTRY = [];
             const wrapper = document.createElement('div');
             wrapper.style.cssText = 'width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;';
             const urlBar = document.createElement('div');
-            urlBar.style.cssText = 'background:rgba(0,0,0,0.22);border-bottom:1px solid rgba(255,255,255,0.07);padding:5px 12px;font-size:11px;color:rgba(255,255,255,0.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:monospace;flex-shrink:0;';
+            urlBar.style.cssText = 'background:var(--bg-sunken);border-bottom:1px solid var(--border-subtle);padding:5px 12px;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:monospace;flex-shrink:0;';
             try {
               urlBar.textContent = '\uD83D\uDD12 ' + new URL(waData.url).host;
             } catch {

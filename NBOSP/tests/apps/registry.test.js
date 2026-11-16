@@ -142,6 +142,13 @@ describe('Registry service (js/apps/registry/service.js)', () => {
     expect(bare.name).toBe('Web App');
     expect(bare.url).toBe('');
     expect(bare.icon).toBe('🌐');
+
+    // 2026-11-15 fix (finding M12): non-http(s) launch URLs are rejected —
+    // data:/file: were persistable and became the webview src at launch.
+    expect(mgr.addApp({ name: 'Bad', url: 'data:text/html,<script>x</script>' })).toBeNull();
+    expect(mgr.addApp({ name: 'Bad', url: 'file:///etc/passwd' })).toBeNull();
+    expect(mgr.addApp({ name: 'Bad', url: 'not a url' })).toBeNull();
+    expect(mgr.getAllApps()).toHaveLength(2); // the good one + the bare default
   });
 
   it('launchApp bumps launchCount/lastUsed and removeApp deletes the record', async () => {

@@ -236,8 +236,17 @@ const AppScheduler = (() => {
 
     let dispatched;
     try {
+      // BUG (2026-11-15 audit, finding L4): Temporal is not guaranteed on
+      // every Chromium/NW.js build this OS runs on; without it the throw
+      // below was caught and EVERY scheduled background wake silently
+      // failed forever (the scheduler still tore down the sandbox it had
+      // spun up). Fall back to a plain ISO timestamp — the payload is
+      // informational metadata for the app, not a parsing contract.
+      const wokeAt = typeof Temporal !== 'undefined' && Temporal?.Now?.instant
+        ? Temporal.Now.instant().toString()
+        : new Date().toISOString();
       dispatched = AppSandbox.dispatchBackgroundWake(sandboxId, {
-        wokeAt: Temporal.Now.instant().toString(),
+        wokeAt,
         deadlineMs: WAKE_DEADLINE_MS,
       });
     } catch (err) {

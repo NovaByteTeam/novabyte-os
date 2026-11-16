@@ -139,6 +139,10 @@ describe('BackgroundApps service (js/apps/background-apps)', () => {
     expect(audio.instances.length).toBeGreaterThan(0);
     expect(audio.instances[0].oscillators).toBeGreaterThanOrEqual(3);
     expect(bg.clock.state.timer.done).toBe(true);
+    // Bugfix coverage: timer expiry now also raises a notification (it used
+    // to only chime, so a backgrounded Clock gave no visible cue).
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0]).toMatchObject({ appName: 'Clock', appId: 'com.nbosp.clock', category: 'timer', icon: 'bell' });
   });
 
   it('stopwatch: start/lap/pause/reset accumulate wall time against the fixed clock', async () => {
@@ -174,7 +178,9 @@ describe('BackgroundApps service (js/apps/background-apps)', () => {
 
     expect(fired).toEqual(['a1']);
     expect(notifyCalls).toHaveLength(1);
-    expect(notifyCalls[0]).toMatchObject({ title: 'Wake up', body: 'Alarm for 10:05', appName: 'Clock', appId: 'com.nbosp.clock', category: 'alarm' });
+    // clockFormat defaults to '12h' (no OS.settings in this realm), so the
+    // alarm body now renders the 12h form instead of the raw 24h "10:05".
+    expect(notifyCalls[0]).toMatchObject({ title: 'Wake up', body: 'Alarm for 10:05 AM', appName: 'Clock', appId: 'com.nbosp.clock', category: 'alarm' });
     // One-shot alarm got disabled and persisted.
     const saved = JSON.parse(window.localStorage.getItem('nbosp_clock_v1'));
     expect(saved.alarms[0].enabled).toBe(false);

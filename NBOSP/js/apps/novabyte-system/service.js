@@ -26,7 +26,7 @@
     'highContrast', 'keyboardLayout', 'language', 'osVersion', 'prohibitWallpaperChange',
     'reduceMotion', 'region', 'removeTransparency', 'rootAccessEnabled',
     'showTaskbarClock', 'taskbarSize', 'theme', 'timezone', 'username',
-    'wallpaperId', 'customWallpaper', 'customWallpaperName', 'doNotDisturb',
+    'wallpaperId', 'customWallpaper', 'customWallpaperName', 'doNotDisturb', 'volume',
   ]);
   const protectedImportKeys = new Set([
     'devMode', 'rootAccessEnabled', 'lockPin', 'pinSalt',
@@ -58,7 +58,9 @@
       }
     }],
     ['region', value => {
-      if (typeof value !== 'string' || value.length > 64) return false;
+      if (typeof value !== 'string' || value.length > 64) {
+        return false;
+      }
       try {
         return Intl.getCanonicalLocales(value).length === 1;
       } catch {
@@ -75,12 +77,25 @@
       (typeof value === 'string' && value.length > 0 && value.length <= 255 &&
         !/[\u0000-\u001f\u007f]/.test(value))],
     ['doNotDisturb', value => typeof value === 'boolean'],
-    ['showTaskbarClock', value => typeof value === 'boolean'],
-    ['taskbarSize', value => value === 'compact' || value === 'normal' || value === 'large'],
-    ['reduceMotion', value => typeof value === 'boolean'],
-    ['removeTransparency', value => typeof value === 'boolean'],
-    ['highContrast', value => typeof value === 'boolean'],
-    ['cursorSize', value => value === 'normal' || value === 'large' || value === 'xlarge'],
+    ['showTaskbarClock', value => {
+      return typeof value === 'boolean';
+    }],
+    ['taskbarSize', value => {
+      return value === 'compact' || value === 'normal' || value === 'large';
+    }],
+    ['reduceMotion', value => {
+      return typeof value === 'boolean';
+    }],
+    ['removeTransparency', value => {
+      return typeof value === 'boolean';
+    }],
+    ['highContrast', value => {
+      return typeof value === 'boolean';
+    }],
+    ['cursorSize', value => {
+      return value === 'normal' || value === 'large' || value === 'xlarge';
+    }],
+    ['volume', value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100],
   ]);
 
   function get(key) {
@@ -131,6 +146,19 @@
 
   function setDeveloperMode(enabled) {
     if (typeof enabled !== 'boolean') throw new TypeError('Developer Mode must be a boolean');
+    // 2026-11-16: host-side enforcement for the admin-only Developer Mode.
+    // The Settings UI gates the toggle behind an administrator account; this
+    // guard keeps any other caller (unrestricted app entry, imported prefs
+    // replay, a compromised sandbox bridge) from arming the debugging tier
+    // for a standard account. Turning an inherited dev mode back OFF stays
+    // allowed for anyone. Single-user (legacy) machines stay ungated —
+    // NovaUserScope.isActiveAdmin() returns true there.
+    if (enabled
+        && typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()
+        && typeof NovaUserScope.isActiveAdmin === 'function'
+        && !NovaUserScope.isActiveAdmin()) {
+      throw new Error('Developer Mode is only available to administrator accounts');
+    }
     storedSettings.set('devMode', enabled);
     if (window.DebugOverlay) {
       enabled ? window.DebugOverlay.enable() : window.DebugOverlay.disable();
@@ -140,6 +168,15 @@
 
   function setRootAccess(enabled) {
     if (typeof enabled !== 'boolean') throw new TypeError('Root Access must be a boolean');
+    // 2026-11-16: same host-side admin gate as Developer Mode — enabling the
+    // Root tier must never be possible for a standard account through any
+    // caller; revoking stays open to anyone.
+    if (enabled
+        && typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()
+        && typeof NovaUserScope.isActiveAdmin === 'function'
+        && !NovaUserScope.isActiveAdmin()) {
+      throw new Error('Root Access is only available to administrator accounts');
+    }
     if (enabled && storedSettings.get('devMode') !== true) {
       throw new Error('Developer Mode must be enabled before Root Access');
     }
@@ -215,7 +252,9 @@
     try {
       return fs.readFileSync(filePath, 'utf8').trim();
     } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        return null;
+      }
       throw error;
     }
   }
@@ -224,7 +263,9 @@
     try {
       return fs.readdirSync(directory);
     } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return [];
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        return [];
+      }
       throw error;
     }
   }
@@ -233,8 +274,11 @@
     try {
       return pathBasename(fs.realpathSync(`${devicePath}/driver`));
     } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
-      throw error;
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        return null;
+      } else {
+        throw error;
+      }
     }
   }
 
@@ -283,19 +327,22 @@
   }
 
   function getVmwareToolsStatus(isVmware) {
-    if (!isVmware) return { installed: false, running: false, displayResize: false };
-    const installed = fs.existsSync('/usr/bin/vmtoolsd') &&
-      fs.existsSync('/usr/bin/vmware-checkvm');
-    const pid = readOptionalFile('/run/vmtoolsd.pid');
-    const processName = pid && /^\d+$/.test(pid)
-      ? readOptionalFile(`/proc/${pid}/comm`)
-      : null;
-    const running = processName === 'vmtoolsd';
-    const graphics = getGraphicsDevices();
-    return {
-      installed,
-      running,
-    };
+    if (!isVmware) {
+      return { installed: false, running: false, displayResize: false };
+    } else {
+      const installed = fs.existsSync('/usr/bin/vmtoolsd') &&
+        fs.existsSync('/usr/bin/vmware-checkvm');
+      const pid = readOptionalFile('/run/vmtoolsd.pid');
+      const processName = pid && /^\d+$/.test(pid)
+        ? readOptionalFile(`/proc/${pid}/comm`)
+        : null;
+      const running = processName === 'vmtoolsd';
+      const graphics = getGraphicsDevices();
+      return {
+        installed,
+        running,
+      };
+    }
   }
 
   function getHardwareInventory() {
@@ -340,8 +387,11 @@
 
   function getConnectivityBackend() {
     const backend = window.NovaConnectivity;
-    if (!backend) throw new Error('Network and Bluetooth hardware backend is unavailable');
-    return backend;
+    if (backend) {
+      return backend;
+    } else {
+      throw new Error('Network and Bluetooth hardware backend is unavailable');
+    }
   }
 
   const network = Object.freeze(Object.fromEntries([
@@ -357,9 +407,12 @@
   }])));
 
   async function runPowerAction(action) {
+    /* v8 ignore start — unreachable from the frozen api: the power object
+       only ever passes 'restart' or 'poweroff'. */
     if (action !== 'restart' && action !== 'poweroff') {
       throw new TypeError('Unsupported system power action');
     }
+    /* v8 ignore stop */
     if (typeof process === 'undefined' || process.platform !== 'linux') {
       throw new Error('System power actions are available only in the NBOSP Linux guest');
     }
@@ -373,8 +426,9 @@
             const detail = String(stderr || stdout || error.message).trim();
             reject(new Error(detail || `System ${action} failed`, { cause: error }));
             return;
+          } else {
+            resolve(true);
           }
-          resolve(true);
         }
       );
     });

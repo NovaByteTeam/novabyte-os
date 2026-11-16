@@ -708,7 +708,10 @@
       "wipeEverything": "Wipe Everything",
       "wiping": "Wiping Data",
       "wipingBody": "Please wait...",
-      "resetFailed": "Reset Failed"
+      "resetFailed": "Reset Failed",
+      "accountUsage": "Account storage",
+      "yourUsage": "Your storage",
+      "totalUsed": "Total storage used"
     },
     "desktop": {
       "wallpaper": "Wallpaper",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Apps granted admin permissions can now use them.",
       "adminModeDisabledBody": "Admin permission grants are now inert again.",
       "adminModeUpdateFailed": "Could Not Update Admin Mode",
-      "tryAgain": "Try again"
+      "tryAgain": "Try again",
+      "exportTo": "Choose where to save the export"
     },
     "root": {
       "intro": "Root apps run directly in the OS page with unrestricted access and can perform real administrator (root) operations. Every root app first asks for your confirmation inside a NovaByte prompt — never inside the app — and every privileged operation runs through audited, passwordless sudo (NOPASSWD) and is written to the security log. This is not a sandbox or a normal app permission.",
@@ -957,6 +961,11 @@
       "pushRegistered": "push registered",
       "queuedPushOne": "1 queued push",
       "queuedPushesMany": "{{count}} queued pushes"
+    },
+    "adminLock": {
+      "title": "Administrator required",
+      "body": "This setting is only available to administrator accounts. Sign in with an administrator account to change it.",
+      "switchUser": "Switch user"
     }
   },
   "apps": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "Save As did not return a file path.",
         "tooManyRedirects": "Too many redirects",
         "unsupportedRedirect": "Unsupported redirect",
+        "localAddressBlocked": "Local and internal network addresses cannot be downloaded.",
         "interrupted": "Download response was interrupted",
         "closedEarly": "Download file was closed before completion",
         "timedOut": "Connection timed out",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "Settings not reset",
         "settingsResetTitle": "Settings reset",
         "settingsResetBody": "All browser settings restored to defaults."
+      },
+      "omnibox": {
+        "searchWith": "Search {{engine}} for \"{{query}}\""
       }
     },
     "files": {
@@ -1358,6 +1371,8 @@
       },
       "contextMenu": {
         "openWith": "Open with...",
+        "pinToQuickAccess": "Pin to Quick access",
+        "unpinFromQuickAccess": "Unpin from Quick access",
         "exportOne": "Export to Host…",
         "exportMany": "Export {{count}} Files to Host…",
         "editInTextEditor": "Edit in Text Editor",
@@ -1401,6 +1416,9 @@
         "copyDisabled": "Copy disabled.",
         "deleteDisabled": "Delete disabled.",
         "exportFailed": "Export failed",
+        "quickAccessFailed": "Quick access update failed",
+        "quickAccessNotSaved": "The pinned locations could not be saved.",
+        "quickAccessNotFolder": "Only existing folders can be pinned.",
         "restoreFailed": "Restore failed",
         "deleteFailed": "Delete failed",
         "emptyTrashFailed": "Empty Trash failed",
@@ -1580,7 +1598,7 @@
         "notInitialized": "FS not initialized",
         "filterPlaceholder": "Filter by name…",
         "export": "Export",
-        "exportTitle": "Download the currently visible tree as JSON (metadata only, not file content)",
+        "exportTitle": "Save the currently visible tree as JSON (metadata only, not file content)",
         "clickToInspect": "Click a node to inspect it.",
         "nodeGone": "Node no longer exists.",
         "content": "Content",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} cancelled",
         "failed": ", {{count}} failed",
         "total": " ({{count}} total)"
+      },
+      "editor": {
+        "open": "Edit",
+        "openTitle": "Edit this module's code live and hot-reload it",
+        "title": "Editing {{id}}",
+        "save": "Save & reload",
+        "back": "← Back to modules",
+        "fetchFailed": "Could not load {{path}}: HTTP {{status}}",
+        "saved": "Saved to your override folder and reloaded into the running OS",
+        "emptyRefused": "Refusing to save an empty module",
+        "saveFailed": "Save failed: {{message}}",
+        "lines": "{{count}} lines",
+        "unsaved": "Edited — not saved yet"
       }
     },
     "install": {
@@ -1858,7 +1889,11 @@
       "errorLine": "Error: {{message}}",
       "terminalError": "\n[terminal error] {{message}}\n",
       "shellExited": "\n[Shell exited with status {{status}}. Press Enter to start a new one.]\n",
-      "unknownStatus": "unknown"
+      "unknownStatus": "unknown",
+      "shortcutsClearLine": "=clear line  ",
+      "shortcutsLineStart": "=start of line  ",
+      "shortcutsLineEnd": "=end of line  ",
+      "shortcutsPaste": "=paste"
     },
     "myApps": {
       "appInstalledTitle": "App Installed",
@@ -1907,7 +1942,7 @@
       "devModeRequired": "Enable Developer Mode in Settings to use Inspector.",
       "filterPlaceholder": "Filter by app id, name, or window id…",
       "export": "Export",
-      "exportTitle": "Download the currently filtered apps + windows as JSON",
+      "exportTitle": "Save the currently filtered apps + windows as JSON",
       "registeredApps": "Registered Apps ({{count}})",
       "verifiedBadge": "✓ verified",
       "permsCount": "{{count}} perms",
@@ -2064,7 +2099,11 @@
       "clear": "Clear",
       "clearTitle": "Clear all output in this session",
       "export": "Export",
-      "exportTitle": "Download this session's output as a .txt file",
+      "exportTitle": "Save this session's output as a .txt file",
+      "exportDialogTitle": "Export Console Output",
+      "exportedTitle": "Console output exported",
+      "exportedBody": "Saved to {{path}}",
+      "exportFailedTitle": "Console export failed",
       "inputPlaceholder": "Enter JS to evaluate, or `reg query HKNS\\shell` for the Registry CLI\nEnter to run · Shift+Enter for newline · ↑/↓ for history",
       "run": "Run",
       "readyMessage": "Console ready. Type an expression above and press Enter or Run.\nShift+Enter for a newline, ↑/↓ to recall previous commands.",
@@ -2129,7 +2168,9 @@
       "alarm": "Alarm",
       "alarmFor": "Alarm for {{time}}",
       "email": "Email",
-      "emailNewMail": "{{count}} new in {{account}}"
+      "emailNewMail": "{{count}} new in {{account}}",
+      "timerDone": "Timer Done",
+      "timerDoneBody": "Your timer has finished."
     },
     "store": {
       "releaseTrack": "Release track",
@@ -2305,6 +2346,7 @@
       "auditBtn": "Audit",
       "exportBtn": "Export",
       "importBtn": "Import",
+      "importDialogTitle": "Import Registry Data",
       "auditTitle": "Write audit (newest first)",
       "statusBrowsing": "Browsing {{path}}",
       "defaultValueName": "(Default)",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "File writing is unavailable in this runtime.",
         "csvExported": "CSV exported to {{path}}",
         "csvExportFailed": "CSV export failed: {{message}}"
-      }
+      },
+      "degradedRefresh": "Couldn't refresh accounts — showing the last known list.",
+      "sessionExpired": "Your session expired — sign in again.",
+      "retry": "Retry",
+      "confirmPin": "Confirm PIN",
+      "pinMismatch": "The PINs do not match.",
+      "resetPinSelfWarning": "Reset the PIN for {{name}}?",
+      "resetPinSelfWarningBody": "Resetting your own PIN signs you out of this account everywhere — every session is revoked. You will sign back in with the temporary PIN shown next and then choose a new one.",
+      "resetPinSelfWarningConfirm": "Reset and sign out",
+      "resetPinSelfWarningDone": "Your PIN was reset. Sign back in with this temporary PIN — you will be asked to choose a new one."
     },
     "events": {
       "gate": {
@@ -3019,7 +3070,7 @@
         "clear": "Clear",
         "clearTitle": "Clear the event log",
         "export": "Export",
-        "exportTitle": "Download the filtered events as a .txt file",
+        "exportTitle": "Save the filtered events as a .txt file",
         "alerts": "⚡ Alerts",
         "alertsTitle": "Manage alert rules",
         "compare": "⇔ Compare",
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} new in {{account}}",
         "newMailTitle": "{{email}} — {{count}} new"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Quick access",
+      "pinned": "Pinned",
+      "mounts": "Mounted",
+      "saveFailed": "Could not save the file",
+      "unavailable": "System file dialog is unavailable",
+      "home": "Home",
+      "breadcrumbsAria": "Location",
+      "editPath": "Edit path",
+      "newFolder": "New folder",
+      "newFile": "New file",
+      "createFailed": "Create failed",
+      "createFolderFailed": "Could not create the folder: {{message}}",
+      "createFileFailed": "Could not create the file: {{message}}",
+      "fileType": "File type",
+      "allTypes": "All types (*.*)",
+      "search": "Search this folder",
+      "searchAria": "Search this folder",
+      "noMatches": "(no matches)"
     }
   }
 }

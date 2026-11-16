@@ -401,6 +401,9 @@ const AppPermissionManager = (() => {
 
   let permissionGrants = new Map(); // key: `${appId}:${permission}`
   const consentLog      = [];
+  // Cap for consentLog (2026-11-15 fix, finding L3) — same bounding pattern
+  // as frame-security's RECENT_ISSUES_MAX: keep the newest N entries.
+  const CONSENT_LOG_MAX = 500;
   const rateLimitState  = new Map(); // key: `${appId}:${permission}` -> { attempts, cooldownUntil, denialStreak }
 
   // Tracks every open dialog's teardown function so a caller (or a future
@@ -944,7 +947,14 @@ const AppPermissionManager = (() => {
     };
     permissionGrants.set(key, grant);
     await saveToStorage();
+    // BUG (2026-11-15 audit, finding L3): consentLog grew unboundedly for
+    // the OS lifetime (prompt-heavy apps can push thousands of full grant
+    // objects into a long-lived host session). Cap it like every other
+    // in-memory audit surface — oldest entries evicted first.
     consentLog.push({ ...grant, timestamp: nowIso });
+    if (consentLog.length > CONSENT_LOG_MAX) {
+      consentLog.splice(0, consentLog.length - CONSENT_LOG_MAX);
+    }
     console.log(`[AppPermissionManager] Granted ${permission} → ${appId}`);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'Permissions', category: 'permissions', severity: 'info', message: `Granted ${permission} → ${appId}`, data: { appId, permission, action: 'grant' } });

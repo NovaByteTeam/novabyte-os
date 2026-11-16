@@ -708,7 +708,10 @@
       "wipeEverything": "Herşeyi Sil",
       "wiping": "Verileri Silme",
       "wipingBody": "Lütfen bekleyin...",
-      "resetFailed": "Sıfırlama Başarısız"
+      "resetFailed": "Sıfırlama Başarısız",
+      "accountUsage": "Hesap depolama alanı",
+      "yourUsage": "Depolama alanınız",
+      "totalUsed": "Kullanılan toplam depolama alanı"
     },
     "desktop": {
       "wallpaper": "Duvar kağıdı",
@@ -736,7 +739,7 @@
       "sizeCompact": "Kompakt",
       "sizeNormal": "Normal",
       "sizeLarge": "Büyük",
-      "sizeXLarge": "X-Large",
+      "sizeXLarge": "Çok büyük",
       "thirdPartyLauncherNotice": "{{app}} aktif üçüncü taraf başlatıcınızdır. Bu kontroller yalnızca NovaByte Başlatıcı için geçerlidir."
     },
     "accessibility": {
@@ -762,7 +765,7 @@
       "reset": "Sıfırla",
       "levelOff": "Kapalı",
       "levelLow": "Düşük",
-      "levelNorm": "Norm",
+      "levelNorm": "Normal",
       "levelHigh": "Yüksek",
       "levelOffTitle": "Engellendi — hiçbir şey gösterilmiyor",
       "levelLowTitle": "Yalnızca panel, kızarmış ekmek yok",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Yönetici izinleri verilen uygulamalar artık bunları kullanabilir.",
       "adminModeDisabledBody": "Yönetici izni izinleri artık tekrar etkisizdir.",
       "adminModeUpdateFailed": "Yönetici Modu Güncellenemedi",
-      "tryAgain": "Tekrar deneyin"
+      "tryAgain": "Tekrar deneyin",
+      "exportTo": "Dışa aktarmanın kaydedileceği yeri seçin"
     },
     "root": {
       "intro": "Kök uygulamalar doğrudan işletim sistemi sayfasında sınırsız erişimle çalışır ve gerçek yönetici (kök) işlemlerini gerçekleştirebilir. Her kök uygulama öncelikle bir NovaByte istemi içinde onayınızı ister - asla uygulamanın içinde değil - ve her ayrıcalıklı işlem denetlenen, parolasız sudo (NOPASSWD) üzerinden yürütülür ve güvenlik günlüğüne yazılır. Bu bir korumalı alan veya normal bir uygulama izni değildir.",
@@ -957,6 +961,11 @@
       "pushRegistered": "push kayıtlı",
       "queuedPushOne": "1 sıraya alınmış push",
       "queuedPushesMany": "{{count}} sıraya alınmış itmeler"
+    },
+    "adminLock": {
+      "title": "Yönetici gerekli",
+      "body": "Bu ayar yalnızca yönetici hesapları için kullanılabilir. Değiştirmek için bir yönetici hesabıyla oturum açın.",
+      "switchUser": "Kullanıcı değiştir"
     }
   },
   "apps": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "Farklı Kaydet bir dosya yolu döndürmedi.",
         "tooManyRedirects": "Çok fazla yönlendirme",
         "unsupportedRedirect": "Desteklenmeyen yönlendirme",
+        "localAddressBlocked": "Yerel ve iç ağ adresleri indirilemez.",
         "interrupted": "İndirme yanıtı kesintiye uğradı",
         "closedEarly": "İndirme dosyası tamamlanmadan kapatıldı",
         "timedOut": "Bağlantı zaman aşımına uğradı",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "Ayarlar sıfırlanmadı",
         "settingsResetTitle": "Ayarlar sıfırlandı",
         "settingsResetBody": "Tüm tarayıcı ayarları varsayılanlara geri yüklendi."
+      },
+      "omnibox": {
+        "searchWith": "{{engine}} üzerinde \"{{query}}\" ara"
       }
     },
     "files": {
@@ -1373,7 +1386,9 @@
         "viewIcons": "Görünüm: Simgeler",
         "viewList": "Görünüm: Liste",
         "selectAll": "Tümünü Seç",
-        "delete": "Silmek"
+        "delete": "Silmek",
+        "pinToQuickAccess": "Hızlı erişime sabitle",
+        "unpinFromQuickAccess": "Hızlı erişimden kaldır"
       },
       "dialogs": {
         "chooseDestinationFolder": "Hedef Klasörü Seçin",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "Dosya Engellendi",
         "invalidDrop": "Geçersiz dosya bırakıldı.",
         "failedToAdd": "Dosya eklenemedi.",
-        "couldNotVerify": "Doğrulanamadı\"{{file}}\" - güvenli bir duruma düştü ve atlandı."
+        "couldNotVerify": "Doğrulanamadı\"{{file}}\" - güvenli bir duruma düştü ve atlandı.",
+        "quickAccessFailed": "Hızlı erişim güncellenemedi",
+        "quickAccessNotSaved": "Sabitlenen konumlar kaydedilemedi.",
+        "quickAccessNotFolder": "Yalnızca mevcut klasörler sabitlenebilir."
       },
       "linux": {
         "openParentFolder": "Ana klasörü aç",
@@ -1525,7 +1543,7 @@
         "statusGranted": "İmtiyazlı",
         "statusDenied": "Reddedildi",
         "statusPending": "Askıda olması",
-        "tierNormal": "normal",
+        "tierNormal": "Normal",
         "tierDangerous": "tehlikeli",
         "tierDeclared": "ilan edildi"
       },
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "Ağ",
-        "fs": "FS"
+        "fs": "Dosya sistemi"
       },
       "network": {
         "desc": "Proxy yollarını, SSRF koruma durumunu ve son ağ yapılandırmasını gösterir.",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} iptal edildi",
         "failed": ", {{count}} arızalı",
         "total": "({{count}} toplam)"
+      },
+      "editor": {
+        "open": "Düzenle",
+        "openTitle": "Bu modülün kodunu canlı düzenleyin ve anında yeniden yükleyin",
+        "title": "{{id}} düzenleniyor",
+        "save": "Kaydet ve yeniden yükle",
+        "back": "← Modüllere dön",
+        "fetchFailed": "{{path}} yüklenemedi: HTTP {{status}}",
+        "saved": "Diske kaydedildi ve çalışan işletim sistemine yeniden yüklendi",
+        "saveFailed": "Kaydedilemedi: {{message}}",
+        "lines": "{{count}} satır",
+        "unsaved": "Düzenlendi — henüz kaydedilmedi",
+        "emptyRefused": "Boş modülün kaydedilmesi reddedildi"
       }
     },
     "install": {
@@ -1785,7 +1816,7 @@
       "memory": "Hafıza",
       "domNodesByWindow": "Pencereye Göre DOM Düğümleri",
       "noWindowsOpen": "Hiçbir pencere açık değil",
-      "notAvailableShort": "yok",
+      "notAvailableShort": "Kullanılamıyor",
       "longTaskLog": "Uzun Görev Günlüğü",
       "longTaskUnsupported": "Uzun görev takibi bu tarayıcıda desteklenmiyor",
       "noLongTasks": "Henüz uzun görev kaydedilmedi",
@@ -1801,20 +1832,20 @@
       "noRequestsMatch": "Geçerli filtreyle eşleşen istek yok",
       "noRequestsRecorded": "Henüz kayıtlı istek yok",
       "sourceBrowser": "tarayıcı · {{label}}",
-      "sourceOs": "işletim sistemi · {{label}}",
+      "sourceOs": "İşletim sistemi · {{label}}",
       "showBody": "▸ vücut",
       "hideBody": "▾ vücut",
       "bodyNotCaptured": "ceset yakalanmadı{{type}}",
-      "statusError": "HATA",
+      "statusError": "Hata",
       "unknownApp": "bilinmeyen uygulama",
       "networkError": "ağ hatası",
       "bodyTruncated": "{{text}}…(kesilmiş)",
-      "durationMs": "{{value}}Bayan",
-      "fpsValue": "{{value}} fps",
+      "durationMs": "{{value}} ms",
+      "fpsValue": "{{value}} FPS",
       "memoryValue": "{{value}} MB",
-      "longTasksValue": "{{count}} (>50ms)",
+      "longTasksValue": "{{count}} (>50 ms)",
       "none": "Hiçbiri",
-      "notAvailable": "Yok"
+      "notAvailable": "Kullanılamıyor"
     },
     "terminal": {
       "appDataMissing": "Uygulama veri dizini eksik.",
@@ -1858,7 +1889,11 @@
       "errorLine": "Hata: {{message}}",
       "terminalError": "[terminal hatası] {{message}}",
       "shellExited": "[Kabuk durum bilgisi ile çıkıldı {{status}}. Yeni bir tane başlatmak için Enter tuşuna basın.]",
-      "unknownStatus": "bilinmiyor"
+      "unknownStatus": "bilinmiyor",
+      "shortcutsClearLine": "=satırı temizle  ",
+      "shortcutsLineStart": "=satır başı  ",
+      "shortcutsLineEnd": "=satır sonu  ",
+      "shortcutsPaste": "=yapıştır"
     },
     "myApps": {
       "appInstalledTitle": "Uygulama Yüklendi",
@@ -1948,18 +1983,18 @@
       "alarms": "Alarmlar",
       "add": "Eklemek",
       "noAlarms": "Ayarlanmış alarm yok. Bir tane oluşturmak için + Ekle'ye dokunun.",
-      "am": "sabah",
-      "pm": "ÖĞLEDEN SONRA",
+      "am": "ÖÖ",
+      "pm": "ÖS",
       "repeatOnce": "Bir kere",
       "repeatEveryDay": "Her gün",
       "repeatWeekdays": "Hafta içi",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
-      "dayInitialTue": "T",
+      "dayInitialSun": "P",
+      "dayInitialMon": "P",
+      "dayInitialTue": "S",
       "dayInitialWed": "K",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
-      "dayInitialSat": "S",
+      "dayInitialThu": "P",
+      "dayInitialFri": "C",
+      "dayInitialSat": "C",
       "daySun": "Güneş",
       "dayMon": "Pazartesi",
       "dayTue": "Salı",
@@ -2001,13 +2036,13 @@
       "dayThu": "Per",
       "dayFri": "Cuma",
       "daySat": "Doygunluk",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
-      "miniDayTue": "T",
+      "miniDaySun": "P",
+      "miniDayMon": "P",
+      "miniDayTue": "S",
       "miniDayWed": "K",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
-      "miniDaySat": "S",
+      "miniDayThu": "P",
+      "miniDayFri": "C",
+      "miniDaySat": "C",
       "upcoming": "Yaklaşan",
       "newEvent": "Yeni Etkinlik",
       "today": "Bugün",
@@ -2068,7 +2103,11 @@
       "inputPlaceholder": "Değerlendirmek için JS girin veya Kayıt Defteri CLI'si için \"reg query HKNS\\shell\" yazın\nÇalıştırmak için Enter · Yeni satır için Shift+Enter · geçmiş için ↑/↓",
       "run": "Çalıştır",
       "readyMessage": "Konsol hazır. Yukarıya bir ifade yazın ve Enter veya Çalıştır tuşuna basın.\nYeni satır için Shift+Enter, önceki komutları geri çağırmak için ↑/↓.",
-      "noOutputMatches": "(çıktı eşleşmesi yok \"{{query}}\")"
+      "noOutputMatches": "(çıktı eşleşmesi yok \"{{query}}\")",
+      "exportDialogTitle": "Konsol çıktısını dışa aktar",
+      "exportedTitle": "Konsol çıktısı dışa aktarıldı",
+      "exportedBody": "{{path}} konumuna kaydedildi",
+      "exportFailedTitle": "Konsol dışa aktarma başarısız"
     },
     "contacts": {
       "appDataMissing": "Uygulama veri dizini eksik.",
@@ -2129,7 +2168,9 @@
       "alarm": "Alarm",
       "alarmFor": "Şunun için alarm: {{time}}",
       "email": "E-posta",
-      "emailNewMail": "{{count}} yeni {{account}}"
+      "emailNewMail": "{{count}} yeni {{account}}",
+      "timerDone": "Zamanlayıcı tamamlandı",
+      "timerDoneBody": "Zamanlayıcınız tamamlandı."
     },
     "store": {
       "releaseTrack": "Parçayı yayınla",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "Yer paylaşımı konumunda hata ayıklama",
         "devNovaReg": "NovaReg düzenleyici durumu",
         "devNovaRegDesc": "Bu editörün favorileri ve atlama geçmişi."
-      }
+      },
+      "importDialogTitle": "Kayıt defteri verilerini içe aktar"
     },
     "appmanager": {
       "fallbackPackageName": "Bu paket",
@@ -2770,7 +2812,7 @@
       "copyFailedBtn": "Kopyalama başarısız oldu",
       "appIdLabel": "Uygulama Kimliği (ters alan adı, ör. com.test.app)",
       "appNameLabel": "Uygulama adı",
-      "appNamePlaceholder": "Uygulamayı Test Et",
+      "appNamePlaceholder": "Deneme uygulaması",
       "versionLabel": "Sürüm (x.y.z)",
       "entryFileLabel": "Giriş dosyası yolu",
       "signingMethodLabel": "İmzalama yöntemi:",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "Bu çalışma zamanında dosya yazma kullanılamıyor.",
         "csvExported": "CSV şuraya aktarıldı: {{path}}",
         "csvExportFailed": "CSV dışa aktarımı başarısız oldu: {{message}}"
-      }
+      },
+      "degradedRefresh": "Hesaplar yenilenemedi — bilinen son liste gösteriliyor.",
+      "sessionExpired": "Oturumunuzun süresi doldu — yeniden oturum açın.",
+      "retry": "Yeniden dene",
+      "confirmPin": "PIN'i onayla",
+      "pinMismatch": "PIN'ler eşleşmiyor.",
+      "resetPinSelfWarning": "{{name}} için PIN sıfırlansın mı?",
+      "resetPinSelfWarningBody": "Kendi PIN'inizi sıfırlamak sizi bu hesaptan her yerde oturumu kapatır — her oturum iptal edilir. Daha sonra gösterilen geçici PIN ile tekrar oturum açar, ardından yeni bir PIN seçersiniz.",
+      "resetPinSelfWarningConfirm": "Sıfırla ve oturumu kapat",
+      "resetPinSelfWarningDone": "PIN'iniz sıfırlandı. Bu geçici PIN ile tekrar oturum açın — sizden yeni bir PIN seçmeniz istenecek."
     },
     "events": {
       "gate": {
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} yeni {{account}}",
         "newMailTitle": "{{email}} — {{count}} yeni"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Hızlı erişim",
+      "home": "Başlangıç",
+      "breadcrumbsAria": "Konum",
+      "editPath": "Yolu düzenle",
+      "newFolder": "Yeni Klasör",
+      "newFile": "Yeni Dosya",
+      "createFailed": "Oluşturulamadı",
+      "createFolderFailed": "Klasör oluşturulamadı: {{message}}",
+      "createFileFailed": "Dosya oluşturulamadı: {{message}}",
+      "fileType": "Dosya türü",
+      "allTypes": "Tüm dosyalar (*.*)",
+      "pinned": "Sabitlenenler",
+      "mounts": "Bağlı sürücüler",
+      "saveFailed": "Dosya kaydedilemedi",
+      "unavailable": "Sistem dosya iletişim kutusu kullanılamıyor",
+      "search": "Bu klasörde ara",
+      "searchAria": "Bu klasörde ara",
+      "noMatches": "(Eşleşme yok)"
     }
   }
 }

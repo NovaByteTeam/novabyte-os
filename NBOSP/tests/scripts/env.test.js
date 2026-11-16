@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -153,6 +153,26 @@ describe('scripts/env.js — dotenv parsing details', () => {
     expect(process.env.NODE_EXTRA_CA_CERTS).toBe('/already/absolute/ca.pem');
   });
 
+  it('rejects a short NBOSP_CRED_KEY with its own message', async () => {
+    const appDir = tmp();
+    process.env.NBOSP_DATA_DIR = tmp();
+    fs.writeFileSync(path.join(appDir, '.env.example'),
+      `PORT=3003\nRATE_LIMIT_WINDOW_MS=900000\nRATE_LIMIT_MAX_REQUESTS=100\nCORS_ORIGIN=https://x.com\nSESSION_SECRET=${SECRET_OK}\nNBOSP_CRED_KEY=abc\n`);
+    await expect(ensureEnv(appDir)).rejects.toThrow('NBOSP_CRED_KEY: must be 64+ char hex string (got length 3)');
+  });
+
+  it('merge keeps process.env.NODE_ENV untouched when none was inherited', async () => {
+    const appDir = tmp();
+    process.env.NBOSP_DATA_DIR = tmp();
+    delete process.env.NODE_ENV;
+    fs.writeFileSync(path.join(appDir, '.env.example'),
+      `NODE_ENV=production\nPORT=3003\nRATE_LIMIT_WINDOW_MS=900000\nRATE_LIMIT_MAX_REQUESTS=100\nCORS_ORIGIN=https://x.com\n`
+      + `SESSION_SECRET=${SECRET_OK}\nNBOSP_CRED_KEY=${CRED_OK}\n`);
+    await ensureEnv(appDir);
+    // nothing inherited → the file's value applies
+    expect(process.env.NODE_ENV).toBe('production');
+  });
+
   it('preserves an inherited NODE_ENV across the env merge', async () => {
     const appDir = tmp();
     process.env.NBOSP_DATA_DIR = tmp();
@@ -162,5 +182,45 @@ describe('scripts/env.js — dotenv parsing details', () => {
       + `SESSION_SECRET=${SECRET_OK}\nNBOSP_CRED_KEY=${CRED_OK}\n`);
     await ensureEnv(appDir);
     expect(process.env.NODE_ENV).toBe('test');
+  });
+});
+
+describe('scripts/env.js — dotenv edge lines and atomic write retries', () => {
+  it('skips lines without "=" and lines with an empty key', async () => {
+    const appDir = tmp();
+    process.env.NBOSP_DATA_DIR = tmp();
+    fs.writeFileSync(path.join(appDir, '.env.example'),
+      ['# a bare comment line has no equals sign', 'BAREWORD', '   =value-with-empty-key', '']
+        .concat(VALID_EXAMPLE.split('\n'))
+        .join('\n'));
+    await expect(ensureEnv(appDir)).resolves.toBeUndefined();
+    expect(process.env.BAREWORD).toBeUndefined();
+    expect(process.env['']).toBeUndefined();
+  });
+
+  it('retries the atomic rename after EEXIST and surfaces other rename errors', async () => {
+    const appDir = tmp();
+    const dataDir = tmp();
+    process.env.NBOSP_DATA_DIR = dataDir;
+    // existing .env missing a secret → merge regenerates and rewrites it
+    fs.writeFileSync(path.join(dataDir, '.env'),
+      `PORT=3003\nRATE_LIMIT_WINDOW_MS=900000\nRATE_LIMIT_MAX_REQUESTS=100\nCORS_ORIGIN=https://x.com\nSESSION_SECRET=\nNBOSP_CRED_KEY=${CRED_OK}\n`);
+    fs.writeFileSync(path.join(appDir, '.env.example'), VALID_EXAMPLE + '\n');
+    const fsp = require('node:fs').promises;
+    const spy = vi.spyOn(fsp, 'rename').mockRejectedValueOnce(Object.assign(new Error('EEXIST'), { code: 'EEXIST' }));
+    await expect(ensureEnv(appDir)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalled();
+    // the EEXIST path unlinked the stale file and retried the rename
+    expect(fs.readFileSync(path.join(dataDir, '.env'), 'utf8')).toContain('RATE_LIMIT_WINDOW_MS');
+
+    // a rename error outside the retryable set rethrows after temp cleanup
+    const dataDir2 = tmp();
+    process.env.NBOSP_DATA_DIR = dataDir2;
+    fs.writeFileSync(path.join(dataDir2, '.env'),
+      `PORT=3003\nRATE_LIMIT_WINDOW_MS=900000\nRATE_LIMIT_MAX_REQUESTS=100\nCORS_ORIGIN=https://x.com\nSESSION_SECRET=\nNBOSP_CRED_KEY=${CRED_OK}\n`);
+    fs.writeFileSync(path.join(appDir, '.env.example'), VALID_EXAMPLE + '\n');
+    const spy2 = vi.spyOn(fsp, 'rename').mockRejectedValueOnce(Object.assign(new Error('EIO'), { code: 'EIO' }));
+    await expect(ensureEnv(appDir)).rejects.toThrow('EIO');
+    expect(spy2).toHaveBeenCalled();
   });
 });

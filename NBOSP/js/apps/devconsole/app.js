@@ -26,7 +26,7 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
 
     // Declared up front, not near the bottom where it originally lived —
     // several listeners registered earlier in this function (search,
@@ -54,7 +54,7 @@ registerApp({
       rows: '2',
       style: 'flex:1;padding:8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;resize:vertical;min-height:36px;max-height:160px;'
     });
-    const runBtn = createEl('button', { textContent: _t('apps.devconsole.run'), style: 'padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;flex-shrink:0;' });
+    const runBtn = createEl('button', { textContent: _t('apps.devconsole.run'), style: 'padding:8px 16px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;flex-shrink:0;' });
     const output = createEl('pre', { textContent: _t('apps.devconsole.readyMessage') + '\n', style: 'flex:1;padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);overflow:auto;font-size:12px;color:var(--text-muted);margin:0;white-space:pre-wrap;word-break:break-word;' });
 
     let hasRun = false;
@@ -92,19 +92,33 @@ registerApp({
       renderOutput();
     }, { signal: ac.signal });
 
-    exportBtn.addEventListener('click', () => {
+    exportBtn.addEventListener('click', async () => {
       if (!entries.length) return;
-      const blob = new Blob([entries.join('')], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = createEl('a', { href: url, download: 'nbosp-console-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt' });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // Revoke on a delay, not immediately — some browsers cancel the
-      // download if the blob URL is revoked before the click's download
-      // actually starts (this isn't a same-tick operation like the blob
-      // URLs modules.js uses for import(), which resolve before revoking).
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      try {
+        if (typeof window.SystemDialogs?.saveContent !== 'function') {
+          throw new Error(_t('apps.sysdialog.unavailable'));
+        }
+        const destination = await window.SystemDialogs.saveContent({
+          title: _t('apps.devconsole.exportDialogTitle'),
+          suggestedName: 'nbosp-console-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt',
+          accept: '.txt',
+        }, entries.join(''));
+        if (!destination) return;
+        Notify.show({
+          title: _t('apps.devconsole.exportedTitle'),
+          body: _t('apps.devconsole.exportedBody', { path: destination.path }),
+          type: 'success',
+          appName: 'Console',
+        });
+      } catch (error) {
+        console.error('[Console] Export failed:', error);
+        Notify.show({
+          title: _t('apps.devconsole.exportFailedTitle'),
+          body: error.message,
+          type: 'error',
+          appName: 'Console',
+        });
+      }
     }, { signal: ac.signal });
 
 
@@ -352,7 +366,7 @@ registerApp({
       acState.matches.forEach((name, i) => {
         const item = createEl('div', {
           textContent: name,
-          style: 'padding:4px 10px;cursor:pointer;color:var(--text-primary);' + (i === acState.selected ? 'background:var(--accent);color:#fff;' : '')
+          style: 'padding:4px 10px;cursor:pointer;color:var(--text-primary);' + (i === acState.selected ? 'background:var(--accent);color:var(--text-on-accent);' : '')
         });
         item.addEventListener('mousedown', (e) => { e.preventDefault(); applyCompletion(name); }, { signal: ac.signal });
         acBox.appendChild(item);

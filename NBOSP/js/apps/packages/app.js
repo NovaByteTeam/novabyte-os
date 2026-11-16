@@ -25,7 +25,7 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;font-size:13px;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:hidden;font-size:13px;';
 
     // All listeners in this app (tab buttons, form submits) are torn down
     // together via this controller. The original file registered no
@@ -93,12 +93,12 @@ registerApp({
 
     function showResult(box, ok, obj) {
       box.style.display = 'block';
-      box.style.borderColor = ok ? '#3fb950' : '#f85149';
+      box.style.borderColor = ok ? 'var(--text-success)' : 'var(--text-danger)';
       box.textContent = JSON.stringify(obj, null, 2);
     }
 
     // Export controls for a produced/verified package — Copy (clipboard) and
-    // Download (blob URL + temporary <a download>). getPkg() is called at
+    // Download (SystemDialogs save). getPkg() is called at
     // click time (not once at build time) since the underlying package can
     // change after a re-sign or re-verify; returns null when there's
     // nothing to export yet, which both handlers treat as a no-op rather
@@ -123,27 +123,20 @@ registerApp({
         }
       }, { signal: ac.signal });
 
-      downloadBtn.addEventListener('click', () => {
+      downloadBtn.addEventListener('click', async () => {
         const pkg = getPkg();
         if (!pkg) return;
         const id = (pkg.manifest && pkg.manifest.id) || 'package';
-        const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        // Set href/download as direct properties rather than trusting
-        // createEl to forward arbitrary keys onto the element — every other
-        // createEl call in this file only ever passes
-        // style/textContent/value/placeholder/type/title, so its handling
-        // of unknown prop names isn't something to assume either way here.
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${filenamePrefix}-${id}${suffix}`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        // Revoke on a delay rather than synchronously — click() triggers
-        // the download asynchronously in some browsers, and revoking the
-        // URL before the download starts would fail it.
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        try {
+          await SystemDialogs.saveContent({
+            title: _t('apps.packages.downloadBtn'),
+            suggestedName: `${filenamePrefix}-${id}${suffix}`,
+            accept: '.json',
+          }, JSON.stringify(pkg, null, 2));
+        } catch (error) {
+          console.error('[Packages] Export failed:', error);
+          Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error', appName: 'Packages' });
+        }
       }, { signal: ac.signal });
 
       row.appendChild(copyBtn);
@@ -275,7 +268,7 @@ registerApp({
       function addFileRow(path, content) {
         const row = createEl('div', { style: 'padding:8px;background:var(--bg-elevated);border-radius:4px;border:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:6px;' });
         const pathLine = createEl('div', { style: 'display:flex;gap:6px;align-items:center;' });
-        const pathInput = createEl('input', { placeholder: _t('apps.packages.pathPlaceholder'), value: path || '', style: 'flex:1;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+        const pathInput = createEl('input', { placeholder: _t('apps.packages.pathPlaceholder'), value: path || '', style: 'flex:1;padding:6px 8px;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
         const removeBtn = createEl('button', { textContent: '✕', title: _t('apps.packages.removeFileTitle'), style: 'padding:4px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
         removeBtn.addEventListener('click', () => {
           if (filesWrap.children.length > 1) row.remove();
@@ -283,7 +276,7 @@ registerApp({
         pathLine.appendChild(pathInput);
         pathLine.appendChild(removeBtn);
         row.appendChild(pathLine);
-        const contentArea = createEl('textarea', { placeholder: _t('apps.packages.fileContentPlaceholder'), value: content || '', style: 'width:100%;box-sizing:border-box;height:70px;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;' });
+        const contentArea = createEl('textarea', { placeholder: _t('apps.packages.fileContentPlaceholder'), value: content || '', style: 'width:100%;box-sizing:border-box;height:70px;padding:6px 8px;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;' });
         row.appendChild(contentArea);
         row.dataset.role = 'file-row';
         filesWrap.appendChild(row);
@@ -326,7 +319,7 @@ registerApp({
       fileBtnRow.appendChild(importBtn);
       panel.appendChild(fileBtnRow);
 
-      const signBtn = createEl('button', { textContent: _t('apps.packages.createSignBtn'), style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+      const signBtn = createEl('button', { textContent: _t('apps.packages.createSignBtn'), style: 'padding:7px 16px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
       const box = resultBox();
 
       signBtn.addEventListener('click', async () => {
@@ -467,12 +460,12 @@ registerApp({
       // is the intended narrow scope (see revoke() doc comment).
       const revokePanel = createEl('div', { style: 'margin-bottom:14px;padding:10px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;' });
       revokePanel.appendChild(createEl('div', { textContent: _t('apps.packages.revokePanelTitle'), style: 'font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:6px;' }));
-      const sigInput = createEl('input', { placeholder: _t('apps.packages.revokeSigPlaceholder'), style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;margin-bottom:6px;' });
-      const reasonInput = createEl('input', { placeholder: _t('apps.packages.revokeReasonPlaceholder'), style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;margin-bottom:6px;' });
+      const sigInput = createEl('input', { placeholder: _t('apps.packages.revokeSigPlaceholder'), style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;margin-bottom:6px;' });
+      const reasonInput = createEl('input', { placeholder: _t('apps.packages.revokeReasonPlaceholder'), style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;margin-bottom:6px;' });
       revokePanel.appendChild(sigInput);
       revokePanel.appendChild(reasonInput);
       const revokeRow = createEl('div', { style: 'display:flex;gap:8px;align-items:center;' });
-      const revokeBtn = createEl('button', { textContent: _t('apps.packages.revokeBtn'), style: 'padding:5px 10px;background:transparent;color:#f85149;border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const revokeBtn = createEl('button', { textContent: _t('apps.packages.revokeBtn'), style: 'padding:5px 10px;background:transparent;color:var(--text-danger);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
       const unrevokeBtn = createEl('button', { textContent: _t('apps.packages.unrevokeBtn'), style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
       const revokeNote = createEl('span', { style: 'font-size:10px;color:var(--text-muted);' });
       revokeBtn.addEventListener('click', () => {
@@ -522,7 +515,7 @@ registerApp({
       methodRow.appendChild(methodSelect);
       panel.appendChild(methodRow);
 
-      const verifyBtn = createEl('button', { textContent: _t('apps.packages.validateVerifyBtn'), style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px;' });
+      const verifyBtn = createEl('button', { textContent: _t('apps.packages.validateVerifyBtn'), style: 'padding:7px 16px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px;' });
       const box = resultBox();
 
       verifyBtn.addEventListener('click', async () => {
@@ -602,7 +595,7 @@ registerApp({
                 filesPreview.appendChild(fileBox);
               });
             } catch (e) {
-              filesPreview.appendChild(createEl('div', { textContent: _t('apps.packages.errExtractFiles', { message: e.message }), style: 'font-size:11px;color:#f85149;' }));
+              filesPreview.appendChild(createEl('div', { textContent: _t('apps.packages.errExtractFiles', { message: e.message }), style: 'font-size:11px;color:var(--text-danger);' }));
             }
           }
 
@@ -680,7 +673,7 @@ registerApp({
       optRow.appendChild(forceLabel);
       panel.appendChild(optRow);
 
-      const installBtn = createEl('button', { textContent: _t('apps.packages.installPackageBtn'), style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+      const installBtn = createEl('button', { textContent: _t('apps.packages.installPackageBtn'), style: 'padding:7px 16px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
       const box = resultBox();
 
       installBtn.addEventListener('click', async () => {

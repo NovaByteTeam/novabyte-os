@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, vi } from 'vitest';
 import { createRequire } from 'node:module';
 import express from 'express';
 import http from 'node:http';
@@ -131,6 +131,79 @@ describe('server/core/events-routes.js — GET /api/events/stream', () => {
       expect(() => ServerEventLog.log({ message: 'after-disconnect' })).not.toThrow();
     } finally {
       server.close();
+    }
+  });
+
+  // The route handler, extracted straight off the mounted express router so
+  // the defensive branches that only open in the race window between a stream
+  // dying and its close event can be driven deterministically.
+  function extractStreamHandler() {
+    const app = express();
+    setupEventsRoutes(app);
+    const root = app._router || app.router;
+    const eventsLayer = root.stack.find((l) => l.handle && Array.isArray(l.handle.stack));
+    const streamLayer = eventsLayer.handle.stack.find((l) => l.route && l.route.path === '/stream');
+    return streamLayer.route.stack[0].handle;
+  }
+
+  function fakeRes({ writableEnded = false, destroyed = false, withFlushHeaders = false } = {}) {
+    const written = [];
+    const handlers = {};
+    const res = {
+      writableEnded,
+      destroyed,
+      setHeader: () => {},
+      write: (chunk) => written.push(chunk),
+      on: (ev, cb) => { handlers[ev] = cb; },
+    };
+    if (withFlushHeaders) res.flushHeaders = () => { written.push('[flushed]'); };
+    return { res, written, handlers };
+  }
+
+  it('skips history and live frames for an already-dead stream, without flushHeaders', () => {
+    ServerEventLog.clear();
+    ServerEventLog.log({ message: 'stale-history' });
+    const handler = extractStreamHandler();
+    // dead from the first byte, and no flushHeaders method at all
+    const { res, written, handlers } = fakeRes({ writableEnded: true });
+    const reqHandlers = {};
+    handler({ on: (ev, cb) => { reqHandlers[ev] = cb; } }, res, () => {});
+    expect(written).toEqual([]); // history loop broke before the first write
+    // a live entry arrives while the stream is dead → the subscriber skips
+    ServerEventLog.log({ message: 'live-while-dead' });
+    expect(written).toEqual([]);
+    // close fires cleanup once; a second close is a no-op (guarded)
+    expect(() => { reqHandlers.close(); reqHandlers.close(); handlers.close(); handlers.finish(); handlers.error(new Error('x')); }).not.toThrow();
+  });
+
+  it('heartbeats every 25s and stops once the stream dies', async () => {
+    vi.useFakeTimers();
+    try {
+      ServerEventLog.clear();
+      const handler = extractStreamHandler();
+      const { res, written, handlers } = fakeRes();
+      handler({ on: () => {} }, res, () => {});
+      expect(written).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(25_000);
+      expect(written).toEqual([': heartbeat\n\n']);
+
+      // writableEnded flips true → the left side of the guard is false
+      res.writableEnded = true;
+      await vi.advanceTimersByTimeAsync(25_000);
+      expect(written).toEqual([': heartbeat\n\n']); // no second frame
+
+      // destroyed instead → right side false, still skipped
+      res.writableEnded = false;
+      res.destroyed = true;
+      await vi.advanceTimersByTimeAsync(25_000);
+      expect(written).toEqual([': heartbeat\n\n']);
+
+      handlers.close(); // clearInterval + unsubscribe, idempotent
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(written).toEqual([': heartbeat\n\n']);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

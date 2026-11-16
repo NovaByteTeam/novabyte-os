@@ -208,7 +208,7 @@
       "pinEntryAria": "Ingizo la PIN",
       "signIn": "Ingia",
       "clearAria": "Wazi",
-      "backspaceAria": "Backspace",
+      "backspaceAria": "Futa nyuma",
       "useBiometric": "👆 Tumia Biometriska",
       "lockedOut": "Imefungwa nje. Jaribu tena ndani {{seconds}}s",
       "verifying": "Inathibitisha...",
@@ -708,7 +708,10 @@
       "wipeEverything": "Futa Kila Kitu",
       "wiping": "Kufuta Data",
       "wipingBody": "Tafadhali subiri...",
-      "resetFailed": "Imeshindwa Kuweka Upya"
+      "resetFailed": "Imeshindwa Kuweka Upya",
+      "accountUsage": "Hifadhi ya akaunti",
+      "yourUsage": "Hifadhi yako",
+      "totalUsed": "Hifadhi jumla iliyotumika"
     },
     "desktop": {
       "wallpaper": "Ukuta",
@@ -733,7 +736,7 @@
       "showClock": "Onyesha Saa kwenye Taskbar",
       "toggleClockAria": "Geuza saa kwenye upau wa kazi",
       "size": "Ukubwa",
-      "sizeCompact": "Compact",
+      "sizeCompact": "Finyu",
       "sizeNormal": "Kawaida",
       "sizeLarge": "Kubwa",
       "sizeXLarge": "X-Kubwa",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Programu zilizopewa ruhusa za msimamizi sasa zinaweza kuzitumia.",
       "adminModeDisabledBody": "Ruzuku za ruhusa za msimamizi sasa hazitumiki tena.",
       "adminModeUpdateFailed": "Haikuweza Kusasisha Hali ya Msimamizi",
-      "tryAgain": "Jaribu tena"
+      "tryAgain": "Jaribu tena",
+      "exportTo": "Chagua pa kuhifadhi faili ya kuhamisha"
     },
     "root": {
       "intro": "Programu za mizizi zinaendesha moja kwa moja kwenye ukurasa wa OS na ufikiaji usio na kikomo na zinaweza kufanya shughuli za msimamizi (mzizi). Kila mzizi programu inakuuliza kwanza uthibitisho wako ndani ya kidokezo cha NovaByte - kamwe ndani ya programu - na kila operesheni iliyobahatika hupitia sudo iliyokaguliwa, isiyo na nenosiri (NOPASSWD) na imeandikwa kwenye kumbukumbu ya usalama. Hii si sanduku la mchanga au ruhusa ya kawaida ya programu.",
@@ -878,7 +882,7 @@
       "unavailable": "Haipatikani",
       "novabyteBuildroot": "NovaByte OS (Buildroot)",
       "operatingSystem": "Mfumo wa Uendeshaji",
-      "linuxKernel": "Linux Kernel",
+      "linuxKernel": "Kernel ya Linux",
       "architecture": "Usanifu",
       "versionAria": "Toleo la NovaByte (bofya mara 7 kwa mshangao)",
       "novabyteVersion": "Toleo la NovaByte",
@@ -957,6 +961,11 @@
       "pushRegistered": "kushinikiza kusajiliwa",
       "queuedPushOne": "1 kusukuma foleni",
       "queuedPushesMany": "{{count}} misukumo ya foleni"
+    },
+    "adminLock": {
+      "title": "Msimamizi anahitajika",
+      "body": "Mipangilio hii inapatikana kwa akaunti za msimamizi tu. Ingia kwa akaunti ya msimamizi kubadilisha.",
+      "switchUser": "Badilisha mtumiaji"
     }
   },
   "apps": {
@@ -987,7 +996,7 @@
         "switchToWebviewMode": "Badili hadi Hali ya Mwonekano wa Wavuti",
         "switchToIframeMode": "Badili hadi kwenye Modi ya iFrame",
         "zoomIn": "Kuza",
-        "zoomOut": "Zoom Out",
+        "zoomOut": "Kuza nje",
         "resetZoom": "Weka upya Zoom",
         "menuAria": "Menyu",
         "menuTitle": "Menyu ya kivinjari"
@@ -1057,6 +1066,7 @@
         "noPathBody": "Hifadhi Kama haikurudisha njia ya faili.",
         "tooManyRedirects": "Maelekezo mengi mno",
         "unsupportedRedirect": "Uelekezaji kwingine hautumiki",
+        "localAddressBlocked": "Anwani za ndani na za mtandao wa ndani haziwezi kupakuliwa.",
         "interrupted": "Jibu la upakuaji limekatizwa",
         "closedEarly": "Upakuaji wa faili ulifungwa kabla ya kukamilika",
         "timedOut": "Muda wa muunganisho umekwisha",
@@ -1220,7 +1230,7 @@
         "privacySecurityDesc": "Dhibiti vidakuzi, manenosiri, eneo, kamera/maikrofoni na data ya kuvinjari.",
         "content": "Maudhui",
         "contentDesc": "Dhibiti jinsi kurasa za wavuti zinavyopakiwa na kuonyeshwa.",
-        "bandwidth": "Bandwidth",
+        "bandwidth": "Kipimo data",
         "bandwidthDesc": "Dhibiti ni data ngapi ambayo kivinjari hupakua.",
         "accessibility": "Ufikivu",
         "accessibilityDesc": "Rekebisha mipangilio ya onyesho na mwingiliano.",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "Mipangilio haijawekwa upya",
         "settingsResetTitle": "Mipangilio imewekwa upya",
         "settingsResetBody": "Mipangilio yote ya kivinjari imerejeshwa kwa chaguomsingi."
+      },
+      "omnibox": {
+        "searchWith": "Tafuta \"{{query}}\" kwenye {{engine}}"
       }
     },
     "files": {
@@ -1373,7 +1386,9 @@
         "viewIcons": "Tazama: Ikoni",
         "viewList": "Tazama: Orodha",
         "selectAll": "Chagua Zote",
-        "delete": "Futa"
+        "delete": "Futa",
+        "pinToQuickAccess": "Bandika kwenye Ufikiaji wa haraka",
+        "unpinFromQuickAccess": "Ondoa kwenye Ufikiaji wa haraka"
       },
       "dialogs": {
         "chooseDestinationFolder": "Chagua Folda Lengwa",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "Faili Imezuiwa",
         "invalidDrop": "Faili batili imedondoshwa.",
         "failedToAdd": "Imeshindwa kuongeza faili.",
-        "couldNotVerify": "Haikuweza kuthibitisha\"{{file}}\"- alianguka katika hali salama na akaruka."
+        "couldNotVerify": "Haikuweza kuthibitisha\"{{file}}\"- alianguka katika hali salama na akaruka.",
+        "quickAccessFailed": "Imeshindwa kusasisha Ufikiaji wa haraka",
+        "quickAccessNotSaved": "Imeshindwa kuhifadhi maeneo yaliyobandikwa.",
+        "quickAccessNotFolder": "Folda zilizopo pekee zinaweza kubandikwa."
       },
       "linux": {
         "openParentFolder": "Fungua folda kuu",
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "Mtandao",
-        "fs": "FS"
+        "fs": "Mfumo wa faili"
       },
       "network": {
         "desc": "Inaonyesha njia za seva mbadala, hali ya ulinzi ya SSRF, na usanidi wa mtandao wa hivi majuzi.",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} imeghairiwa",
         "failed": ", {{count}} imeshindwa",
         "total": "({{count}} jumla)"
+      },
+      "editor": {
+        "open": "Hariri",
+        "openTitle": "Hariri msimbo wa moduli hii moja kwa moja na ui Pakia upya mara moja",
+        "title": "Inahariri {{id}}",
+        "save": "Hifadhi na Pakia upya",
+        "back": "← Rudi kwa moduli",
+        "fetchFailed": "Imeshindwa kupakia {{path}}: HTTP {{status}}",
+        "saved": "Imehifadhiwa kwenye diski na imepakiwa upya kwenye OS inayoendelea",
+        "saveFailed": "Imeshindwa kuhifadhi: {{message}}",
+        "lines": "mistari {{count}}",
+        "unsaved": "Imehaririwa — bado haijahifadhiwa",
+        "emptyRefused": "Kuhifadhi moduli tupu kumekataliwa"
       }
     },
     "install": {
@@ -1785,7 +1816,7 @@
       "memory": "Kumbukumbu",
       "domNodesByWindow": "Nodi za DOM kwa Dirisha",
       "noWindowsOpen": "Hakuna madirisha yaliyofunguliwa",
-      "notAvailableShort": "n/a",
+      "notAvailableShort": "Haipatikani",
       "longTaskLog": "Kumbukumbu ya Kazi ndefu",
       "longTaskUnsupported": "Ufuatiliaji wa kazi ndefu hautumiki katika kivinjari hiki",
       "noLongTasks": "Bado hakuna kazi ndefu zilizorekodiwa",
@@ -1801,20 +1832,20 @@
       "noRequestsMatch": "Hakuna maombi yanayolingana na kichujio cha sasa",
       "noRequestsRecorded": "Bado hakuna maombi yaliyorekodiwa",
       "sourceBrowser": "kivinjari · {{label}}",
-      "sourceOs": "os · {{label}}",
+      "sourceOs": "Mfumo wa uendeshaji · {{label}}",
       "showBody": "▸ mwili",
       "hideBody": "▾ mwili",
       "bodyNotCaptured": "mwili haujakamatwa{{type}}",
-      "statusError": "ERR",
+      "statusError": "Hitilafu",
       "unknownApp": "programu isiyojulikana",
       "networkError": "hitilafu ya mtandao",
       "bodyTruncated": "{{text}}…(iliyopunguzwa)",
-      "durationMs": "{{value}}ms",
+      "durationMs": "{{value}} ms",
       "fpsValue": "{{value}} fps",
       "memoryValue": "{{value}} MB",
       "longTasksValue": "{{count}} (> 50ms)",
       "none": "Hakuna",
-      "notAvailable": "N/A"
+      "notAvailable": "Haipatikani"
     },
     "terminal": {
       "appDataMissing": "Saraka ya data ya programu haipo.",
@@ -1858,7 +1889,11 @@
       "errorLine": "Hitilafu: {{message}}",
       "terminalError": "[hitilafu ya mwisho] {{message}}",
       "shellExited": "[Shell imetoka kwa hali {{status}}. Bonyeza Enter ili kuanza mpya.]",
-      "unknownStatus": "haijulikani"
+      "unknownStatus": "haijulikani",
+      "shortcutsClearLine": "=futa mstari  ",
+      "shortcutsLineStart": "=mwanzo wa mstari  ",
+      "shortcutsLineEnd": "=mwisho wa mstari  ",
+      "shortcutsPaste": "=bandika"
     },
     "myApps": {
       "appInstalledTitle": "Programu Imesakinishwa",
@@ -1944,7 +1979,7 @@
       "tabAlarm": "Kengele",
       "tabClock": "Saa",
       "tabTimer": "Kipima muda",
-      "tabStopwatch": "Stopwatch",
+      "tabStopwatch": "Saa ya kusimama",
       "alarms": "Kengele",
       "add": "Ongeza",
       "noAlarms": "Hakuna kengele zilizowekwa. Gonga + Ongeza ili kuunda moja.",
@@ -1953,20 +1988,20 @@
       "repeatOnce": "Mara moja",
       "repeatEveryDay": "Kila siku",
       "repeatWeekdays": "Siku za wiki",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
-      "dayInitialTue": "T",
-      "dayInitialWed": "W",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
-      "dayInitialSat": "S",
+      "dayInitialSun": "Jp",
+      "dayInitialMon": "Jt",
+      "dayInitialTue": "Jn",
+      "dayInitialWed": "Jw",
+      "dayInitialThu": "Al",
+      "dayInitialFri": "Ij",
+      "dayInitialSat": "Jm",
       "daySun": "Jua",
-      "dayMon": "Mon",
+      "dayMon": "Jumatatu",
       "dayTue": "Jumanne",
       "dayWed": "Jumatano",
       "dayThu": "Alhamisi",
       "dayFri": "Ijumaa",
-      "daySat": "Sat",
+      "daySat": "Jumamosi",
       "editAlarm": "Hariri Kengele",
       "addAlarm": "Ongeza Kengele",
       "labelPlaceholder": "Lebo (ya hiari)",
@@ -1977,10 +2012,10 @@
       "pause": "Sitisha",
       "restart": "Anzisha upya",
       "stop": "Acha",
-      "lap": "Lap",
+      "lap": "Mzunguko",
       "split": "Gawanya",
       "overall": "Kwa ujumla",
-      "lapIndex": "Lap {{index}}"
+      "lapIndex": "Mzunguko {{index}}"
     },
     "calendar": {
       "appDataMissing": "Saraka ya data ya programu haipo.",
@@ -1995,19 +2030,19 @@
       "colorSky": "Anga",
       "colorLime": "Chokaa",
       "daySun": "Jua",
-      "dayMon": "Mon",
+      "dayMon": "Jumatatu",
       "dayTue": "Jumanne",
       "dayWed": "Jumatano",
       "dayThu": "Alhamisi",
       "dayFri": "Ijumaa",
-      "daySat": "Sat",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
-      "miniDayTue": "T",
-      "miniDayWed": "W",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
-      "miniDaySat": "S",
+      "daySat": "Jumamosi",
+      "miniDaySun": "Jp",
+      "miniDayMon": "Jt",
+      "miniDayTue": "Jn",
+      "miniDayWed": "Jw",
+      "miniDayThu": "Al",
+      "miniDayFri": "Ij",
+      "miniDaySat": "Jm",
       "upcoming": "Ijayo",
       "newEvent": "Tukio Jipya",
       "today": "Leo",
@@ -2068,7 +2103,11 @@
       "inputPlaceholder": "Ingiza JS ili kutathmini, au `reg query HKNS\\shell` kwa CLI ya Usajili.\nIngiza ili kuendesha · Shift+Enter kwa mstari mpya · ↑/↓ kwa historia",
       "run": "Kimbia",
       "readyMessage": "Console iko tayari. Andika usemi hapo juu na ubonyeze Enter au Run.\nShift+Enter kwa laini mpya, ↑/↓ ili kukumbuka amri za awali.",
-      "noOutputMatches": "(hakuna matokeo yanayolingana\"{{query}}\")"
+      "noOutputMatches": "(hakuna matokeo yanayolingana\"{{query}}\")",
+      "exportDialogTitle": "Hamisha matokeo ya Dashibodi",
+      "exportedTitle": "Matokeo ya Dashibodi yamehamishwa",
+      "exportedBody": "Imehifadhiwa kwenye {{path}}",
+      "exportFailedTitle": "Imeshindwa kuhamisha Dashibodi"
     },
     "contacts": {
       "appDataMissing": "Saraka ya data ya programu haipo.",
@@ -2129,7 +2168,9 @@
       "alarm": "Kengele",
       "alarmFor": "Kengele kwa {{time}}",
       "email": "Barua pepe",
-      "emailNewMail": "{{count}} mpya katika {{account}}"
+      "emailNewMail": "{{count}} mpya katika {{account}}",
+      "timerDone": "Kipima muda kimeisha",
+      "timerDoneBody": "Kipima muda chako kimeisha."
     },
     "store": {
       "releaseTrack": "Toa wimbo",
@@ -2299,7 +2340,7 @@
       "deleteBtn": "Futa",
       "copyPathBtn": "Nakili Njia",
       "findBtn": "Tafuta",
-      "favBtn": "★ Fav",
+      "favBtn": "★ Kipendwa",
       "permBtn": "Ruhusa",
       "snapBtn": "Vijipicha",
       "auditBtn": "Ukaguzi",
@@ -2519,7 +2560,7 @@
         "devEventsViews": "Matukio - maoni yaliyohifadhiwa",
         "devEventsAlerts": "Matukio - sheria za tahadhari",
         "devEventsSessions": "Matukio - historia ya kipindi",
-        "devConsole": "Dev Console",
+        "devConsole": "Dashibodi ya wasanidi",
         "devConsoleHistory": "Historia ya amri ya Console",
         "devAppManager": "Meneja wa Programu",
         "devAppManagerLog": "Kumbukumbu ya kusakinisha programu",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "Tatua nafasi ya kuwekelea",
         "devNovaReg": "Jimbo la mhariri wa NovaReg",
         "devNovaRegDesc": "Vipendwa vya mhariri huyu na kuruka historia."
-      }
+      },
+      "importDialogTitle": "Ingiza data ya Sajili"
     },
     "appmanager": {
       "fallbackPackageName": "Kifurushi hiki",
@@ -2740,7 +2782,7 @@
       "addWebAppSub": "Bandika tovuti yoyote kama programu.",
       "urlLabel": "URL *",
       "nameLabel": "Jina *",
-      "namePlaceholder": "Programu Yangu",
+      "namePlaceholder": "Programu yangu",
       "iconOptionalLabel": "Aikoni (ya hiari)",
       "chooseImageBtn": "Chagua picha",
       "iconNotImageError": "Tafadhali chagua faili ya picha.",
@@ -2770,7 +2812,7 @@
       "copyFailedBtn": "Imeshindwa kunakili",
       "appIdLabel": "Kitambulisho cha programu (kikoa-reverse, k.m. com.test.app)",
       "appNameLabel": "Jina la programu",
-      "appNamePlaceholder": "Programu ya Mtihani",
+      "appNamePlaceholder": "Programu ya majaribio",
       "versionLabel": "Toleo (x.y.z)",
       "entryFileLabel": "Njia ya faili ya kuingia",
       "signingMethodLabel": "Mbinu ya kutia saini:",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "Uandishi wa faili haupatikani wakati huu wa utekelezaji.",
         "csvExported": "CSV imehamishwa hadi {{path}}",
         "csvExportFailed": "Uhamishaji wa CSV umeshindwa: {{message}}"
-      }
+      },
+      "degradedRefresh": "Imeshindwa kuonyesha upya akaunti — inaonyesha orodha ya mwisho iliyojulikana.",
+      "sessionExpired": "Kipindi chako kimeisha — ingia tena.",
+      "retry": "Jaribu tena",
+      "confirmPin": "Thibitisha PIN",
+      "pinMismatch": "PIN hazilingani.",
+      "resetPinSelfWarning": "Weka upya PIN ya {{name}}?",
+      "resetPinSelfWarningBody": "Kuweka upya PIN yako mwenyewe kutakuondoa kwenye akaunti hii kote — kila kipindi kinafutwa. Utaringia tena kwa PIN ya muda itakayoonyeshwa, kisha kuchagua mpya.",
+      "resetPinSelfWarningConfirm": "Weka upya na toka",
+      "resetPinSelfWarningDone": "PIN yako imewekwa upya. Ingia tena kwa PIN hii ya muda — utaombwa kuchagua mpya."
     },
     "events": {
       "gate": {
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} mpya katika {{account}}",
         "newMailTitle": "{{email}} - {{count}} mpya"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Ufikiaji wa Haraka",
+      "home": "Nyumbani",
+      "breadcrumbsAria": "Mahali",
+      "editPath": "Hariri njia",
+      "newFolder": "Folda Mpya",
+      "newFile": "Faili Mpya",
+      "createFailed": "Imeshindwa kuunda",
+      "createFolderFailed": "Imeshindwa kuunda folda: {{message}}",
+      "createFileFailed": "Imeshindwa kuunda faili: {{message}}",
+      "fileType": "Aina ya faili",
+      "allTypes": "Aina zote (*.*)",
+      "pinned": "Zilizobandikwa",
+      "mounts": "Hifadhi zilizopachikwa",
+      "saveFailed": "Imeshindwa kuhifadhi faili",
+      "unavailable": "Kidirisha cha faili cha mfumo hakipatikani",
+      "search": "Tafuta kwenye folda hii",
+      "searchAria": "Tafuta kwenye folda hii",
+      "noMatches": "(Hakuna matokeo)"
     }
   }
 }

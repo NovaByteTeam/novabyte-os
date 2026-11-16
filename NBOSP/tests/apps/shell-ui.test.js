@@ -1,4 +1,8 @@
+// tests/apps/shell-ui.test.js
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
+import * as fsSync from 'node:fs';
 import { resetTestStorage } from '../setup.js';
 import { loadServiceApp, settle } from '../helpers/app-harness.js';
 
@@ -1308,7 +1312,7 @@ describe('Modal service (js/apps/shell-ui/modals.js)', () => {
     await expect(p2).resolves.toBeNull();
   });
 
-  it('supports custom DOM bodies; the developer-warning variant is dropped by the compat wrapper', async () => {
+  it('supports custom DOM bodies; the compat wrapper forwards the full argument list', async () => {
     const w = await bootModals();
     const node = w.document.createElement('div');
     node.textContent = 'custom content';
@@ -1316,11 +1320,9 @@ describe('Modal service (js/apps/shell-ui/modals.js)', () => {
       variant: 'developer-warning',
     });
     const dialog = w.document.querySelector('.modal-dialog');
-    // SOURCE BUG: window.showModal(title, body, actions, inputType) forwards
-    // only four arguments — ModalService's defaultInputValue and options
-    // (variants, collect callbacks) are silently dropped by the compat
-    // wrapper. showPrompt() calls ModalService.show directly and works.
-    expect(dialog.dataset.modalVariant).toBeUndefined();
+    // The compat wrapper forwards every argument (fixed): the variant now
+    // reaches ModalService.show and tags the dialog like an in-realm call.
+    expect(dialog.dataset.modalVariant).toBe('developer-warning');
     // the HTMLElement body branch still renders the custom node
     expect(dialog.querySelector('.modal-body').textContent).toContain('custom content');
     [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'OK').click();
@@ -1353,7 +1355,7 @@ describe('Modal service (js/apps/shell-ui/modals.js)', () => {
 });
 
 describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
-  async function bootDesktop({ settings = {}, withNovaByteSystem = true, fs } = {}) {
+  async function bootDesktop({ settings = {}, withNovaByteSystem = true, fs, extra = {} } = {}) {
     const os = {
       apps: {},
       username: 'user',
@@ -1372,7 +1374,7 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
     const notify = { calls: [], show: (n) => notify.calls.push(n) };
     const created = [];
     const wm = { createWindow: (appId, opts) => { created.push({ appId, opts }); return { id: `win-${created.length}` }; } };
-    const stubs = { extra: { OS: os, Notify: notify, WM: wm, FS: fs ?? _makeShellFS() } };
+    const stubs = { extra: { OS: os, Notify: notify, WM: wm, FS: fs ?? _makeShellFS(), ...extra } };
     if (withNovaByteSystem) stubs.extra.NovaByteSystem = novaByteSystem;
     const { window } = await loadServiceApp('shell-ui', { scripts: ['desktop.js'], stubs });
     return { window, os, notify, created, AppDirs: window.AppDirs, systemSettings: novaByteSystem.settings };
@@ -1405,13 +1407,68 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
 
   it('applyTheme writes the theme custom properties and dispatches theme:changed', async () => {
     const { window } = await bootDesktop();
+    const colorSchemeMeta = window.document.createElement('meta');
+    colorSchemeMeta.name = 'color-scheme';
+    window.document.head.appendChild(colorSchemeMeta);
     const events = [];
     window.addEventListener('theme:changed', (e) => events.push(e.detail.theme));
+    window.applyTheme('nova-light');
+    expect(colorSchemeMeta.content).toBe('light');
+    expect(window.document.documentElement.style.colorScheme).toBe('light');
     window.applyTheme('nord');
-    expect(events).toEqual(['nord']);
+    expect(events).toEqual(['nova-light', 'nord']);
+    expect(colorSchemeMeta.content).toBe('dark');
     expect(window.document.documentElement.style.getPropertyValue('--bg-base')).toBe('#2e3440');
     expect(() => window.applyTheme('not-a-theme')).not.toThrow(); // falls back to nova-dark
-    expect(events).toEqual(['nord', 'not-a-theme']);
+    expect(events).toEqual(['nova-light', 'nord', 'not-a-theme']);
+  });
+
+  it('keeps semantic text colors readable in every built-in theme', async () => {
+    const { window } = await bootDesktop();
+    const themes = [
+      'nova-dark', 'nova-light', 'nord', 'dracula',
+      'catppuccin', 'tokyo-night', 'gruvbox', 'high-contrast',
+    ];
+    const foregrounds = [
+      '--text-primary', '--text-secondary', '--text-muted', '--text-link',
+      '--text-danger', '--text-success', '--text-warning', '--accent',
+    ];
+    const parseColor = (color, behind = [0, 0, 0]) => {
+      const hexChannels = color.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i)?.slice(1);
+      if (hexChannels) return hexChannels.map((channel) => parseInt(channel, 16) / 255);
+      const rgba = color.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i);
+      if (rgba) {
+        const alpha = rgba[4] == null ? 1 : Number(rgba[4]);
+        return [1, 2, 3].map((index, channel) =>
+          Number(rgba[index]) / 255 * alpha + behind[channel] * (1 - alpha));
+      }
+      throw new Error(`Expected a hex or rgb theme color, got ${color}`);
+    };
+    const luminance = (channels) => {
+      const linear = channels.map((value) => {
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    };
+
+    for (const theme of themes) {
+      window.applyTheme(theme);
+      const styles = window.document.documentElement.style;
+      const base = parseColor(styles.getPropertyValue('--bg-base'));
+      const surfaces = ['--bg-base', '--bg-elevated', '--bg-sunken', '--bg-overlay']
+        .map((token) => luminance(parseColor(styles.getPropertyValue(token), base)));
+      for (const token of foregrounds) {
+        const foreground = luminance(parseColor(styles.getPropertyValue(token)));
+        for (const background of surfaces) {
+          const [lighter, darker] = [background, foreground].sort((a, b) => b - a);
+          expect((lighter + 0.05) / (darker + 0.05), `${theme} ${token}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+      const accent = luminance(parseColor(styles.getPropertyValue('--accent')));
+      const accentText = luminance(parseColor(styles.getPropertyValue('--text-on-accent')));
+      const [lighter, darker] = [accent, accentText].sort((a, b) => b - a);
+      expect((lighter + 0.05) / (darker + 0.05), `${theme} --text-on-accent`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it('routes file types to their default apps through WM.createWindow', async () => {
@@ -1468,6 +1525,58 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
     // ensure is kicked off and null is returned for now
     expect(AppDirs.getAppDataPath('terminal', 'files')).toBeNull();
     expect(AppDirs.getAppDataPath('com.nbosp.unknown-app', 'files')).toBeNull();
+  });
+
+  // Regression for the critical "notifications don't reappear after logging
+  // in" bug: localStorage.removeItem is patched to unlink the per-user
+  // backing file, so syncAllToUser's old write-then-remove order deleted the
+  // stratum it had just flushed — the account's notifications.json (and every
+  // other LS_MAP stratum) was destroyed at every logout/suspend/switch, and
+  // the sign-in remount found nothing to restore. The flush must drop the
+  // localStorage key FIRST and write the file AFTER.
+  it('syncAllToUser() flushes to per-user files that survive the flush, and syncAllFromUser() restores them', async () => {
+    if (process.platform !== 'linux' && process.platform !== 'darwin' && process.platform !== 'win32') {
+      throw new Error('unexpected platform');
+    }
+    // The module only takes the per-user file path on the Linux runtime —
+    // emulate it inside the JSDOM sandbox with an injected process + require.
+    const nodeRequire = (m) => ({ fs: fsSync, path, os })[m];
+    const { window, AppDirs } = await bootDesktop({
+      extra: { process: { platform: 'linux', pid: process.pid }, require: nodeRequire },
+    });
+
+    const tmp = fsSync.mkdtempSync(path.join(os.tmpdir(), 'nbosp-appdirs-'));
+    AppDirs._linuxAppPath = () => tmp;                 // strata land in the sandbox dir
+    AppDirs._persistBrowserState = () => {};           // never touch the real home dump
+    const ls = window.localStorage;
+    const origSetItem = ls.setItem, origRemoveItem = ls.removeItem, origClear = ls.clear;
+    try {
+      AppDirs._installNativeBrowserStatePersistence(); // patches setItem/removeItem/clear
+
+      ls.setItem('novaOS_notifications', JSON.stringify([
+        { id: 'n1', title: 'Timer Done', body: 'Your timer has finished.', read: false },
+        { id: 'n2', title: 'Alarm', read: true },
+      ]));
+
+      AppDirs.syncAllToUser();
+
+      // localStorage was flushed (no personal data between accounts) ...
+      expect(ls.getItem('novaOS_notifications')).toBeNull();
+      // ... but the backing file SURVIVED the flush (the old write-then-remove
+      // order unlinked it through the patched removeItem).
+      const file = path.join(tmp, 'notifications.json');
+      expect(fsSync.existsSync(file)).toBe(true);
+      expect(JSON.parse(fsSync.readFileSync(file, 'utf8'))).toHaveLength(2);
+
+      // and a later sign-in remount restores the account's feed from it
+      AppDirs.syncAllFromUser();
+      const restored = JSON.parse(ls.getItem('novaOS_notifications'));
+      expect(restored).toHaveLength(2);
+      expect(restored[0].id).toBe('n1');
+    } finally {
+      ls.setItem = origSetItem; ls.removeItem = origRemoveItem; ls.clear = origClear;
+      fsSync.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('bootstrap() mirrors the data tree into the virtual FS and syncs localStorage', async () => {

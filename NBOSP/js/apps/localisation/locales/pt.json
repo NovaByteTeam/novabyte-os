@@ -708,7 +708,10 @@
       "wipeEverything": "Limpe tudo",
       "wiping": "Limpando dados",
       "wipingBody": "Por favor, aguarde...",
-      "resetFailed": "Falha na redefinição"
+      "resetFailed": "Falha na redefinição",
+      "accountUsage": "Armazenamento da conta",
+      "yourUsage": "Seu armazenamento",
+      "totalUsed": "Armazenamento total utilizado"
     },
     "desktop": {
       "wallpaper": "Papel de parede",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Os aplicativos com permissões de administrador agora podem usá-los.",
       "adminModeDisabledBody": "As concessões de permissão de administrador agora estão inertes novamente.",
       "adminModeUpdateFailed": "Não foi possível atualizar o modo de administrador",
-      "tryAgain": "Tente novamente"
+      "tryAgain": "Tente novamente",
+      "exportTo": "Escolha onde salvar a exportação"
     },
     "root": {
       "intro": "Os aplicativos raiz são executados diretamente na página do sistema operacional com acesso irrestrito e podem realizar operações reais de administrador (raiz). Cada aplicativo raiz primeiro pede sua confirmação em um prompt do NovaByte – nunca dentro do aplicativo – e cada operação privilegiada é executada por meio de sudo auditado e sem senha (NOPASSWD) e é gravada no log de segurança. Esta não é uma sandbox ou uma permissão normal de aplicativo.",
@@ -957,6 +961,11 @@
       "pushRegistered": "push registrado",
       "queuedPushOne": "1 push na fila",
       "queuedPushesMany": "{{count}} pushes na fila"
+    },
+    "adminLock": {
+      "title": "Administrador necessário",
+      "body": "Esta configuração está disponível apenas para contas de administrador. Entre com uma conta de administrador para alterá-la.",
+      "switchUser": "Trocar de usuário"
     }
   },
   "apps": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "Salvar como não retornou um caminho de arquivo.",
         "tooManyRedirects": "Muitos redirecionamentos",
         "unsupportedRedirect": "Redirecionamento não suportado",
+        "localAddressBlocked": "Endereços locais e de rede interna não podem ser baixados.",
         "interrupted": "A resposta do download foi interrompida",
         "closedEarly": "O arquivo de download foi fechado antes da conclusão",
         "timedOut": "A conexão expirou",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "Configurações não redefinidas",
         "settingsResetTitle": "Configurações redefinidas",
         "settingsResetBody": "Todas as configurações do navegador foram restauradas aos padrões."
+      },
+      "omnibox": {
+        "searchWith": "Pesquisar no {{engine}} por \"{{query}}\""
       }
     },
     "files": {
@@ -1373,7 +1386,9 @@
         "viewIcons": "Ver: Ícones",
         "viewList": "Ver: Lista",
         "selectAll": "Selecionar tudo",
-        "delete": "Excluir"
+        "delete": "Excluir",
+        "pinToQuickAccess": "Fixar no Acesso rápido",
+        "unpinFromQuickAccess": "Desafixar do Acesso rápido"
       },
       "dialogs": {
         "chooseDestinationFolder": "Escolha a pasta de destino",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "Arquivo bloqueado",
         "invalidDrop": "Arquivo inválido descartado.",
         "failedToAdd": "Falha ao adicionar arquivo.",
-        "couldNotVerify": "Não foi possível verificar \"{{file}}\" — caiu em um estado seguro e pulou."
+        "couldNotVerify": "Não foi possível verificar \"{{file}}\" — caiu em um estado seguro e pulou.",
+        "quickAccessFailed": "Falha ao atualizar o Acesso rápido",
+        "quickAccessNotSaved": "Não foi possível salvar os locais fixados.",
+        "quickAccessNotFolder": "Apenas pastas existentes podem ser fixadas."
       },
       "linux": {
         "openParentFolder": "Abrir pasta pai",
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "Rede",
-        "fs": "FS"
+        "fs": "Sistema de arquivos"
       },
       "network": {
         "desc": "Mostra rotas de proxy, estado de guarda SSRF e configuração de rede recente.",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} cancelado",
         "failed": ", {{count}} fracassado",
         "total": "({{count}} total)"
+      },
+      "editor": {
+        "open": "Editar",
+        "openTitle": "Edite o código deste módulo ao vivo e recarregue-o",
+        "title": "Editando {{id}}",
+        "save": "Salvar e recarregar",
+        "back": "← Voltar aos módulos",
+        "fetchFailed": "Não foi possível carregar {{path}}: HTTP {{status}}",
+        "saved": "Salvo no disco e recarregado no OS em execução",
+        "saveFailed": "Falha ao salvar: {{message}}",
+        "lines": "{{count}} linhas",
+        "unsaved": "Editado — ainda não salvo",
+        "emptyRefused": "Salvamento de módulo vazio recusado"
       }
     },
     "install": {
@@ -1785,7 +1816,7 @@
       "memory": "Memória",
       "domNodesByWindow": "Nós DOM por janela",
       "noWindowsOpen": "Nenhuma janela aberta",
-      "notAvailableShort": "n / D",
+      "notAvailableShort": "Indisponível",
       "longTaskLog": "Log de tarefas longo",
       "longTaskUnsupported": "Rastreamento de tarefas longas não suportado neste navegador",
       "noLongTasks": "Nenhuma tarefa longa registrada ainda",
@@ -1801,20 +1832,20 @@
       "noRequestsMatch": "Nenhuma solicitação corresponde ao filtro atual",
       "noRequestsRecorded": "Nenhuma solicitação registrada ainda",
       "sourceBrowser": "navegador · {{label}}",
-      "sourceOs": "os · {{label}}",
+      "sourceOs": "Sistema operacional · {{label}}",
       "showBody": "▸ corpo",
       "hideBody": "▾ corpo",
       "bodyNotCaptured": "corpo não capturado{{type}}",
-      "statusError": "ERRAR",
+      "statusError": "Erro",
       "unknownApp": "aplicativo desconhecido",
       "networkError": "erro de rede",
       "bodyTruncated": "{{text}}…(truncado)",
-      "durationMs": "{{value}}EM",
+      "durationMs": "{{value}} ms",
       "fpsValue": "{{value}} FPS",
       "memoryValue": "{{value}} MB",
-      "longTasksValue": "{{count}} (>50ms)",
+      "longTasksValue": "{{count}} (>50 ms)",
       "none": "Nenhum",
-      "notAvailable": "N / D"
+      "notAvailable": "Indisponível"
     },
     "terminal": {
       "appDataMissing": "Diretório de dados do aplicativo ausente.",
@@ -1832,7 +1863,7 @@
       "helpSectionMath": "Matemática",
       "helpSectionFun": "Diversão",
       "helpAllCommands": "Todos os comandos:",
-      "helpAliases": "Aliases:",
+      "helpAliases": "Apelidos:",
       "shortcutsIntro": "Atalhos:",
       "shortcutsAutocomplete": "=preenchimento automático",
       "shortcutsHistory": "=história",
@@ -1858,7 +1889,11 @@
       "errorLine": "Erro: {{message}}",
       "terminalError": "[erro de terminal] {{message}}",
       "shellExited": "[Shell saiu com status {{status}}. Pressione Enter para iniciar um novo.]",
-      "unknownStatus": "desconhecido"
+      "unknownStatus": "desconhecido",
+      "shortcutsClearLine": "=limpar linha  ",
+      "shortcutsLineStart": "=início da linha  ",
+      "shortcutsLineEnd": "=fim da linha  ",
+      "shortcutsPaste": "=colar"
     },
     "myApps": {
       "appInstalledTitle": "Aplicativo instalado",
@@ -1948,17 +1983,17 @@
       "alarms": "Alarmes",
       "add": "Adicionar",
       "noAlarms": "Nenhum alarme definido. Toque em + Adicionar para criar um.",
-      "am": "SOU",
-      "pm": "PM",
+      "am": "a.m.",
+      "pm": "p.m.",
       "repeatOnce": "Uma vez",
       "repeatEveryDay": "Diariamente",
       "repeatWeekdays": "Dias da semana",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
+      "dayInitialSun": "D",
+      "dayInitialMon": "S",
       "dayInitialTue": "T",
       "dayInitialWed": "C",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
+      "dayInitialThu": "Q",
+      "dayInitialFri": "S",
       "dayInitialSat": "S",
       "daySun": "Sol",
       "dayMon": "seg",
@@ -2001,12 +2036,12 @@
       "dayThu": "qui",
       "dayFri": "sex",
       "daySat": "Sentado",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
+      "miniDaySun": "D",
+      "miniDayMon": "S",
       "miniDayTue": "T",
       "miniDayWed": "C",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
+      "miniDayThu": "Q",
+      "miniDayFri": "S",
       "miniDaySat": "S",
       "upcoming": "Por vir",
       "newEvent": "Novo Evento",
@@ -2068,7 +2103,11 @@
       "inputPlaceholder": "Insira JS para avaliar ou `reg query HKNS\\shell` para a CLI do Registro\nEnter para executar · Shift+Enter para nova linha · ↑/↓ para histórico",
       "run": "Correr",
       "readyMessage": "Console pronto. Digite uma expressão acima e pressione Enter ou Executar.\nShift+Enter para uma nova linha, ↑/↓ para recuperar comandos anteriores.",
-      "noOutputMatches": "(nenhuma saída corresponde a \"{{query}}\")"
+      "noOutputMatches": "(nenhuma saída corresponde a \"{{query}}\")",
+      "exportDialogTitle": "Exportar saída do Console",
+      "exportedTitle": "Saída do Console exportada",
+      "exportedBody": "Salvo em {{path}}",
+      "exportFailedTitle": "Falha ao exportar o Console"
     },
     "contacts": {
       "appDataMissing": "Diretório de dados do aplicativo ausente.",
@@ -2112,7 +2151,7 @@
       "score": "Pontuação: {{score}}",
       "controlsHint": "Teclas de seta / WASD",
       "canvasAria": "Tela de jogo de cobra",
-      "gameOver": "Game Over",
+      "gameOver": "Fim de jogo",
       "playAgain": "↺ Jogue novamente"
     },
     "downloads": {
@@ -2129,7 +2168,9 @@
       "alarm": "Alarme",
       "alarmFor": "Alarme para {{time}}",
       "email": "E-mail",
-      "emailNewMail": "{{count}} novo em {{account}}"
+      "emailNewMail": "{{count}} novo em {{account}}",
+      "timerDone": "Temporizador concluído",
+      "timerDoneBody": "Seu temporizador terminou."
     },
     "store": {
       "releaseTrack": "Faixa de lançamento",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "Posição de sobreposição de depuração",
         "devNovaReg": "Estado do editor NovaReg",
         "devNovaRegDesc": "Os favoritos e histórico de saltos deste editor."
-      }
+      },
+      "importDialogTitle": "Importar dados do Registro"
     },
     "appmanager": {
       "fallbackPackageName": "Este pacote",
@@ -2765,7 +2807,7 @@
       "tabVerify": "Verificar",
       "tabInstall": "Instalar",
       "copyBtn": "Cópia",
-      "downloadBtn": "Download",
+      "downloadBtn": "Baixar",
       "copiedBtn": "Copiado!",
       "copyFailedBtn": "Falha na cópia",
       "appIdLabel": "ID do aplicativo (domínio reverso, por exemplo, com.test.app)",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "A gravação de arquivos não está disponível neste tempo de execução.",
         "csvExported": "CSV exportado para {{path}}",
         "csvExportFailed": "Falha na exportação de CSV: {{message}}"
-      }
+      },
+      "degradedRefresh": "Não foi possível atualizar as contas — exibindo a última lista conhecida.",
+      "sessionExpired": "Sua sessão expirou — entre novamente.",
+      "retry": "Tentar novamente",
+      "confirmPin": "Confirmar PIN",
+      "pinMismatch": "Os PINs não coincidem.",
+      "resetPinSelfWarning": "Redefinir o PIN de {{name}}?",
+      "resetPinSelfWarningBody": "Redefinir seu próprio PIN encerra a sessão desta conta em todos os lugares — todas as sessões são revogadas. Você entrará novamente com o PIN temporário exibido a seguir e depois escolherá um novo.",
+      "resetPinSelfWarningConfirm": "Redefinir e sair",
+      "resetPinSelfWarningDone": "Seu PIN foi redefinido. Entre novamente com este PIN temporário — você será solicitado a escolher um novo."
     },
     "events": {
       "gate": {
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} novo em {{account}}",
         "newMailTitle": "{{email}} - {{count}} novo"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Acesso rápido",
+      "home": "Início",
+      "breadcrumbsAria": "Local",
+      "editPath": "Editar caminho",
+      "newFolder": "Nova pasta",
+      "newFile": "Novo arquivo",
+      "createFailed": "Falha ao criar",
+      "createFolderFailed": "Não foi possível criar a pasta: {{message}}",
+      "createFileFailed": "Não foi possível criar o arquivo: {{message}}",
+      "fileType": "Tipo de arquivo",
+      "allTypes": "Todos os tipos (*.*)",
+      "pinned": "Fixados",
+      "mounts": "Unidades montadas",
+      "saveFailed": "Não foi possível salvar o arquivo",
+      "unavailable": "A caixa de diálogo de arquivos do sistema não está disponível",
+      "search": "Pesquisar nesta pasta",
+      "searchAria": "Pesquisar nesta pasta",
+      "noMatches": "(Nenhum resultado)"
     }
   }
 }

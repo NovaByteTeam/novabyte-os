@@ -708,7 +708,10 @@
       "wipeEverything": "擦拭一切",
       "wiping": "擦除数据",
       "wipingBody": "请稍等...",
-      "resetFailed": "重置失败"
+      "resetFailed": "重置失败",
+      "accountUsage": "账户存储",
+      "yourUsage": "你的存储",
+      "totalUsed": "已用总存储"
     },
     "desktop": {
       "wallpaper": "墙纸",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "授予管理员权限的应用程序现在可以使用它们。",
       "adminModeDisabledBody": "管理员权限授予现在再次失效。",
       "adminModeUpdateFailed": "无法更新管理模式",
-      "tryAgain": "再试一次"
+      "tryAgain": "再试一次",
+      "exportTo": "选择导出内容的保存位置"
     },
     "root": {
       "intro": "Root应用程序直接在操作系统页面中运行，访问不受限制，可以执行真正的管理员（root）操作。每个根应用程序首先会在 NovaByte 提示符内要求您确认（而不是在应用程序内），并且每个特权操作都通过经过审核的无密码 sudo (NOPASSWD) 运行，并写入安全日志。这不是沙箱或普通的应用程序权限。",
@@ -957,6 +961,11 @@
       "pushRegistered": "推送已注册",
       "queuedPushOne": "1 排队推送",
       "queuedPushesMany": "{{count}} 排队推送"
+    },
+    "adminLock": {
+      "title": "需要管理员",
+      "body": "此设置仅对管理员账户可用。请使用管理员账户登录后进行更改。",
+      "switchUser": "切换用户"
     }
   },
   "apps": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "另存为未返回文件路径。",
         "tooManyRedirects": "重定向太多",
         "unsupportedRedirect": "不支持重定向",
+        "localAddressBlocked": "无法下载本地及内部网络地址。",
         "interrupted": "下载响应被中断",
         "closedEarly": "下载文件在完成之前已关闭",
         "timedOut": "连接超时",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "设置未重置",
         "settingsResetTitle": "设置重置",
         "settingsResetBody": "所有浏览器设置均恢复为默认值。"
+      },
+      "omnibox": {
+        "searchWith": "在 {{engine}} 中搜索 \"{{query}}\""
       }
     },
     "files": {
@@ -1373,7 +1386,9 @@
         "viewIcons": "查看：图标",
         "viewList": "查看：列表",
         "selectAll": "选择全部",
-        "delete": "删除"
+        "delete": "删除",
+        "pinToQuickAccess": "固定到快速访问",
+        "unpinFromQuickAccess": "从快速访问取消固定"
       },
       "dialogs": {
         "chooseDestinationFolder": "选择目标文件夹",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "文件被阻止",
         "invalidDrop": "无效文件被删除。",
         "failedToAdd": "添加文件失败。",
-        "couldNotVerify": "无法验证”{{file}}” — 处于安全状态并跳过。"
+        "couldNotVerify": "无法验证”{{file}}” — 处于安全状态并跳过。",
+        "quickAccessFailed": "无法更新快速访问",
+        "quickAccessNotSaved": "无法保存已固定的位置。",
+        "quickAccessNotFolder": "只能固定现有文件夹。"
       },
       "linux": {
         "openParentFolder": "打开父文件夹",
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "网络",
-        "fs": "FS"
+        "fs": "文件系统"
       },
       "network": {
         "desc": "显示代理路由、SSRF 防护状态和最近的网络配置。",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} 取消",
         "failed": ", {{count}} 失败的",
         "total": "（{{count}} 全部的）"
+      },
+      "editor": {
+        "open": "编辑",
+        "openTitle": "实时编辑此模块的代码并立即热重载",
+        "title": "正在编辑 {{id}}",
+        "save": "保存并重载",
+        "back": "← 返回模块列表",
+        "fetchFailed": "无法加载 {{path}}：HTTP {{status}}",
+        "saved": "已保存到磁盘并重载进正在运行的系统",
+        "saveFailed": "保存失败：{{message}}",
+        "lines": "{{count}} 行",
+        "unsaved": "已修改——尚未保存",
+        "emptyRefused": "拒绝保存空模块"
       }
     },
     "install": {
@@ -1785,7 +1816,7 @@
       "memory": "记忆",
       "domNodesByWindow": "按窗口划分的 DOM 节点",
       "noWindowsOpen": "没有窗户打开",
-      "notAvailableShort": "不适用",
+      "notAvailableShort": "不可用",
       "longTaskLog": "长任务日志",
       "longTaskUnsupported": "此浏览器不支持长任务跟踪",
       "noLongTasks": "尚未记录长任务",
@@ -1801,20 +1832,20 @@
       "noRequestsMatch": "没有请求与当前过滤器匹配",
       "noRequestsRecorded": "尚未记录任何请求",
       "sourceBrowser": "浏览器· {{label}}",
-      "sourceOs": "操作系统· {{label}}",
+      "sourceOs": "操作系统 · {{label}}",
       "showBody": "▸ 身体",
       "hideBody": "▾ 身体",
       "bodyNotCaptured": "尸体未被捕获{{type}}",
-      "statusError": "犯错",
+      "statusError": "错误",
       "unknownApp": "未知应用程序",
       "networkError": "网络错误",
       "bodyTruncated": "{{text}}…（截断）",
-      "durationMs": "{{value}}多发性硬化症",
-      "fpsValue": "{{value}} 帧率",
+      "durationMs": "{{value}} 毫秒",
+      "fpsValue": "{{value}} 帧/秒",
       "memoryValue": "{{value}} MB",
       "longTasksValue": "{{count}} (>50毫秒)",
       "none": "没有任何",
-      "notAvailable": "不适用"
+      "notAvailable": "不可用"
     },
     "terminal": {
       "appDataMissing": "应用程序数据目录丢失。",
@@ -1858,7 +1889,11 @@
       "errorLine": "错误： {{message}}",
       "terminalError": "[终端错误] {{message}}",
       "shellExited": "[Shell 退出，状态为 {{status}}。按 Enter 键开始新的一个。]",
-      "unknownStatus": "未知"
+      "unknownStatus": "未知",
+      "shortcutsClearLine": "=清除当前行  ",
+      "shortcutsLineStart": "=行首  ",
+      "shortcutsLineEnd": "=行尾  ",
+      "shortcutsPaste": "=粘贴"
     },
     "myApps": {
       "appInstalledTitle": "应用程序已安装",
@@ -1948,18 +1983,18 @@
       "alarms": "警报",
       "add": "添加",
       "noAlarms": "没有设置闹钟。点击 + 添加即可创建一个。",
-      "am": "是",
+      "am": "上午",
       "pm": "下午",
       "repeatOnce": "一次",
       "repeatEveryDay": "每天",
       "repeatWeekdays": "平日",
-      "dayInitialSun": "S",
+      "dayInitialSun": "日",
       "dayInitialMon": "中号",
       "dayInitialTue": "时间",
       "dayInitialWed": "瓦",
       "dayInitialThu": "时间",
-      "dayInitialFri": "F",
-      "dayInitialSat": "S",
+      "dayInitialFri": "五",
+      "dayInitialSat": "六",
       "daySun": "太阳",
       "dayMon": "周一",
       "dayTue": "星期二",
@@ -2001,13 +2036,13 @@
       "dayThu": "星期四",
       "dayFri": "周五",
       "daySat": "星期六",
-      "miniDaySun": "S",
+      "miniDaySun": "日",
       "miniDayMon": "中号",
       "miniDayTue": "时间",
       "miniDayWed": "瓦",
       "miniDayThu": "时间",
-      "miniDayFri": "F",
-      "miniDaySat": "S",
+      "miniDayFri": "五",
+      "miniDaySat": "六",
       "upcoming": "即将推出",
       "newEvent": "新活动",
       "today": "今天",
@@ -2068,7 +2103,11 @@
       "inputPlaceholder": "输入 JS 进行评估，或在注册表 CLI 中输入“reg query HKNS\\shell”\nEnter 运行 · Shift+Enter 换行 · ↑/↓ 历史记录",
       "run": "跑步",
       "readyMessage": "控制台准备就绪。在上面输入一个表达式，然后按 Enter 或 Run。\nShift+Enter 换行，↑/↓ 调用之前的命令。",
-      "noOutputMatches": "（没有输出匹配“{{query}}”）"
+      "noOutputMatches": "（没有输出匹配“{{query}}”）",
+      "exportDialogTitle": "导出控制台输出",
+      "exportedTitle": "控制台输出已导出",
+      "exportedBody": "已保存到 {{path}}",
+      "exportFailedTitle": "控制台导出失败"
     },
     "contacts": {
       "appDataMissing": "应用程序数据目录丢失。",
@@ -2129,7 +2168,9 @@
       "alarm": "警报",
       "alarmFor": "警报用于 {{time}}",
       "email": "电子邮件",
-      "emailNewMail": "{{count}} 新来的 {{account}}"
+      "emailNewMail": "{{count}} 新来的 {{account}}",
+      "timerDone": "计时结束",
+      "timerDoneBody": "您的计时器已结束。"
     },
     "store": {
       "releaseTrack": "发布曲目",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "调试叠加位置",
         "devNovaReg": "NovaReg 编辑器状态",
         "devNovaRegDesc": "这位编辑的最爱和跳转历史记录。"
-      }
+      },
+      "importDialogTitle": "导入注册表数据"
     },
     "appmanager": {
       "fallbackPackageName": "这个套餐",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "在此运行时无法写入文件。",
         "csvExported": "CSV 导出到 {{path}}",
         "csvExportFailed": "CSV 导出失败： {{message}}"
-      }
+      },
+      "degradedRefresh": "无法刷新账户列表——当前显示的是上次已知的列表。",
+      "sessionExpired": "会话已过期——请重新登录。",
+      "retry": "重试",
+      "confirmPin": "确认 PIN 码",
+      "pinMismatch": "两次输入的 PIN 码不一致。",
+      "resetPinSelfWarning": "重置 {{name}} 的 PIN 码？",
+      "resetPinSelfWarningBody": "重置自己的 PIN 码会使此账户在所有设备上退出登录——所有会话都将被吊销。你需要使用随后显示的临时 PIN 码重新登录，然后再选择新的 PIN 码。",
+      "resetPinSelfWarningConfirm": "重置并退出登录",
+      "resetPinSelfWarningDone": "你的 PIN 码已重置。请使用此临时 PIN 码重新登录——系统会要求你选择新的 PIN 码。"
     },
     "events": {
       "gate": {
@@ -3006,7 +3057,7 @@
         "newest": "最新的优先",
         "oldest": "最老的在前",
         "severity": "严重性",
-        "az": "A-Z"
+        "az": "拼音排序"
       },
       "toolbar": {
         "saveView": "+ 保存视图",
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} 新来的 {{account}}",
         "newMailTitle": "{{email}} — {{count}} 新的"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "快速访问",
+      "home": "主页",
+      "breadcrumbsAria": "位置",
+      "editPath": "编辑路径",
+      "newFolder": "新建文件夹",
+      "newFile": "新建文件",
+      "createFailed": "创建失败",
+      "createFolderFailed": "无法创建文件夹：{{message}}",
+      "createFileFailed": "无法创建文件：{{message}}",
+      "fileType": "文件类型",
+      "allTypes": "所有类型 (*.*)",
+      "pinned": "已固定",
+      "mounts": "已挂载的驱动器",
+      "saveFailed": "无法保存文件",
+      "unavailable": "系统文件对话框不可用",
+      "search": "搜索此文件夹",
+      "searchAria": "搜索此文件夹",
+      "noMatches": "(没有匹配项)"
     }
   }
 }

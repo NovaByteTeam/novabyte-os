@@ -60,21 +60,138 @@ const UnrestrictedGate = (() => {
    * that only have an appId (AppPermissionManager.isGranted, below) can
    * consult it without plumbing app records around.
    *
-   * The verified/signer flags this reads were themselves set by install-time
-   * and boot-time verification against the trust store, so this transitively
-   * inherits all of that cryptography — nothing here re-trusts anything on
-   * its own say-so. Fail-closed on any missing piece.
+   * SECURITY (2026-11-15 audit, finding M7): this path previously checked
+   * ONLY the install-time registry flags, contradicting the header
+   * contract (conditions 3+4, "re-checked live on every call") — a package
+   * tampered after install kept its all-permissions status forever, and a
+   * trust-store revocation never touched OS.apps[id].verified. The call now
+   * also enforces, synchronously:
+   *   * provenance — entry.source must be 'system-bundle' (same rule
+   *     checkUnrestrictedApp applies; nothing user-installed qualifies);
+   *   * presence of an integrity record — a first-party system package
+   *     has no legitimate reason to omit one;
+   *   * live trust-store revocation of the entry's signature;
+   *   * first-party manifest membership once the manifest has loaded (it
+   *     is pre-warmed at module load; the membership leg is not enforced
+   *     during the pre-load window so boot-order stays stable — every
+   *     other condition must still hold).
+   * And asynchronously, throttled: the persisted store record's integrity
+   * is re-verified in the background; a CONCLUSIVE mismatch flips a
+   * kill-switch that fails every subsequent check until a later probe
+   * passes again (or reload) — the same "tampered-since-install loses
+   * access immediately" posture the gate's own header promises, without
+   * treating an unreadable store or a drifted in-memory entry as tamper.
    */
+  let _settingsTamperFlag = false;
+  let _settingsIntegrityProbeAt = 0;
+
+  function _probeSettingsIntegrityThrottled() {
+    const now = Date.now();
+    if (now - _settingsIntegrityProbeAt < 30_000) return;
+    _settingsIntegrityProbeAt = now;
+    _probeSettingsIntegrityFromStore().then(verdict => {
+      // null = inconclusive this round (no stored record / unreadable
+      // store) — leave the current state untouched; the synchronous
+      // identity checks above remain the gate either way.
+      if (verdict === null) return;
+      if (verdict === true && !_settingsTamperFlag) {
+        console.error('[UnrestrictedGate] Settings package failed its call-time integrity re-check — unrestricted access revoked for this session.');
+      } else if (verdict === false && _settingsTamperFlag) {
+        console.warn('[UnrestrictedGate] Settings package integrity re-check now passes — unrestricted access restored.');
+      }
+      _settingsTamperFlag = verdict === true;
+    }).catch(() => { /* inconclusive probes leave the current state untouched */ });
+  }
+
+  /**
+   * Verify the Settings package against its own PERSISTED store record.
+   * Resolves to true (tampered), false (clean) or null (inconclusive).
+   *
+   * The 2026-11-15 audit's first cut of this probe passed the live
+   * OS.apps entry straight to AppPackage.verifyIntegrity(). That entry is
+   * the launch config built at boot — a runtime artifact whose
+   * manifest/payload fields nothing guarantees stay byte-identical to the
+   * install-time signed payload, so a perfectly clean install could fail
+   * the probe and revoke Settings for the whole session (false positive
+   * seen in the field). The probe now loads the package store's own
+   * record + files and verifies that self-consistent pair — the same
+   * synthesized-payload shape boot.js's trust refresh uses — so a verdict
+   * of "tampered" means the stored files really do not match the stored
+   * install-time hashes. States where the package cannot be loaded
+   * conclusively (no record, unreadable store, missing files) yield null:
+   * missing data is not evidence of tampering, and the identity /
+   * provenance / revocation legs of isTrustedSettingsAppById still gate
+   * every single call synchronously.
+   */
+  async function _probeSettingsIntegrityFromStore() {
+    const store = typeof window !== 'undefined' ? window.NovaAppPackageStore : null;
+    if (!store || typeof store.hydrateApp !== 'function' ||
+        typeof AppPackage === 'undefined' || typeof AppPackage.verifyIntegrity !== 'function') {
+      return null;
+    }
+    let record = null;
+    try {
+      const registry = typeof store.loadRegistry === 'function' ? store.loadRegistry() : null;
+      record = Array.isArray(registry) ? registry.find(a => a && a.id === SETTINGS_APP_ID) : null;
+    } catch (_) { return null; }
+    if (!record || !record.integrity) return null;
+    let pkg = null;
+    try { pkg = await store.hydrateApp(record); } catch (_) { return null; }
+    if (!pkg || pkg._loadError || !pkg.files) return null;
+    try {
+      const ok = await AppPackage.verifyIntegrity({
+        novabyte_app: pkg.novabyte_app,
+        manifest: pkg.manifest,
+        files: pkg.files,
+        compiled_at: pkg.compiled_at,
+        integrity: record.integrity
+      });
+      return ok !== true;
+    } catch (_) {
+      return null; // verification itself threw — inconclusive, not tamper
+    }
+  }
+
   function isTrustedSettingsAppById(appId) {
     if (appId !== SETTINGS_APP_ID) return false;
+    // Background integrity re-verification (throttled) against the persisted
+    // store record — deliberately invoked BEFORE the tamper-flag check so a
+    // later clean probe RESTORES access without requiring a reload (a
+    // revoked session that can never re-probe could never recover).
+    // See _probeSettingsIntegrityFromStore for why the probe does not use
+    // this in-memory entry directly.
+    _probeSettingsIntegrityThrottled();
+    if (_settingsTamperFlag) return false;
     const entry = (typeof OS !== 'undefined' && OS.apps && OS.apps[appId]) || null;
-    return !!(
+    if (!(
       entry &&
       entry.system === true &&
       entry.verified === true &&
       entry.signer === 'NovaByte System' &&
       entry.manifest?.system === true
-    );
+    )) return false;
+    // Provenance: bundled first-party package, never a user install.
+    if (entry.source !== 'system-bundle') return false;
+    // First-party system packages must carry an integrity record.
+    if (!entry.integrity) return false;
+    // Live revocation: a signature added to the trust store's revoked list
+    // must cut this off immediately, not at next boot.
+    try {
+      if (typeof TrustStore !== 'undefined' && typeof TrustStore.isRevoked === 'function'
+        && entry.signature && TrustStore.isRevoked(entry.signature)) {
+        return false;
+      }
+    } catch (_) { /* TrustStore read failure: the identity fields above still gate */ }
+    // First-party manifest membership (enforced once the manifest has loaded).
+    if (_firstPartyIdsCache && !_firstPartyIdsCache.has(appId)) return false;
+    return true;
+  }
+
+  // Pre-warm the first-party manifest as early as possible so the
+  // membership leg of isTrustedSettingsAppById is enforced for essentially
+  // the whole session, not just after the first nova:system:* call.
+  if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+    window.setTimeout(() => { _getFirstPartyAppIds(); }, 0);
   }
 
   // Cached the same way the App Manager package's install-time impersonation check

@@ -264,8 +264,16 @@ describe('Terminal app (js/apps/terminal)', () => {
     for (const section of ['Filesystem:', 'Text:', 'System:', 'Math:', 'Fun:']) {
       expect(text).toContain(section);
     }
+    // `help` itself is now listed in the System section (it used to be the
+    // only command missing from the curated sections).
+    expect(text).toContain('clear  help  history');
     expect(text).toContain('neofetch');
     expect(text).toContain('Ctrl+L');
+    // Shortcuts line now covers the implemented readline bindings too.
+    expect(text).toContain('Ctrl+U');
+    expect(text).toContain('Ctrl+A');
+    expect(text).toContain('Ctrl+E');
+    expect(text).toContain('Ctrl+V');
     expect(text).toContain('All commands:');
     expect(text).toContain('base64');
     expect(text).toContain('sleep');

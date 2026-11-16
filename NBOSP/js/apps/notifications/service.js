@@ -281,11 +281,11 @@ function handleNotificationActionClick(notif, actionDef) {
 
 // Shared inline styles for the two "action" buttons (toast + panel row).
 // Was duplicated as two near-identical cssText strings before.
-const ACTION_BUTTON_STYLE = 'padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;background:rgba(88,166,255,0.2);color:#58a6ff;border:1px solid rgba(88,166,255,0.4);cursor:pointer;transition:all 0.15s;';
+const ACTION_BUTTON_STYLE = 'padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;background:var(--accent-muted);color:var(--text-link);border:1px solid var(--border-default);cursor:pointer;transition:all 0.15s;';
 
 function wireActionButtonHover(btn) {
-  btn.addEventListener('pointerenter', () => { btn.style.background = 'rgba(88,166,255,0.35)'; });
-  btn.addEventListener('pointerleave', () => { btn.style.background = 'rgba(88,166,255,0.2)'; });
+  btn.addEventListener('pointerenter', () => { btn.style.background = 'var(--bg-hover)'; });
+  btn.addEventListener('pointerleave', () => { btn.style.background = 'var(--accent-muted)'; });
 }
 
 // Epoch-ms timestamp -> short "time ago" / "running for" string. Kept as a
@@ -879,7 +879,7 @@ const Notify = {
         const pct = n.progress.indeterminate
           ? 40
           : Math.max(0, Math.min(100, Math.round((Number(n.progress.value) / max) * 100)));
-        fill.style.cssText = `height:100%;width:${pct}%;background:#58a6ff;border-radius:2px;`;
+        fill.style.cssText = `height:100%;width:${pct}%;background:var(--accent);border-radius:2px;`;
         bar.appendChild(fill);
         content.appendChild(bar);
       }
@@ -956,7 +956,27 @@ const Notify = {
     const panel = document.getElementById('notification-panel');
     if (!panel) return;
     const opening = !panel.classList.contains('active');
-    panel.classList.toggle('active');
+    if (opening) {
+      // One flyout at a time: opening the panel closes every other shell
+      // popup (volume/wifi/calendar flyouts, power menu, window preview).
+      window.ShellPopupCoordinator?.closeAllExcept('notifications');
+      panel.classList.add('active');
+      // The closeFn mirrors the panel's regular close paths (#notif-close
+      // button / backdrop click, wired in system-events.js) and
+      // unregisters itself, so a coordinator sweep arriving after an
+      // independent close is a harmless no-op.
+      window.ShellPopupCoordinator?.register('notifications', () => {
+        panel.classList.remove('active');
+        if (typeof window.resetShellScroll === 'function') {
+          window.resetShellScroll();
+          requestAnimationFrame(window.resetShellScroll);
+        }
+        window.ShellPopupCoordinator?.unregister('notifications');
+      });
+    } else {
+      panel.classList.remove('active');
+      window.ShellPopupCoordinator?.unregister('notifications');
+    }
     if (typeof window.resetShellScroll === 'function') {
       window.resetShellScroll();
       requestAnimationFrame(window.resetShellScroll);
@@ -978,3 +998,37 @@ if (typeof Notify !== 'undefined') {
 } else {
   console.warn('Notify object was not found in the local scope of app-notifications.js');
 }
+
+// 2026-11-15: the notification feed is per-account — the storage key rides
+// the per-user AppDirs remount (shell-ui/desktop.js LS_MAP). Reload it
+// whenever the active session changes so a user switch swaps the feed
+// immediately instead of showing the previous account's notifications
+// until the next reload.
+try {
+  if (typeof OS !== 'undefined' && OS?.events?.on) {
+    let _notifFeedUid;
+    OS.events.on('session:changed', (event) => {
+      const nextUid = event && typeof event === 'object' && 'uid' in event ? event.uid : null;
+      if (nextUid === _notifFeedUid) return;
+      _notifFeedUid = nextUid;
+      // One tick of defer: the per-user LS remount completes right before
+      // this event fires; the hand-off must not interleave with callers.
+      setTimeout(() => {
+        try {
+          const saved = JSON.parse(localStorage.getItem(Notify._storageKey) || '[]');
+          OS.notifications = Array.isArray(saved) ? saved.slice(0, 100) : [];
+          OS.notifUnread = OS.notifications.filter(n => !n.read).length;
+          Notify.updateBadge();
+          if (typeof updateNotificationBadge === 'function') updateNotificationBadge();
+          // Re-render the notification center so the restored feed is what
+          // the user actually sees after signing back in — without this the
+          // panel kept showing the previous (or empty) list until it was
+          // opened. Also re-arm the one-shot boot guard so a later
+          // loadPersisted() would re-read this account's feed, not skip.
+          Notify._loaded = true;
+          Notify.renderPanel();
+        } catch (_) { /* best-effort reload */ }
+      }, 0);
+    });
+  }
+} catch (_) { /* events bus unavailable in stripped hosts */ }

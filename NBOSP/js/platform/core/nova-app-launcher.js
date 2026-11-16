@@ -885,9 +885,21 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               // fields all along, which is why the titlebar alone looked
               // right while the content stayed opaque.
               transparent: appData.transparent === true,
-              system: appData.manifest?.system === true,
-              verified: appData.verified === true,
-              signer: appData.signer,
+              // SECURITY (2026-11-15 audit, finding H4): this used to read
+              // appData.manifest?.system === true — a MANIFEST-controlled
+              // value, i.e. fully attacker-chosen on an unsigned package
+              // (install-time validateManifest has no system-field gate, and
+              // the impersonation check only runs in the App Manager flow,
+              // not the Packages app / MyAppsManager paths). The sandbox's
+              // HKNS-write gate and username disclosure then keyed off this
+              // flag alone, letting a self-proclaimed "system" app write the
+              // SYSTEM registry hive. Use the verified identity triple
+              // instead — system:true now requires verified + NovaByte
+              // System signer + manifest.system, exactly like every other
+              // trust decision in this codebase (and the duplicate
+              // verified/signer keys below are collapsed into the ones
+              // already set above).
+              system: isSystemSigned,
               manifest: appData.manifest,
             };
             try {

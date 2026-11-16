@@ -38,8 +38,8 @@
       "clockAria": "Horloge",
       "powerOptionsAria": "Options d’alimentation",
       "calendarAria": "Calendrier",
-      "previousMonthAria": "Previous month",
-      "nextMonthAria": "Next month",
+      "previousMonthAria": "Mois précédent",
+      "nextMonthAria": "Mois suivant",
       "network": "Réseau",
       "checkingNetwork": "Vérification du réseau",
       "connectedToNetwork": "Connecté au réseau",
@@ -80,7 +80,7 @@
       "systemName": "Système"
     },
     "launchpad": {
-      "desktopAria": "Desktop",
+      "desktopAria": "Bureau",
       "taskbarAria": "Barre des tâches",
       "openLaunchpadAria": "Ouvrir Launchpad :",
       "runningAppsAria": "运行的应用程序",
@@ -92,7 +92,7 @@
       "webApp": "Application web"
     },
     "desktop": {
-      "open": "Open",
+      "open": "Ouvrir",
       "openWith": "Ouvrir avec...",
       "pinToTaskbar": "Vers la barre des tâches",
       "unpinFromTaskbar": "Désépingler de la barre des tâches",
@@ -183,7 +183,7 @@
     "files": {
       "saveAs": "Enregistrer sous",
       "selectFolder": "Sélectionner le dossier",
-      "open": "Open",
+      "open": "Ouvrir",
       "back": "Retour",
       "up": "Haut",
       "parentFolder": "Dossier parent",
@@ -659,7 +659,7 @@
       "wifiState": "Wi-Fi : {{state}}",
       "bluetoothUnavailable": "Bluetooth indisponible",
       "bluetoothState": "Bluetooth : {{state}}",
-      "statusLineErrors": "Internet: {{connectivity}} · {{errors}}",
+      "statusLineErrors": "Internet : {{connectivity}} · {{errors}}",
       "on": "Sur",
       "off": "Désactivé",
       "networkingUpdated": "Paramètre réseau mis à jour.",
@@ -708,7 +708,10 @@
       "wipeEverything": "Essuyez tout",
       "wiping": "Effacement des données",
       "wipingBody": "S'il vous plaît, attendez...",
-      "resetFailed": "Échec de la réinitialisation"
+      "resetFailed": "Échec de la réinitialisation",
+      "accountUsage": "Stockage du compte",
+      "yourUsage": "Votre stockage",
+      "totalUsed": "Stockage total utilisé"
     },
     "desktop": {
       "wallpaper": "Papier peint",
@@ -736,7 +739,7 @@
       "sizeCompact": "Compact",
       "sizeNormal": "Normale",
       "sizeLarge": "Grand",
-      "sizeXLarge": "X-Large",
+      "sizeXLarge": "Très grand",
       "thirdPartyLauncherNotice": "{{app}} est votre lanceur tiers actif. Ces contrôles s'appliquent uniquement à NovaByte Launcher."
     },
     "accessibility": {
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Les applications bénéficiant d'autorisations d'administrateur peuvent désormais les utiliser.",
       "adminModeDisabledBody": "Les autorisations d’administrateur sont désormais à nouveau inertes.",
       "adminModeUpdateFailed": "Impossible de mettre à jour le mode administrateur",
-      "tryAgain": "Essayer à nouveau"
+      "tryAgain": "Essayer à nouveau",
+      "exportTo": "Choisissez où enregistrer l'exportation"
     },
     "root": {
       "intro": "Les applications racine s'exécutent directement dans la page du système d'exploitation avec un accès illimité et peuvent effectuer de véritables opérations d'administrateur (root). Chaque application racine demande d'abord votre confirmation dans une invite NovaByte - jamais dans l'application - et chaque opération privilégiée s'exécute via sudo audité et sans mot de passe (NOPASSWD) et est écrite dans le journal de sécurité. Il ne s'agit pas d'un bac à sable ni d'une autorisation d'application normale.",
@@ -957,6 +961,11 @@
       "pushRegistered": "pousser enregistré",
       "queuedPushOne": "1 push en file d'attente",
       "queuedPushesMany": "{{count}} poussées en file d'attente"
+    },
+    "adminLock": {
+      "title": "Administrateur requis",
+      "body": "Ce paramètre n'est disponible que pour les comptes administrateur. Connectez-vous avec un compte administrateur pour le modifier.",
+      "switchUser": "Changer d'utilisateur"
     }
   },
   "apps": {
@@ -969,7 +978,7 @@
         "newTab": "Nouvel onglet",
         "newTabAria": "Nouvel onglet",
         "closeTabAria": "Fermer l'onglet",
-        "incognito": "Incognito"
+        "incognito": "Navigation privée"
       },
       "menu": {
         "newIncognitoTab": "Nouvel onglet navigation privée",
@@ -1027,7 +1036,7 @@
         "goodMorning": "🌤 Bonjour",
         "goodAfternoon": "☀️ Bonjour",
         "goodEvening": "🌙Bonsoir",
-        "incognito": "🕶 Incognito",
+        "incognito": "🕶 Navigation privée",
         "recent": "Récent"
       },
       "find": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "Enregistrer sous n'a pas renvoyé de chemin de fichier.",
         "tooManyRedirects": "Trop de redirections",
         "unsupportedRedirect": "Redirection non prise en charge",
+        "localAddressBlocked": "Les adresses locales et internes ne peuvent pas être téléchargées.",
         "interrupted": "La réponse au téléchargement a été interrompue",
         "closedEarly": "Le fichier de téléchargement a été fermé avant la fin",
         "timedOut": "La connexion a expiré",
@@ -1172,7 +1182,7 @@
         "writeFailed": "Impossible d'écrire le fichier : {{message}}",
         "savedBody": "{{name}} a été sauvé.",
         "dialogFailed": "Échec de l'enregistrement de la boîte de dialogue : {{message}}",
-        "sourceTab": "Source: {{host}}",
+        "sourceTab": "Source : {{host}}",
         "sourceReadFailed": "Impossible de lire la source de la page.",
         "sourceOpenFailed": "Impossible d'ouvrir la source de la page.",
         "sourceRetrieveFailed": "Impossible de récupérer la source de la page."
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "Paramètres non réinitialisés",
         "settingsResetTitle": "Réinitialisation des paramètres",
         "settingsResetBody": "Tous les paramètres du navigateur restaurés aux valeurs par défaut."
+      },
+      "omnibox": {
+        "searchWith": "Rechercher sur {{engine}} \"{{query}}\""
       }
     },
     "files": {
@@ -1373,7 +1386,9 @@
         "viewIcons": "Affichage : Icônes",
         "viewList": "Afficher : Liste",
         "selectAll": "Sélectionner tout",
-        "delete": "Supprimer"
+        "delete": "Supprimer",
+        "pinToQuickAccess": "Épingler à Accès rapide",
+        "unpinFromQuickAccess": "Désépingler d’Accès rapide"
       },
       "dialogs": {
         "chooseDestinationFolder": "Choisir le dossier de destination",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "Fichier bloqué",
         "invalidDrop": "Fichier invalide supprimé.",
         "failedToAdd": "Échec de l'ajout du fichier.",
-        "couldNotVerify": "Impossible de vérifier \"{{file}}\" — déposé dans un état sûr et ignoré."
+        "couldNotVerify": "Impossible de vérifier \"{{file}}\" — déposé dans un état sûr et ignoré.",
+        "quickAccessFailed": "Échec de la mise à jour d’Accès rapide",
+        "quickAccessNotSaved": "Impossible d’enregistrer les emplacements épinglés.",
+        "quickAccessNotFolder": "Seuls les dossiers existants peuvent être épinglés."
       },
       "linux": {
         "openParentFolder": "Ouvrir le dossier parent",
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "Réseau",
-        "fs": "FS"
+        "fs": "Système de fichiers"
       },
       "network": {
         "desc": "Affiche les routes proxy, l'état de la garde SSRF et la configuration réseau récente.",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} annulé",
         "failed": ", {{count}} échoué",
         "total": "({{count}} total)"
+      },
+      "editor": {
+        "open": "Modifier",
+        "openTitle": "Modifier le code de ce module en direct et le recharger à chaud",
+        "title": "Modification de {{id}}",
+        "save": "Enregistrer et recharger",
+        "back": "← Retour aux modules",
+        "fetchFailed": "Impossible de charger {{path}} : HTTP {{status}}",
+        "saved": "Enregistré sur le disque et rechargé dans l'OS en cours d'exécution",
+        "saveFailed": "Échec de l'enregistrement : {{message}}",
+        "lines": "{{count}} lignes",
+        "unsaved": "Modifié — non encore enregistré",
+        "emptyRefused": "Enregistrement d’un module vide refusé"
       }
     },
     "install": {
@@ -1785,7 +1816,7 @@
       "memory": "Mémoire",
       "domNodesByWindow": "Nœuds DOM par fenêtre",
       "noWindowsOpen": "Aucune fenêtre ouverte",
-      "notAvailableShort": "n / A",
+      "notAvailableShort": "Indisponible",
       "longTaskLog": "Journal des tâches longues",
       "longTaskUnsupported": "Le suivi des tâches longues n'est pas pris en charge dans ce navigateur",
       "noLongTasks": "Aucune tâche longue enregistrée pour le moment",
@@ -1801,20 +1832,20 @@
       "noRequestsMatch": "Aucune demande ne correspond au filtre actuel",
       "noRequestsRecorded": "Aucune demande enregistrée pour le moment",
       "sourceBrowser": "navigateur · {{label}}",
-      "sourceOs": "os · {{label}}",
+      "sourceOs": "Système d’exploitation · {{label}}",
       "showBody": "▸ corps",
       "hideBody": "▾ corps",
       "bodyNotCaptured": "corps non capturé{{type}}",
-      "statusError": "SE TROMPER",
+      "statusError": "Erreur",
       "unknownApp": "application inconnue",
       "networkError": "erreur réseau",
       "bodyTruncated": "{{text}}…(tronqué)",
-      "durationMs": "{{value}}MS",
-      "fpsValue": "{{value}} fps",
+      "durationMs": "{{value}} ms",
+      "fpsValue": "{{value}} FPS",
       "memoryValue": "{{value}} Mo",
-      "longTasksValue": "{{count}} (>50ms)",
+      "longTasksValue": "{{count}} (>50 ms)",
       "none": "Aucun",
-      "notAvailable": "N / A"
+      "notAvailable": "Indisponible"
     },
     "terminal": {
       "appDataMissing": "Répertoire de données d'application manquant.",
@@ -1858,7 +1889,11 @@
       "errorLine": "Erreur: {{message}}",
       "terminalError": "[erreur de terminal] {{message}}",
       "shellExited": "[Shell est sorti avec le statut {{status}}. Appuyez sur Entrée pour en démarrer un nouveau.]",
-      "unknownStatus": "inconnu"
+      "unknownStatus": "inconnu",
+      "shortcutsClearLine": "=effacer la ligne  ",
+      "shortcutsLineStart": "=début de ligne  ",
+      "shortcutsLineEnd": "=fin de ligne  ",
+      "shortcutsPaste": "=coller"
     },
     "myApps": {
       "appInstalledTitle": "Application installée",
@@ -1948,17 +1983,17 @@
       "alarms": "Alarmes",
       "add": "Ajouter",
       "noAlarms": "Aucune alarme définie. Appuyez sur + Ajouter pour en créer un.",
-      "am": "SUIS",
-      "pm": "MP",
+      "am": "matin",
+      "pm": "après-midi",
       "repeatOnce": "Une fois",
       "repeatEveryDay": "Tous les jours",
       "repeatWeekdays": "Jours de la semaine",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
-      "dayInitialTue": "T",
-      "dayInitialWed": "W",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
+      "dayInitialSun": "D",
+      "dayInitialMon": "L",
+      "dayInitialTue": "M",
+      "dayInitialWed": "M",
+      "dayInitialThu": "J",
+      "dayInitialFri": "V",
       "dayInitialSat": "S",
       "daySun": "Soleil",
       "dayMon": "Lun",
@@ -2001,12 +2036,12 @@
       "dayThu": "Jeu",
       "dayFri": "Ven",
       "daySat": "Assis",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
-      "miniDayTue": "T",
-      "miniDayWed": "W",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
+      "miniDaySun": "D",
+      "miniDayMon": "L",
+      "miniDayTue": "M",
+      "miniDayWed": "M",
+      "miniDayThu": "J",
+      "miniDayFri": "V",
       "miniDaySat": "S",
       "upcoming": "Prochain",
       "newEvent": "Nouvel événement",
@@ -2068,7 +2103,11 @@
       "inputPlaceholder": "Entrez JS pour évaluer, ou `reg query HKNS\\shell` pour la CLI du registre\nEntrée pour exécuter · Maj+Entrée pour la nouvelle ligne · ↑/↓ pour l'historique",
       "run": "Courir",
       "readyMessage": "Console prête. Tapez une expression ci-dessus et appuyez sur Entrée ou Exécuter.\nMaj+Entrée pour une nouvelle ligne, ↑/↓ pour rappeler les commandes précédentes.",
-      "noOutputMatches": "(aucune sortie ne correspond à \"{{query}}\")"
+      "noOutputMatches": "(aucune sortie ne correspond à \"{{query}}\")",
+      "exportDialogTitle": "Exporter la sortie de la console",
+      "exportedTitle": "Sortie de la console exportée",
+      "exportedBody": "Enregistré dans {{path}}",
+      "exportFailedTitle": "Échec de l’exportation de la console"
     },
     "contacts": {
       "appDataMissing": "Répertoire de données d'application manquant.",
@@ -2109,7 +2148,7 @@
       "enrollmentFailed": "L'inscription a échoué"
     },
     "easterEgg": {
-      "score": "Score: {{score}}",
+      "score": "Score : {{score}}",
       "controlsHint": "Touches fléchées / WASD",
       "canvasAria": "Toile de jeu de serpent",
       "gameOver": "Jeu terminé",
@@ -2129,7 +2168,9 @@
       "alarm": "Alarme",
       "alarmFor": "Alarme pour {{time}}",
       "email": "E-mail",
-      "emailNewMail": "{{count}} nouveau dans {{account}}"
+      "emailNewMail": "{{count}} nouveau dans {{account}}",
+      "timerDone": "Minuteur terminé",
+      "timerDoneBody": "Votre minuteur est terminé."
     },
     "store": {
       "releaseTrack": "Piste de sortie",
@@ -2153,7 +2194,7 @@
       "documentation": "Documentation",
       "reportIssue": "Signaler un problème",
       "moreInformation": "Plus d'informations",
-      "links": "Links",
+      "links": "Liens",
       "screenshots": "Captures d'écran",
       "screenshotAlt": "{{app}} capture d'écran",
       "iconAlt": "{{app}} icône",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "Position de superposition de débogage",
         "devNovaReg": "État de l'éditeur NovaReg",
         "devNovaRegDesc": "Les favoris de cet éditeur et l'historique des sauts."
-      }
+      },
+      "importDialogTitle": "Importer les données du registre"
     },
     "appmanager": {
       "fallbackPackageName": "Ce paquet",
@@ -2770,7 +2812,7 @@
       "copyFailedBtn": "Échec de la copie",
       "appIdLabel": "ID d'application (domaine inversé, par exemple com.test.app)",
       "appNameLabel": "Nom de l'application",
-      "appNamePlaceholder": "Tester l'application",
+      "appNamePlaceholder": "Application de test",
       "versionLabel": "Version (x.y.z)",
       "entryFileLabel": "Chemin du fichier d'entrée",
       "signingMethodLabel": "Méthode de signature :",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "L'écriture de fichiers n'est pas disponible dans ce runtime.",
         "csvExported": "CSV exporté vers {{path}}",
         "csvExportFailed": "Échec de l'exportation CSV : {{message}}"
-      }
+      },
+      "degradedRefresh": "Impossible d'actualiser les comptes — affichage de la dernière liste connue.",
+      "sessionExpired": "Votre session a expiré — connectez-vous à nouveau.",
+      "retry": "Réessayer",
+      "confirmPin": "Confirmer le code PIN",
+      "pinMismatch": "Les codes PIN ne correspondent pas.",
+      "resetPinSelfWarning": "Réinitialiser le code PIN de {{name}} ?",
+      "resetPinSelfWarningBody": "Réinitialiser votre propre code PIN vous déconnecte de ce compte partout — toutes les sessions sont révoquées. Vous vous reconnecterez avec le code PIN temporaire affiché ensuite, puis vous en choisirez un nouveau.",
+      "resetPinSelfWarningConfirm": "Réinitialiser et se déconnecter",
+      "resetPinSelfWarningDone": "Votre code PIN a été réinitialisé. Reconnectez-vous avec ce code PIN temporaire — un nouveau vous sera demandé."
     },
     "events": {
       "gate": {
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} nouveau dans {{account}}",
         "newMailTitle": "{{email}} — {{count}} nouveau"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Accès rapide",
+      "home": "Accueil",
+      "breadcrumbsAria": "Emplacement",
+      "editPath": "Modifier le chemin",
+      "newFolder": "Nouveau dossier",
+      "newFile": "Nouveau fichier",
+      "createFailed": "Échec de la création",
+      "createFolderFailed": "Impossible de créer le dossier : {{message}}",
+      "createFileFailed": "Impossible de créer le fichier : {{message}}",
+      "fileType": "Type de fichier",
+      "allTypes": "Tous les types (*.*)",
+      "pinned": "Épinglés",
+      "mounts": "Volumes montés",
+      "saveFailed": "Impossible d’enregistrer le fichier",
+      "unavailable": "La boîte de dialogue système est indisponible",
+      "search": "Rechercher dans ce dossier",
+      "searchAria": "Rechercher dans ce dossier",
+      "noMatches": "(Aucun résultat)"
     }
   }
 }

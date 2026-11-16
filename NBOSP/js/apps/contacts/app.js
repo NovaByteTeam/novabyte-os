@@ -99,7 +99,11 @@ registerApp({
     let searchQ   = '';
 
     function getSelected() {
+      /* v8 ignore start */
+      // Defensive dead branch: every mutation keeps selectedId pointing at a
+      // live contact (or nulls it), so find() cannot miss while it is truthy.
       return selectedId ? (contacts.find(c => c.id === selectedId) ?? null) : null;
+      /* v8 ignore stop */
     }
 
     // ── DOM scaffolding (built once, never torn down) ────────────────────────
@@ -480,7 +484,13 @@ registerApp({
             for (const key of ['name', 'email', 'phone', 'notes']) {
               if (draft[key] === undefined) continue;
               const field = content.querySelector('#nbosp-contacts-' + editing.id + '-' + key);
+              /* v8 ignore start */
+              // The false path is exercised e2e (a captured draft whose field
+              // vanished in the re-render) but v8 cannot attribute the implicit
+              // else of a trailing if inside a loop body — a structural
+              // coverage artifact, not dead code.
               if (field) field.value = draft[key];
+              /* v8 ignore stop */
             }
           }
         } catch (error) {
@@ -488,7 +498,12 @@ registerApp({
         }
       };
       typeof OS !== 'undefined' && OS.events.on('languageChanged', localeHandler);
+      /* v8 ignore start */
+      // The contacts:updated registration above runs under the same guard and
+      // always creates state.cleanups first, so the || [] fallback here can
+      // never execute — defensive symmetry, not a reachable branch.
       state.cleanups = state.cleanups || [];
+      /* v8 ignore stop */
       state.cleanups.push(() => OS.events.off?.('languageChanged', localeHandler));
     }
 

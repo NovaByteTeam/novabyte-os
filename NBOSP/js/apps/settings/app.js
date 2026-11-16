@@ -160,8 +160,24 @@ registerApp({
       'admin:apps': 'Manage apps (admin)', 'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs'
     };
 
-    const RISK_COLOR = { low: '#3fb950', medium: '#d29922', high: '#f0883e', critical: '#f85149' };
-    const RISK_BG    = { low: 'rgba(63,185,80,0.1)', medium: 'rgba(210,153,34,0.1)', high: 'rgba(240,136,62,0.1)', critical: 'rgba(248,81,73,0.1)' };
+    const RISK_COLOR = {
+      low: 'var(--text-success)',
+      medium: 'var(--text-warning)',
+      high: 'var(--text-danger)',
+      critical: 'var(--text-danger)',
+    };
+    const RISK_BG = {
+      low: 'color-mix(in srgb,var(--text-success) 10%,transparent)',
+      medium: 'color-mix(in srgb,var(--text-warning) 10%,transparent)',
+      high: 'color-mix(in srgb,var(--text-danger) 10%,transparent)',
+      critical: 'color-mix(in srgb,var(--text-danger) 10%,transparent)',
+    };
+    const RISK_BORDER = {
+      low: 'color-mix(in srgb,var(--text-success) 40%,transparent)',
+      medium: 'color-mix(in srgb,var(--text-warning) 40%,transparent)',
+      high: 'color-mix(in srgb,var(--text-danger) 40%,transparent)',
+      critical: 'color-mix(in srgb,var(--text-danger) 40%,transparent)',
+    };
 
     // Region data — declared once here, not rebuilt on every render.
     // Previously these lived inside renderDateAndRegion(), so every visit
@@ -602,6 +618,13 @@ registerApp({
         const iconSpan = createEl('span', { 'aria-hidden': 'true' });
         iconSpan.innerHTML = svgIcon(s.icon, 16);
         btn.append(iconSpan, createEl('span', { textContent: _t(s.nameKey) }));
+        // 2026-11-15: admin-only sections show a lock glyph for standard
+        // accounts so the gating is visible from the sidebar itself.
+        if (s.id === 'root' && !isAdminUser()) {
+          const lockSpan = createEl('span', { 'aria-hidden': 'true', style: { display: 'inline-flex', alignItems: 'center', opacity: '0.55', marginLeft: '4px' } });
+          lockSpan.innerHTML = svgIcon('lock', 11);
+          btn.appendChild(lockSpan);
+        }
         btn.addEventListener('click', () => {
           currentSection = s.id;
           updateSidebarActive();
@@ -930,7 +953,7 @@ registerApp({
       recoveryGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.recovery') }));
       const recoveryRow = createEl('div', { className: 'nook-row' });
       recoveryRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: _t('settings.system.recoveryEnvironment') }));
-      const recoveryBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.system.bootToRecovery'), style: { background: '#6c5ce7' } });
+      const recoveryBtn = createEl('button', { className: 'btn btn-sm', textContent: _t('settings.system.bootToRecovery'), style: { background: 'var(--accent)', color: 'var(--text-on-accent)' } });
       recoveryBtn.addEventListener('click', async () => {
         const confirmed = await showModal(
           _t('settings.system.bootToRecoveryEnv'),
@@ -956,41 +979,52 @@ registerApp({
         location.reload();
       }, { signal: lifecycle.signal });
       recoveryRow.appendChild(recoveryBtn);
-      recoveryGroup.appendChild(recoveryRow);
-      mainContent.appendChild(recoveryGroup);
 
       // Developer Mode
-      const devGroup = createEl('div', { className: 'nook-group' });
-      devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.developer') }));
-      const devRow = createEl('div', { className: 'nook-toggle-row' });
-      devRow.appendChild(createEl('span', { textContent: _t('settings.system.developerMode') }));
-      const devOn = !!systemSettings.get('devMode');
-      const devToggle = createEl('button', {
-        className: 'toggle' + (devOn ? ' active' : ''),
-        role: 'switch',
-        'aria-checked': String(devOn),
-        'aria-label': _t('settings.system.toggleDevModeAria')
-      });
-      devToggle.addEventListener('click', async () => {
-        const next = !systemSettings.get('devMode');
-        if (next) {
-          const confirmed = await showDevModeWarning();
-          if (!isAlive()) return;
-          if (confirmed !== 'confirm') return;
-        }
-        window.NovaByteSystem.developer.setMode(next);
-        devToggle.classList.toggle('active', next);
-        devToggle.setAttribute('aria-checked', String(next));
-        Notify.show({
-          title: next ? _t('settings.system.devModeEnabled') : _t('settings.system.devModeDisabled'),
-          body: next ? _t('settings.system.devModeOverlayHint') : undefined,
-          type: 'info',
-          appName: 'Settings'
+      // Both Recovery and Developer Mode are administrator-only controls.
+      // Show them together when the user is an admin, or show a single
+      // unified lock panel when they're not — avoids the duplicate panel bug
+      // that appeared when each section independently appended its own lock.
+      if (isAdminUser()) {
+        recoveryGroup.appendChild(recoveryRow);
+        mainContent.appendChild(recoveryGroup);
+
+        const devGroup = createEl('div', { className: 'nook-group' });
+        devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.system.developer') }));
+        const devRow = createEl('div', { className: 'nook-toggle-row' });
+        devRow.appendChild(createEl('span', { textContent: _t('settings.system.developerMode') }));
+        const devOn = !!systemSettings.get('devMode');
+        const devToggle = createEl('button', {
+          className: 'toggle' + (devOn ? ' active' : ''),
+          role: 'switch',
+          'aria-checked': String(devOn),
+          'aria-label': _t('settings.system.toggleDevModeAria')
         });
-      }, { signal: lifecycle.signal });
-      devRow.appendChild(devToggle);
-      devGroup.appendChild(devRow);
-      mainContent.appendChild(devGroup);
+        devToggle.addEventListener('click', async () => {
+          const next = !systemSettings.get('devMode');
+          if (next) {
+            const confirmed = await showDevModeWarning();
+            if (!isAlive()) return;
+            if (confirmed !== 'confirm') return;
+          }
+          window.NovaByteSystem.developer.setMode(next);
+          devToggle.classList.toggle('active', next);
+          devToggle.setAttribute('aria-checked', String(next));
+          Notify.show({
+            title: next ? _t('settings.system.devModeEnabled') : _t('settings.system.devModeDisabled'),
+            body: next ? _t('settings.system.devModeOverlayHint') : undefined,
+            type: 'info',
+            appName: 'Settings'
+          });
+        }, { signal: lifecycle.signal });
+        devRow.appendChild(devToggle);
+        devGroup.appendChild(devRow);
+        mainContent.appendChild(devGroup);
+      } else {
+        // Standard accounts see one unified lock panel covering both
+        // Recovery and Developer Mode — not one panel per section.
+        mainContent.appendChild(adminLockPanel());
+      }
     }
 
     // Developer mode confirmation dialog — built with DOM nodes, tracked
@@ -1574,6 +1608,62 @@ registerApp({
         mainContent.appendChild(createEl('p', { textContent: _t('settings.storage.unavailable') }));
       }
 
+      // 2026-11-15: per-account disk usage + quota (the Users app's numbers,
+      // for the signed-in account; administrators additionally get the
+      // machine total and a per-account breakdown). The group is created
+      // synchronously so section layout stays stable while it loads.
+      const accountGroup = createEl('div', { className: 'nook-group' });
+      accountGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.storage.accountUsage') }));
+      mainContent.appendChild(accountGroup);
+      (async () => {
+        let selfUsage = null;
+        let adminUsage = null;
+        try {
+          const sm = window.SessionManager;
+          if (typeof sm?.authFetch === 'function') {
+            const self = await sm.authFetch('/api/auth/usage');
+            if (self?.ok) selfUsage = self.json?.data?.usage ?? self.json?.usage ?? null;
+            if (isAdminUser()) {
+              const admin = await sm.authFetch('/api/auth/admin/usage');
+              if (admin?.ok) adminUsage = admin.json?.data?.usage ?? admin.json?.usage ?? null;
+            }
+          }
+        } catch (err) { devLog('account usage fetch failed:', err); }
+        if (!isAlive() || !selfUsage) return;
+
+        const usageRow = (label, used, quota, highlight) => {
+          const row = createEl('div', { className: 'nook-row', style: { flexDirection: 'column', alignItems: 'stretch', gap: '4px', background: highlight ? 'color-mix(in srgb,var(--accent) 7%,transparent)' : undefined, borderRadius: highlight ? '8px' : undefined, padding: highlight ? '6px 8px' : undefined } });
+          const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
+          top.appendChild(createEl('span', { className: 'nook-row-label', textContent: label }));
+          top.appendChild(createEl('span', { textContent: formatBytes(used) + (quota ? ' / ' + formatBytes(quota) : '') }));
+          row.appendChild(top);
+          if (quota) {
+            const ratio = Math.min(100, used / quota * 100);
+            const bar = createEl('div', { className: 'lens-bar', style: { width: '100%' } });
+            bar.appendChild(createEl('div', { className: 'lens-bar-fill', style: { width: ratio + '%' } }));
+            row.appendChild(bar);
+          }
+          return row;
+        };
+
+        if (Array.isArray(adminUsage) && adminUsage.length) {
+          const totalBytes = adminUsage.reduce((sum, u) => sum + (u.usageBytes || 0), 0);
+          accountGroup.appendChild(usageRow(_t('settings.storage.totalUsed'), totalBytes, 0, false));
+          for (const u of adminUsage) {
+            const isSelf = u.uid === selfUsage.uid;
+            accountGroup.appendChild(usageRow(
+              (u.displayName || u.username || u.uid) + (isSelf ? ' — ' + _t('settings.storage.yourUsage') : ''),
+              u.usageBytes || 0, u.quotaBytes || 0, isSelf
+            ));
+          }
+        } else {
+          accountGroup.appendChild(usageRow(
+            _t('settings.storage.yourUsage'),
+            selfUsage.usedBytes || 0, selfUsage.quotaBytes || 0, false
+          ));
+        }
+      })();
+
       // Per-app storage ledger (the "logical UID" accounting layer).
       // Settings reads AppSandbox.storageLedgerSnapshot() directly — trusted
       // host-tier access; apps can never see each other's numbers over IPC.
@@ -1676,15 +1766,40 @@ registerApp({
         ]);
         if (!isAlive()) return;
         if (wipeConfirm !== 'wipe') return;
+        if (!isAdminUser()) return; // unreachable in practice — the button is admin-gated below
         Notify.show({ title: _t('settings.storage.wiping'), body: _t('settings.storage.wipingBody'), type: 'warning', appName: 'Settings' });
         try {
-          await window.performFactoryReset();
+          // BUG (2026-11-15 audit, finding L2 / AUDIT.md SEC-05): this called
+          // window.performFactoryReset() — a function that does not exist
+          // anywhere (grep: only NovaFactoryReset does). "Wipe All Data"
+          // always threw before wiping anything; the fixed Linux runtime
+          // reset in js/core/services/factory-reset.js was never wired up.
+          // Call it through its real global, and surface a clear error on
+          // non-Linux runtimes (where it deliberately returns false) instead
+          // of silently doing nothing.
+          if (typeof window.NovaFactoryReset !== 'undefined'
+            && typeof window.NovaFactoryReset.performLinuxFactoryReset === 'function') {
+            const wiped = await window.NovaFactoryReset.performLinuxFactoryReset();
+            if (!wiped) {
+              throw new Error('Factory reset is only available on the NBOSP Linux runtime (/home/nbosp)');
+            }
+          } else {
+            throw new Error('Factory reset service is unavailable');
+          }
         } catch (err) {
           devLog('Factory reset failed:', err);
           if (isAlive()) Notify.show({ title: _t('settings.storage.resetFailed'), body: err.message, type: 'error', appName: 'Settings' });
         }
       }, { signal: lifecycle.signal });
-      clearGroup.appendChild(wipeBtn);
+      if (isAdminUser()) {
+        clearGroup.appendChild(wipeBtn);
+      } else {
+        // 2026-11-15: the factory wipe is an administrator-only action.
+        const lockNote = createEl('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '8px', fontSize: '12px', color: 'var(--text-secondary, #8b949e)' } });
+        lockNote.innerHTML = svgIcon('lock', 12) + '<span></span>';
+        lockNote.lastElementChild.textContent = _t('settings.adminLock.title');
+        clearGroup.appendChild(lockNote);
+      }
       mainContent.appendChild(clearGroup);
     }
 
@@ -2201,13 +2316,13 @@ registerApp({
           const grantedCount = dangerous.filter(p => mgr.isGranted(p, appId)).length;
           const deniedCount  = dangerous.filter(p => mgr.isDenied ? mgr.isDenied(p, appId) : false).length;
           const pendingCount = dangerous.length - grantedCount - deniedCount;
-          if (grantedCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeAllowed', { count: grantedCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(63,185,80,0.12);color:#3fb950;border:1px solid rgba(63,185,80,0.3);' }));
-          if (deniedCount  > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeDenied', { count: deniedCount }),  style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(248,81,73,0.12);color:#f85149;border:1px solid rgba(248,81,73,0.3);' }));
-          if (pendingCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeNotAsked', { count: pendingCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
+          if (grantedCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeAllowed', { count: grantedCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:color-mix(in srgb,var(--text-success) 12%,transparent);color:var(--text-success);border:1px solid color-mix(in srgb,var(--text-success) 30%,transparent);' }));
+          if (deniedCount  > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeDenied', { count: deniedCount }),  style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:color-mix(in srgb,var(--text-danger) 12%,transparent);color:var(--text-danger);border:1px solid color-mix(in srgb,var(--text-danger) 30%,transparent);' }));
+          if (pendingCount > 0) badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.badgeNotAsked', { count: pendingCount }), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg-hover);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
           if (dangerous.length === 0 && normal.length === 0)
-            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noPermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
+            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noPermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg-hover);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
           else if (dangerous.length === 0)
-            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noSensitivePermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
+            badgeRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.noSensitivePermissions'), style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg-hover);color:var(--text-muted);border:1px solid var(--border-subtle);' }));
         }
         refreshBadges();
 
@@ -2215,8 +2330,8 @@ registerApp({
           const metaRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:3px;align-items:center;flex-wrap:wrap;' });
           if (appVersion)        metaRow.appendChild(createEl('span', { textContent: 'v' + appVersion,  style: 'font-size:10px;color:var(--text-muted);font-family:monospace;' }));
           if (appAuthor)         metaRow.appendChild(createEl('span', { textContent: _t('settings.appPermissions.byAuthor', { author: appAuthor }), style: 'font-size:10px;color:var(--text-muted);' }));
-          if (appVerified === true)  metaRow.appendChild(createEl('span', { textContent: '\u2713 ' + _t('settings.appPermissions.verified'),   style: 'font-size:10px;color:#3fb950;' }));
-          if (appVerified === false) metaRow.appendChild(createEl('span', { textContent: '\u26A0 ' + _t('settings.appPermissions.unverified'), style: 'font-size:10px;color:#d29922;' }));
+          if (appVerified === true)  metaRow.appendChild(createEl('span', { textContent: '\u2713 ' + _t('settings.appPermissions.verified'),   style: 'font-size:10px;color:var(--text-success);' }));
+          if (appVerified === false) metaRow.appendChild(createEl('span', { textContent: '\u26A0 ' + _t('settings.appPermissions.unverified'), style: 'font-size:10px;color:var(--text-warning);' }));
           nameEl.appendChild(metaRow);
         }
         nameEl.appendChild(badgeRow);
@@ -2252,7 +2367,7 @@ registerApp({
 
             const riskBadge = createEl('span', {
               textContent: permRiskLabel(risk),
-              style: 'font-size:9px;padding:1px 6px;border-radius:20px;background:' + RISK_BG[risk] + ';color:' + RISK_COLOR[risk] + ';border:1px solid ' + RISK_COLOR[risk] + '40;font-weight:600;'
+              style: 'font-size:9px;padding:1px 6px;border-radius:20px;background:' + RISK_BG[risk] + ';color:' + RISK_COLOR[risk] + ';border:1px solid ' + RISK_BORDER[risk] + ';font-weight:600;'
             });
             const labelEl = createEl('div');
             labelEl.appendChild(createEl('div', { textContent: label, style: 'font-size:13px;color:var(--text-primary);font-weight:500;' }));
@@ -2272,10 +2387,10 @@ registerApp({
             toggleInput.checked = isGranted;
             toggleInput.setAttribute('aria-label', label);
             const slider = createEl('span', {
-              style: 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:' + (isGranted ? 'var(--accent)' : (isDenied ? 'rgba(248,81,73,0.3)' : 'var(--bg-elevated)')) + ';border:1px solid var(--border-subtle);'
+              style: 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:' + (isGranted ? 'var(--accent)' : (isDenied ? 'color-mix(in srgb,var(--text-danger) 30%,transparent)' : 'var(--bg-elevated)')) + ';border:1px solid var(--border-subtle);'
             });
             const knob = createEl('span', {
-              style: 'position:absolute;top:2px;left:' + (isGranted ? '20px' : '2px') + ';width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);'
+              style: 'position:absolute;top:2px;left:' + (isGranted ? '20px' : '2px') + ';width:16px;height:16px;border-radius:50%;background:' + (isGranted ? 'var(--text-on-accent)' : 'var(--bg-base)') + ';transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);'
             });
             slider.appendChild(knob);
             toggleWrap.append(toggleInput, slider);
@@ -2288,10 +2403,12 @@ registerApp({
                 if (mgr.resetPermission) await Promise.resolve(mgr.resetPermission(perm, appId)).catch(err => devLog('resetPermission failed:', err));
                 await mgr.grantPermission(perm, appId, { permanent: true, reason: 'Manually granted via Settings', grantedBy: 'user' });
                 slider.style.background = 'var(--accent)';
+                knob.style.background = 'var(--text-on-accent)';
                 knob.style.left = '20px';
               } else {
                 await mgr.revokePermission(perm, appId);
-                slider.style.background = 'rgba(248,81,73,0.3)';
+                slider.style.background = 'color-mix(in srgb,var(--text-danger) 30%,transparent)';
+                knob.style.background = 'var(--bg-base)';
                 knob.style.left = '2px';
               }
               refreshBadges();
@@ -2313,7 +2430,7 @@ registerApp({
           for (const perm of normal) {
             normList.appendChild(createEl('span', {
               textContent: permLabel(perm),
-              style: 'font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(63,185,80,0.08);color:#3fb950;border:1px solid rgba(63,185,80,0.2);'
+              style: 'font-size:11px;padding:2px 8px;border-radius:20px;background:color-mix(in srgb,var(--text-success) 8%,transparent);color:var(--text-success);border:1px solid color-mix(in srgb,var(--text-success) 20%,transparent);'
             }));
           }
           normSection.appendChild(normList);
@@ -2807,13 +2924,44 @@ registerApp({
             version:    OS.version,
             exportDate: new Date().toISOString()
           };
-          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-          const url  = URL.createObjectURL(blob);
-          const a    = createEl('a', { href: url, download: 'novabyte-export.json' });
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
+          const json = JSON.stringify(data, null, 2);
+          let delivered = false;
+          let cancelled = false;
+          if (typeof SystemDialogs !== 'undefined' && typeof SystemDialogs.saveContent === 'function') {
+            const target = await SystemDialogs.saveContent({
+              title: _t('settings.privacy.exportTo'),
+              suggestedName: 'novabyte-export.json',
+              accept: '.json,application/json'
+            }, json);
+            if (!target) cancelled = true;
+            else delivered = true;
+          } else if (typeof SystemDialogs !== 'undefined' && typeof SystemDialogs.save === 'function') {
+            const target = await SystemDialogs.save({
+              title: _t('settings.privacy.exportTo'),
+              suggestedName: 'novabyte-export.json',
+              accept: '.json,application/json'
+            });
+            if (!target) {
+              cancelled = true; // user closed the dialog — no export, no toast
+            } else {
+              let fsMod = null;
+              try { fsMod = (typeof require === 'function') ? require('fs') : null; } catch (_) { fsMod = null; }
+              if (fsMod && typeof fsMod.promises?.writeFile === 'function') {
+                await fsMod.promises.writeFile(target.path, json, 'utf8');
+                delivered = true;
+              }
+            }
+          }
+          if (cancelled) return;
+          if (!delivered) {
+            const blob = new Blob([json], { type: 'application/json' });
+            const url  = URL.createObjectURL(blob);
+            const a    = createEl('a', { href: url, download: 'novabyte-export.json' });
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          }
           Notify.show({ title: _t('settings.privacy.dataExported'), body: _t('settings.privacy.dataExportedBody'), type: 'success', appName: 'Nook' });
         } catch (err) {
           Notify.show({ title: _t('settings.privacy.exportFailed'), body: err?.message || _t('settings.privacy.couldNotExport'), type: 'error', appName: 'Nook' });
@@ -2832,6 +2980,7 @@ registerApp({
           const picked = await SystemDialogs.open({
             title: _t('settings.privacy.importData'),
             startPath: (typeof os !== 'undefined' ? os.homedir() : null) || '/home/nbosp',
+            accept: '.json',
             filter: (name, isDir) => isDir || name.endsWith('.json'),
           });
           if (!picked) return;
@@ -2896,6 +3045,12 @@ registerApp({
         textContent: _t('settings.privacy.adminAccessHint'),
         style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', marginBottom: '12px' }
       }));
+      if (!isAdminUser()) {
+        // 2026-11-15: the machine-wide admin-mode flag is administrator-only.
+        adminSection.appendChild(adminLockPanel());
+        mainContent.appendChild(adminSection);
+        return;
+      }
       const adminRow = createEl('div', { className: 'nook-toggle-row' });
       adminRow.appendChild(createEl('span', { textContent: _t('settings.privacy.enableAdminMode') }));
       const adminToggle = createEl('button', {
@@ -2981,12 +3136,54 @@ registerApp({
       }, { signal: lifecycle.signal });
     }
 
+    // ── Admin gating (2026-11-15) ────────────────────────────────────
+    // Root access, the Privacy admin-mode toggle, System's recovery-boot
+    // toggle and Storage's factory wipe are administrator-only surfaces:
+    // standard accounts get a lock panel with a sign-in affordance instead
+    // of the controls (mirrors the Users app's roleDeniedSplash pattern).
+    function isAdminUser() {
+      try {
+        return typeof SessionManager !== 'undefined'
+          && typeof SessionManager.isAdmin === 'function'
+          && SessionManager.isAdmin();
+      } catch (_) { return false; }
+    }
+
+    function adminLockPanel() {
+      const panel = createEl('div', { className: 'nook-group', style: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '26px 18px', gap: '8px', textAlign: 'center' } });
+      const icon = createEl('div', { 'aria-hidden': 'true', style: { opacity: '0.7' } });
+      icon.innerHTML = svgIcon('lock', 26);
+      panel.appendChild(icon);
+      panel.appendChild(createEl('div', { style: { fontSize: '14px', fontWeight: '600' }, textContent: _t('settings.adminLock.title') }));
+      panel.appendChild(createEl('div', { style: { fontSize: '12.5px', color: 'var(--text-secondary, #8b949e)', maxWidth: '440px', lineHeight: '1.5' }, textContent: _t('settings.adminLock.body') }));
+      const signIn = createEl('button', { className: 'btn btn-sm', style: { marginTop: '6px' }, textContent: _t('settings.adminLock.switchUser') });
+      signIn.addEventListener('click', async () => {
+        // LockScreenService.switchUser() suspends the current session before
+        // showing the picker — showLoginPicker() alone silently bails while
+        // a session is locally active (M10 guard), which is why this button
+        // used to do nothing.
+        try { await window.LockScreenService?.switchUser?.(); }
+        catch (_) {
+          try { await window.LockScreenService?.showLoginPicker?.(); } catch (_) { /* lock screen unavailable in this context */ }
+        }
+      }, { signal: lifecycle.signal });
+      panel.appendChild(signIn);
+      return panel;
+    }
+
     function renderRootAccess() {
       mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.root'), style: { marginBottom: '8px' } }));
       mainContent.appendChild(createEl('p', {
         textContent: _t('settings.root.intro'),
         style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', lineHeight: '1.55', marginBottom: '18px' }
       }));
+
+      // 2026-11-15: Root access is an administrator-only surface — standard
+      // accounts see the lock panel instead of the controls.
+      if (!isAdminUser()) {
+        mainContent.appendChild(adminLockPanel());
+        return;
+      }
 
       const devMode = systemSettings.get('devMode') === true;
       const rootEnabled = systemSettings.get('rootAccessEnabled') === true;
@@ -3442,14 +3639,14 @@ registerApp({
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleVersionClick(); }
       }, { signal: lifecycle.signal });
       swRows.appendChild(novaVersionRow);
-      swRows.appendChild(mkRow(_t('settings.about.buildDate'),  '2026-11-14'));
+      swRows.appendChild(mkRow(_t('settings.about.buildDate'),  '2026-11-16'));
 
       const secRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });
       const secRowLeft  = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
       secRowLeft.appendChild(createEl('span', { textContent: _t('settings.about.securityPatchLevel'), style: 'color:var(--text-secondary);' }));
       secRow.appendChild(secRowLeft);
       const secRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
-      const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;', textContent: '\uD83D\uDD12 ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-12') });
+      const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--text-success) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-success) 35%,transparent);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:var(--text-success);', textContent: '\uD83D\uDD12 ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-15') });
       secRowRight.appendChild(secBadge);
       secRow.appendChild(secRowRight);
       swRows.appendChild(secRow);
@@ -3467,8 +3664,8 @@ registerApp({
       tierRow.appendChild(createEl('span', { textContent: _t('settings.about.platformSignature'), style: 'color:var(--text-secondary);' }));
       const tierBadge    = createEl('span', {
         style: signatureTier === 'release-keys'
-          ? 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;'
-          : 'display:inline-flex;align-items:center;gap:5px;background:rgba(255,159,10,0.12);border:1px solid rgba(255,159,10,0.35);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#ff9f0a;',
+          ? 'display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--text-success) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-success) 35%,transparent);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:var(--text-success);'
+          : 'display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--text-warning) 12%,transparent);border:1px solid color-mix(in srgb,var(--text-warning) 35%,transparent);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:var(--text-warning);',
         title: signatureTier === 'release-keys'
           ? _t('settings.about.signatureReleaseTitle')
           : _t('settings.about.signatureTestTitle'),
@@ -3534,7 +3731,7 @@ registerApp({
           'Operating System: ' + linuxInfo.distribution,
           'Linux Kernel: ' + linuxInfo.kernel,
           'Architecture: ' + linuxInfo.architecture,
-          'Security Update: ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-12'),
+          'Security Update: ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-15'),
           'Platform Signature: ' + ((typeof TrustStore !== 'undefined' && TrustStore?.systemSignatureTier) ? TrustStore.systemSignatureTier() : 'test-keys'),
           'Browser: '   + detectBrowser(),
           'Platform: '  + navigator.platform,

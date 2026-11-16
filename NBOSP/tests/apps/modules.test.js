@@ -1,6 +1,7 @@
 // tests/apps/modules.test.js — window app: dev-mode gates, module list CRUD,
-// reload error surfacing, safety-badge overrides, storage migration/import.
-import { describe, expect, it, beforeEach } from 'vitest';
+// reload error surfacing, safety-badge overrides, storage migration/import,
+// and the live code editor (edit → save to disk → hot-reload).
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { resetTestStorage } from '../setup.js';
 import { loadWindowApp, initApp, settle } from '../helpers/app-harness.js';
 
@@ -171,7 +172,7 @@ describe("'Modules' app (js/apps/modules)", () => {
     expect(reloadAllBtn.textContent).toBe('Reload All'); // restored after the run
     expect(reloadAllBtn.disabled).toBe(false);
     expect(summary.textContent).toBe('Last run: 0 ok, 8 failed (8 total)');
-    expect(summary.style.color).toBe('rgb(248, 81, 73)'); // #f85149
+    expect(summary.style.color).toBe('var(--text-danger)');
   });
 
   it('cycles the safety override on badge click and persists it', async () => {
@@ -252,5 +253,163 @@ describe("'Modules' app (js/apps/modules)", () => {
     expect(content.textContent).toContain('Import failed: Expected a JSON array');
     // Original list untouched.
     expect(rowPaths(content).length).toBe(8);
+  });
+
+  // ── Live code editor ──────────────────────────────────────────────────────
+  // A fake NW.js-style host: require('fs'/'path') + process.cwd, a fetch that
+  // serves module source, blob URLs, and the __novaModulesImport seam that
+  // stands in for dynamic import() in JSDOM realms.
+  function makeHost({ code = '// module source\nlet a = 1;\n' } = {}) {
+    const writes = [];
+    const imports = [];
+    const dirs = [];
+    const posix = {
+      resolve: (base, rel = '') => (rel ? `${String(base).replace(/\/+$/, '')}/${String(rel).replace(/^\/+/, '')}` : String(base)),
+      join: (...parts) => parts.join('/'),
+      dirname: (p) => String(p).replace(/\/[^/]*$/, ''),
+      sep: '/',
+    };
+    return {
+      writes, imports, dirs,
+      extra: {
+        require: (name) => {
+          if (name === 'fs') {
+            return {
+              mkdirSync: (p, opts) => dirs.push([p, opts]),
+              writeFileSync: (p, c, enc) => writes.push([p, c, enc]),
+            };
+          }
+          if (name === 'path') return posix;
+          if (name === 'os') return { homedir: () => '/home/tester' };
+          throw new Error(`unexpected module ${name}`);
+        },
+        process: { cwd: () => '/opt/nbosp/package.nw', platform: 'linux', env: {} },
+        fetch: vi.fn(async (url) => ({ ok: true, status: 200, text: async () => code })),
+      },
+    };
+  }
+
+  function armBlobUrls(window) {
+    window.URL.createObjectURL = () => 'blob:nova-modules-test';
+    window.URL.revokeObjectURL = () => {};
+  }
+
+  it('offers the Edit button only on hosts that can write the source tree', async () => {
+    // default harness: no require/process → reload-only UI
+    const plain = await loadModules();
+    const plainContent = initModules({ app: plain.app, window: plain.window });
+    expect(plainContent.querySelector('[data-role="edit"]')).toBeNull();
+
+    const host = makeHost();
+    const { app, window } = await loadModules({ extra: host.extra });
+    const content = initModules({ app, window });
+    const editBtn = content.querySelector('[data-mod-path="js/core/core/boot.js"] [data-role="edit"]');
+    expect(editBtn).toBeTruthy();
+    expect(editBtn.textContent).toBe('Edit');
+  });
+
+  it('live editor: loads the served source, saves the edit to disk and hot-reloads it', async () => {
+    const host = makeHost({ code: '// module source\nlet a = 1;\n' });
+    const { app, window } = await loadModules({ extra: host.extra });
+    window.__novaModulesImport = async (url) => { host.imports.push(url); };
+    armBlobUrls(window);
+    const content = initModules({ app, window });
+
+    content.querySelector('[data-mod-path="js/core/core/boot.js"] [data-role="edit"]').click();
+    await settle(30);
+
+    // the editor pane replaces the module list and carries the served source
+    const editor = content.querySelector('[data-module-editor="js/core/core/boot.js"]');
+    expect(editor).toBeTruthy();
+    const textarea = editor.querySelector('textarea');
+    expect(textarea.value).toBe('// module source\nlet a = 1;\n');
+    expect(content.textContent).toContain('3 lines');
+    // the list view is hidden while editing (its container, which holds the rows)
+    const listContainer = content.querySelector('[data-mod-path="js/core/core/boot.js"]').parentElement;
+    expect(listContainer.style.display).toBe('none');
+
+    // an edit flips the unsaved marker
+    textarea.value = '// module source\nlet a = 2;\nconsole.log(a);\n';
+    textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await settle(10);
+    expect(content.textContent).toContain('Edited — not saved yet');
+
+    // Save & reload: the file on disk gets the edited code, then the module
+    // is re-imported through the standard reload pipeline
+    editor.querySelector('[data-role="save"]').click();
+    await settle(60);
+
+    // written to the per-user override folder, never into the read-only install
+    const overrideDir = '/home/tester/.local/share/novabyte/module-overrides';
+    expect(host.dirs).toEqual([[`${overrideDir}/js/core/core`, { recursive: true }]]);
+    expect(host.writes).toEqual([[
+      `${overrideDir}/js/core/core/boot.js`,
+      '// module source\nlet a = 2;\nconsole.log(a);\n',
+      'utf8',
+    ]]);
+    expect(host.imports).toHaveLength(1);
+    expect(content.textContent).toContain('Saved to your override folder and reloaded into the running OS');
+    // the unsaved marker cleared
+    expect(content.textContent).not.toContain('Edited — not saved yet');
+  });
+
+  it('live editor: Back returns to the module list', async () => {
+    const host = makeHost();
+    const { app, window } = await loadModules({ extra: host.extra });
+    const content = initModules({ app, window });
+    content.querySelector('[data-mod-path="js/core/core/boot.js"] [data-role="edit"]').click();
+    await settle(30);
+    expect(content.querySelector('[data-module-editor]')).toBeTruthy();
+
+    [...content.querySelectorAll('button')].find((b) => b.textContent === '← Back to modules').click();
+    await settle(10);
+
+    expect(content.querySelector('[data-module-editor]')).toBeNull();
+    expect(rowPaths(content).length).toBe(8);
+  });
+
+  it('live editor: a save that cannot write the file surfaces the failure inline', async () => {
+    const host = makeHost();
+    const baseRequire = host.extra.require;
+    host.extra.require = (name) => {
+      if (name === 'fs') {
+        return {
+          mkdirSync: () => {},
+          writeFileSync: () => { throw new Error('EACCES: read-only file system'); },
+        };
+      }
+      return baseRequire(name);
+    };
+    const { app, window } = await loadModules({ extra: host.extra });
+    const content = initModules({ app, window });
+    content.querySelector('[data-mod-path="js/core/core/boot.js"] [data-role="edit"]').click();
+    await settle(30);
+    const editor = content.querySelector('[data-module-editor="js/core/core/boot.js"]');
+
+    editor.querySelector('[data-role="save"]').click();
+    await settle(30);
+
+    expect(content.textContent).toContain('Save failed: EACCES: read-only file system');
+    // nothing was imported — the reload pipeline never ran
+    expect(host.imports).toEqual([]);
+  });
+
+  it('live editor: refuses to save an empty module', async () => {
+    const host = makeHost();
+    const { app, window } = await loadModules({ extra: host.extra });
+    const content = initModules({ app, window });
+    content.querySelector('[data-mod-path="js/core/core/boot.js"] [data-role="edit"]').click();
+    await settle(30);
+    const editor = content.querySelector('[data-module-editor="js/core/core/boot.js"]');
+    const textarea = editor.querySelector('textarea');
+    textarea.value = '  \n';
+    textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+    editor.querySelector('[data-role="save"]').click();
+    await settle(30);
+
+    expect(content.textContent).toContain('Refusing to save an empty module');
+    expect(host.writes).toEqual([]);
+    expect(host.imports).toEqual([]);
   });
 });

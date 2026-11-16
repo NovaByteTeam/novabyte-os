@@ -73,9 +73,19 @@
   }
 
   function toMetadata(app, extra = {}) {
+    // SECURITY (2026-11-15 audit, finding M3): a .novaapp JSON can carry an
+    // own '__proto__' key (JSON.parse uses CreateDataProperty, and the
+    // { ...manifest } spreads preserve it) — plain `meta[key] = value` then
+    // invokes the inherited __proto__ SETTER and swaps the fresh object's
+    // prototype to attacker-chosen data, after which meta.system /
+    // meta.verified / meta.storagePath reads resolve through the injected
+    // prototype. Skip the dangerous names so they never reach the store
+    // (they are not meaningful package fields).
+    const UNSAFE_META_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
     const meta = {};
     for (const [key, value] of Object.entries(app || {})) {
       if (key === 'files' || key === '_cachedHtml') continue;
+      if (UNSAFE_META_KEYS.has(key)) continue;
       if (typeof value === 'function') continue;
       meta[key] = value;
     }

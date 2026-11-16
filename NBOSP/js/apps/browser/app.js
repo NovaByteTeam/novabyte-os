@@ -87,6 +87,13 @@ registerApp({
     const ZOOM_STEP           = 0.1;
     const OMNI_DEBOUNCE_MS    = 120;
     const OMNI_BLUR_CLOSE_MS  = 150;
+    // Live web suggestions: their own debounce (on top of OMNI_DEBOUNCE_MS),
+    // a hard timeout, a minimum query length and a row cap. Fetched through
+    // the server-side /api/proxy relay — see the omnibox section below.
+    const OMNI_WEB_DEBOUNCE_MS = 250;
+    const OMNI_WEB_TIMEOUT_MS  = 4000;
+    const OMNI_WEB_MIN_QUERY   = 2;
+    const OMNI_WEB_MAX         = 5;
     const MAX_DL_NAME_LEN     = 128;
 
     const SEARCH_ENGINES = Object.freeze({
@@ -151,6 +158,89 @@ registerApp({
     const appAbort = new AbortController();
     state.cleanups = state.cleanups || [];
     state.cleanups.push(() => appAbort.abort());
+
+    function browserColorScheme() {
+      return getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-scheme').trim() === 'light' ? 'light' : 'dark';
+    }
+
+    function browserColorSchemeScript(scheme) {
+      return `(function() {
+        if (!window.__nbospNativeMatchMedia) {
+          window.__nbospNativeMatchMedia = window.matchMedia.bind(window);
+          window.__nbospColorSchemeLists = new Set();
+          const matchesForScheme = query => {
+            const adjustedQuery = String(query).replace(
+              /\\(\\s*prefers-color-scheme\\s*:\\s*(dark|light)\\s*\\)/gi,
+              (_, preference) => preference.toLowerCase() === window.__nbospColorScheme ? 'all' : 'not all'
+            );
+            return window.__nbospNativeMatchMedia(adjustedQuery).matches;
+          };
+          window.matchMedia = query => {
+            const media = String(query);
+            if (!/\\(\\s*prefers-color-scheme\\s*:\\s*(dark|light)\\s*\\)/i.test(media)) {
+              return window.__nbospNativeMatchMedia(media);
+            }
+            const nativeList = window.__nbospNativeMatchMedia(media);
+            const record = { media, nativeList, matches: matchesForScheme(media) };
+            window.__nbospColorSchemeLists.add(record);
+            return new Proxy(nativeList, {
+              get(target, property) {
+                if (property === 'matches') return matchesForScheme(media);
+                const value = Reflect.get(target, property, target);
+                return typeof value === 'function' ? value.bind(target) : value;
+              }
+            });
+          };
+          window.__nbospSetColorScheme = scheme => {
+            if (scheme === window.__nbospColorScheme) return;
+            window.__nbospColorScheme = scheme;
+            for (const record of window.__nbospColorSchemeLists) {
+              const matches = matchesForScheme(record.media);
+              if (matches === record.matches) continue;
+              record.matches = matches;
+              record.nativeList.dispatchEvent(new window.MediaQueryListEvent('change', {
+                media: record.media,
+                matches
+              }));
+            }
+          };
+        }
+        window.__nbospSetColorScheme(${JSON.stringify(scheme)});
+        if (document.documentElement) document.documentElement.style.colorScheme = ${JSON.stringify(scheme)};
+      })();`;
+    }
+
+    function applyBrowserColorScheme(wv) {
+      const scheme = browserColorScheme();
+      wv.style.colorScheme = scheme;
+      if (wv._nbHasCommitted) {
+        if (typeof wv.insertCSS === 'function') {
+          try {
+            wv.insertCSS({ code: `:root{color-scheme:${scheme}!important}` });
+          } catch (error) {
+            console.warn('[NB Browser] Could not sync guest color scheme:', error);
+          }
+        }
+        if (typeof wv.executeScript === 'function') {
+          try {
+            wv.executeScript({ code: browserColorSchemeScript(scheme) });
+          } catch (error) {
+            console.warn('[NB Browser] Could not report guest color scheme:', error);
+          }
+        }
+      }
+    }
+
+    const syncBrowserColorScheme = () => {
+      for (const wv of tabWebviews.values()) applyBrowserColorScheme(wv);
+    };
+    window.addEventListener('theme:changed', syncBrowserColorScheme, { signal: appAbort.signal });
+    const onSystemSettingChanged = ({ key } = {}) => {
+      if (key === 'theme') syncBrowserColorScheme();
+    };
+    OS.events?.on?.('settings:changed', onSystemSettingChanged);
+    state.cleanups.push(() => OS.events?.off?.('settings:changed', onSystemSettingChanged));
 
     // Convenience accessor for the currently-active tab object.
     const activeTab = () => tabs.find(t => t.id === activeTabId);
@@ -356,7 +446,7 @@ registerApp({
         });
         const submit = createEl('button', {
           type: 'submit', textContent: submitLabel,
-          style: 'padding:8px 14px;border:0;border-radius:7px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;'
+          style: 'padding:8px 14px;border:0;border-radius:7px;background:var(--accent);color:var(--text-on-accent);font-weight:600;cursor:pointer;'
         });
         actions.append(cancel, submit);
         dialog.appendChild(actions);
@@ -1935,12 +2025,12 @@ registerApp({
       const bar = createEl('div', {
         className: 'browser-info-bar',
         'data-tab': String(tabId),
-        style: 'display:flex;align-items:center;gap:8px;padding:6px 12px;background:#3a2a1a;color:#f6c90e;border-bottom:1px solid rgba(255,255,255,0.08);font-size:12px;'
+        style: 'display:flex;align-items:center;gap:8px;padding:6px 12px;background:color-mix(in srgb,var(--text-warning) 14%,var(--bg-elevated));color:var(--text-warning);border-bottom:1px solid var(--border-subtle);font-size:12px;'
       });
       bar.textContent = msg;
       for (const a of actions) {
         const b = createEl('button', {
-          style: 'background:transparent;border:1px solid rgba(255,255,255,0.2);color:inherit;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;',
+          style: 'background:transparent;border:1px solid var(--border-default);color:inherit;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;',
           textContent: a.label
         });
         // Bind to appAbort so a teardown cleans these up even if dismissInfoBar
@@ -1995,6 +2085,13 @@ registerApp({
             if (redirectsLeft <= 0) return reject(new Error(_t('apps.browser.downloads.tooManyRedirects')));
             const next = new URL(headers.location, url).href;
             if (!/^https?:/i.test(next)) return reject(new Error(_t('apps.browser.downloads.unsupportedRedirect')));
+            // SECURITY (2026-11-15 audit, finding M11): redirect hops must
+            // re-apply the local-address policy the initial URL already
+            // passed — a public URL 302-ing at 127.0.0.1/RFC-1918 used to
+            // stream the internal response straight to the user's disk.
+            if (isLocalAddress(next)) {
+              return reject(new Error(_t('apps.browser.downloads.localAddressBlocked')));
+            }
             const nextHeaders = { ...requestHeaders };
             if (new URL(url).origin !== new URL(next).origin) {
               for (const name of Object.keys(nextHeaders)) {
@@ -2077,6 +2174,17 @@ registerApp({
       const isDataUrl = /^data:/i.test(url || '');
       if (!url || (!/^https?:\/\//i.test(url) && !isDataUrl)) {
         Notify.show({ title: _t('apps.browser.downloads.failed'), body: _t('apps.browser.downloads.onlyHttpBody'), type: 'error', appName: 'Downloads' });
+        return;
+      }
+      // SECURITY (2026-11-15 audit, finding M11): navigation enforces the
+      // local-address policy (isLocalAddress, comment above it: "prevents
+      // SSRF-style attacks from guest content") but the download path never
+      // did — a guest page could hand this trusted host handler an
+      // http://127.0.0.1:3003/... (or RFC-1918) URL and have the response
+      // written to a user-picked path. The user confirms the Save As, but
+      // the policy the browser itself states should hold here too.
+      if (!isDataUrl && isLocalAddress(url)) {
+        Notify.show({ title: _t('apps.browser.downloads.failed'), body: _t('apps.browser.downloads.localAddressBlocked'), type: 'error', appName: 'Downloads' });
         return;
       }
       const rawName = sanitizeDownloadName(requestedName || url);
@@ -2263,7 +2371,11 @@ registerApp({
       wv._nbDownloadRequestHeaders = new Map();
 
       wv.addEventListener('loadcommit', e => {
-        if (e.isTopLevel) wv._nbDownloadRequestHeaders.clear();
+        if (e.isTopLevel) {
+          wv._nbDownloadRequestHeaders.clear();
+          wv._nbHasCommitted = true;
+          applyBrowserColorScheme(wv);
+        }
         if (e.isTopLevel && e.url) syncUrlForTab(e.url, tabId, 'loadcommit');
       });
 
@@ -2373,26 +2485,50 @@ registerApp({
             .replace(/\u2028/g, '\\u2028')
             .replace(/\u2029/g, '\\u2029');
 
+        const themeValue = (name, fallback) => {
+          const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+          return /^(#[\da-f]{3,8}|rgba?\([\d.%\s,]+\))$/i.test(value) ? value : fallback;
+        };
+        const errorTheme = {
+          bg: themeValue('--bg-base', '#0d1117'),
+          surface: themeValue('--bg-elevated', '#161b22'),
+          sunken: themeValue('--bg-sunken', '#0d1117'),
+          border: themeValue('--border-default', '#30363d'),
+          text: themeValue('--text-primary', '#c9d1d9'),
+          secondary: themeValue('--text-secondary', '#8b949e'),
+          link: themeValue('--text-link', '#58a6ff'),
+          warning: themeValue('--text-warning', '#e3b341'),
+          danger: themeValue('--text-danger', '#e05d44'),
+          accent: themeValue('--accent', '#238636'),
+          accentText: themeValue('--text-on-accent', '#ffffff'),
+        };
+        const dangerChannels = errorTheme.danger.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+        const dangerLuminance = dangerChannels
+          ? dangerChannels.slice(1).map(value => parseInt(value, 16) / 255)
+            .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+            .reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0)
+          : 0;
+        const dangerText = dangerLuminance > 0.179 ? '#000000' : '#ffffff';
 
         const bypassAttr = showBypass ? ' data-bypass="1"' : '';
         const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${titleText}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;
+  body{font-family:system-ui,-apple-system,sans-serif;background:${errorTheme.bg};color:${errorTheme.text};
        display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
-  .card{max-width:520px;width:100%;background:#161b22;border:1px solid #30363d;
+  .card{max-width:520px;width:100%;background:${errorTheme.surface};border:1px solid ${errorTheme.border};
         border-radius:12px;padding:32px 36px;text-align:center}
-  h1{font-size:20px;font-weight:700;margin-bottom:12px;color:#f0f6fc}
-  p{font-size:13px;color:#8b949e;line-height:1.6;margin-bottom:8px}
-  .url{font-size:11px;color:#58a6ff;word-break:break-all;margin-bottom:20px;
-       background:#0d1117;padding:6px 10px;border-radius:6px;border:1px solid #21262d}
-  .hint{font-size:12px;color:#e3b341;margin-bottom:20px}
+  h1{font-size:20px;font-weight:700;margin-bottom:12px;color:${errorTheme.text}}
+  p{font-size:13px;color:${errorTheme.secondary};line-height:1.6;margin-bottom:8px}
+  .url{font-size:11px;color:${errorTheme.link};word-break:break-all;margin-bottom:20px;
+       background:${errorTheme.sunken};padding:6px 10px;border-radius:6px;border:1px solid ${errorTheme.border}}
+  .hint{font-size:12px;color:${errorTheme.warning};margin-bottom:20px}
   .actions{display:flex;justify-content:center;flex-wrap:wrap;gap:8px}
-  button{background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;
+  button{background:${errorTheme.accent};color:${errorTheme.accentText};border:none;padding:8px 18px;border-radius:6px;
          cursor:pointer;font-size:13px}
   button:hover{opacity:.85}
-  button.unsafe{background:#e05d44}
+  button.unsafe{background:${errorTheme.danger};color:${dangerText}}
 </style></head><body>
 <div class="card">
   <h1>${titleText}</h1>
@@ -2449,12 +2585,13 @@ registerApp({
               const goBackLabel = ${goBackJson};
               const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
               const reasonText = esc(reason);
-              const html = '<html><body style="background:#0d1117;color:#c9d1d9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">' +
+              const style = ${JSON.stringify(`body{background:${themeValue('--bg-base', '#0d1117')};color:${themeValue('--text-primary', '#c9d1d9')}}button{background:${themeValue('--accent', '#238636')};color:${themeValue('--text-on-accent', '#ffffff')}}`)};
+              const html = '<html><head><style>' + style + '</style></head><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">' +
                 '<div style="text-align:center;max-width:400px">' +
                 '<div style="font-size:32px;margin-bottom:12px">🚫</div>' +
                 '<div style="font-size:16px;font-weight:700;margin-bottom:8px">' + esc(navTitle) + '</div>' +
-                '<div style="font-size:12px;color:#8b949e;margin-bottom:16px">' + reasonText + '</div>' +
-                '<button id="__nb_back" style="background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer">' + esc(goBackLabel) + '</button>' +
+                '<div style="font-size:12px;color:${themeValue('--text-secondary', '#8b949e')};margin-bottom:16px">' + reasonText + '</div>' +
+                '<button id="__nb_back" style="border:none;padding:8px 18px;border-radius:6px;cursor:pointer">' + esc(goBackLabel) + '</button>' +
                 '</div></body></html>';
               document.documentElement.innerHTML = html;
               const b = document.getElementById('__nb_back');
@@ -2552,9 +2689,15 @@ registerApp({
             const host = parsed.hostname.toLowerCase();
             const path = parsed.pathname.toLowerCase();
             if (AUTH_HOSTS.some(h => host === h || host.endsWith('.' + h))) return true;
-            if (AUTH_PATHS.some(p => path.startsWith(p) || path.includes(p + '/'))) return true;
-            const params = parsed.searchParams;
-            if (params.has('client_id') || params.has('response_type') || params.has('redirect_uri')) return true;
+            // SECURITY (2026-11-15 audit, finding M13): the query-param
+            // heuristic used to fire on ANY host — `https://anyhost/?client_id=1`
+            // was enough to exempt a popup from the user's block-popup-windows
+            // setting. Known auth hosts are handled above; the path heuristic
+            // (custom IdP domains hosting /authorize, /callback, …) still
+            // applies, but only over https, so it can't be trivially abused
+            // by plain-http pages either.
+            if (parsed.protocol === 'https:'
+              && AUTH_PATHS.some(p => path.startsWith(p) || path.includes(p + '/'))) return true;
           } catch { /* ignore */ }
           return false;
         }
@@ -2576,10 +2719,10 @@ registerApp({
           backdrop.style.cssText = 'position:absolute;inset:0;z-index:9999;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
 
           const card = document.createElement('div');
-          card.style.cssText = `width:${pw}px;height:${ph}px;background:var(--bg,#1e1e2e);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);`;
+          card.style.cssText = `width:${pw}px;height:${ph}px;background:var(--bg-elevated);color:var(--text-primary);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6);border:1px solid var(--border-subtle);`;
 
           const bar = document.createElement('div');
-          bar.style.cssText = 'height:36px;min-height:36px;background:var(--bg2,#181825);display:flex;align-items:center;padding:0 10px;gap:8px;border-bottom:1px solid rgba(255,255,255,0.06);user-select:none;';
+          bar.style.cssText = 'height:36px;min-height:36px;background:var(--bg-sunken);display:flex;align-items:center;padding:0 10px;gap:8px;border-bottom:1px solid var(--border-subtle);user-select:none;';
           const barTitle = document.createElement('span');
           barTitle.style.cssText = 'flex:1;font-size:12px;opacity:0.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
           barTitle.textContent = url;
@@ -3713,8 +3856,8 @@ registerApp({
             inset: '0',
             zIndex: '2',
             overflow: 'auto',
-            background: '#0b0f17',
-            color: '#d8dee9',
+            background: 'var(--bg-base)',
+            color: 'var(--text-primary)',
             fontFamily: 'var(--font-mono, Consolas, monospace)',
             userSelect: 'text',
             webkitUserSelect: 'text',
@@ -3728,9 +3871,9 @@ registerApp({
             position: 'sticky',
             top: '0',
             padding: '10px 16px',
-            background: '#111827',
-            borderBottom: '1px solid rgba(255,255,255,.12)',
-            color: '#9aa7b8',
+            background: 'var(--bg-elevated)',
+            borderBottom: '1px solid var(--border-subtle)',
+            color: 'var(--text-secondary)',
             font: '12px var(--font-ui, sans-serif)',
             overflowWrap: 'anywhere',
           },
@@ -4247,7 +4390,7 @@ registerApp({
       for (const { id, label, icon } of NAV) {
         const btn = createEl('button', {
           style: 'display:flex;align-items:center;gap:9px;width:100%;padding:8px 16px;border:none;background:' +
-                 (id === activeCategory ? 'rgba(88,166,255,0.12)' : 'transparent') +
+                 (id === activeCategory ? 'var(--accent-muted)' : 'transparent') +
                  ';color:' + (id === activeCategory ? 'var(--accent)' : 'var(--text-secondary)') +
                  ';font-size:12px;font-weight:' + (id === activeCategory ? '600' : '400') +
                  ';cursor:pointer;text-align:start;border-radius:0;transition:background 0.15s;border-inline-start:2px solid ' +
@@ -4301,7 +4444,7 @@ registerApp({
           const row = createEl('label', {
             style: 'display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;border:1px solid ' +
                    (key === eng ? 'var(--accent)' : 'var(--border-subtle)') +
-                   ';background:' + (key === eng ? 'rgba(88,166,255,0.08)' : 'var(--bg-elevated)') + ';transition:all 0.15s;'
+                   ';background:' + (key === eng ? 'var(--accent-muted)' : 'var(--bg-elevated)') + ';transition:all 0.15s;'
           });
           const radio = createEl('input');
           radio.type = 'radio'; radio.id = 'search-engine-' + key; radio.name = 'se'; radio.value = key; radio.checked = key === eng;
@@ -4309,7 +4452,7 @@ registerApp({
           const lbl = createEl('span', { textContent: info.label, style: 'flex:1;font-size:13px;' });
           const hint = createEl('span', { textContent: info.url.replace('https://', '').split('/')[0], style: 'font-size:11px;color:var(--text-muted);' });
           row.append(radio, lbl, hint);
-          if (key === eng) row.appendChild(createEl('span', { textContent: _t('apps.browser.settings.defaultEngineBadge'), style: 'font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;' }));
+          if (key === eng) row.appendChild(createEl('span', { textContent: _t('apps.browser.settings.defaultEngineBadge'), style: 'font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:var(--text-on-accent);' }));
           radio.addEventListener('change', () => { if (radio.checked) { saveSetting('searchEngine', key); renderSettingsPage('search'); } });
           seList.appendChild(row);
         }
@@ -4454,7 +4597,7 @@ registerApp({
           textContent: _t('apps.browser.settings.resetAllBtn'),
           style: 'margin-top:8px;padding:9px 18px;border-radius:8px;border:1px solid var(--text-danger);background:transparent;color:var(--text-danger);font-size:13px;cursor:pointer;transition:background 0.15s;'
         });
-        resetBtn.addEventListener('mouseenter', () => resetBtn.style.background = 'rgba(248,81,73,0.1)');
+        resetBtn.addEventListener('mouseenter', () => resetBtn.style.background = 'color-mix(in srgb,var(--text-danger) 10%,transparent)');
         resetBtn.addEventListener('mouseleave', () => resetBtn.style.background = 'transparent');
         resetBtn.addEventListener('click', () => {
           showModal(
@@ -4781,7 +4924,10 @@ registerApp({
     const stripHttps = (url) => url ? url.replace(/^https:\/\//, '') : '';
 
     // Omnibox dropdown — appears below the URL bar with bookmark/history
-    // matches as the user types.
+    // matches as the user types, plus live DuckDuckGo completions relayed
+    // through the server-side /api/proxy (direct egress to ac.duckduckgo.com
+    // is blocked at this deployment's network layer) and a trailing
+    // search-engine action row.
     const omniDrop = createEl('div', { className: 'omnibox-dropdown' });
     omniDrop.setAttribute('role', 'listbox');
     container.appendChild(omniDrop);
@@ -4790,6 +4936,8 @@ registerApp({
     let omniIdx = -1;
     let omniTimer = null;
     let omniGen = 0; // bumped per query + on close → stale renders bail out
+    let omniWebTimer = null; // debounce timer for the relayed autocomplete
+    let omniWebAbort = null; // AbortController for the in-flight relayed call
 
     function omniReposition() {
       const r = urlBar.getBoundingClientRect();
@@ -4800,9 +4948,12 @@ registerApp({
     }
     function omniClose() {
       // Invalidate any in-flight/queued work so a late async render can't
-      // reopen the dropdown after Enter / blur / Esc.
+      // reopen the dropdown after Enter / blur / Esc. This covers the local
+      // debounce timer AND the relayed web-suggestion request.
       omniGen++;
       clearTimeout(omniTimer);
+      clearTimeout(omniWebTimer);
+      omniWebAbort?.abort();
       omniDrop.style.display = 'none';
       omniDrop.replaceChildren();
       omniItems = [];
@@ -4868,9 +5019,144 @@ registerApp({
         .filter(h => h.url.toLowerCase().includes(lq) || (h.title || '').toLowerCase().includes(lq))
         .slice(0, 4)
         .map(h => ({ type: 'history', label: h.title || h.url, sub: h.url, url: h.url }));
+      const localItems = [...bkItems, ...hxItems];
 
       if (gen !== omniGen) return; // a newer query / close superseded us
-      omniRender([...bkItems, ...hxItems]);
+      // Local rows first, the search-engine action row last. Web completion
+      // rows merge in between once the relayed autocomplete responds (or
+      // never, on failure — local suggestions must survive that).
+      omniRender([...localItems, ...omniSearchRow(q)]);
+      omniScheduleWeb(q, localItems, gen);
+    }
+
+    // ── Live web suggestions (DuckDuckGo autocomplete via /api/proxy) ──────
+    // Same relay the Search app and sandboxed net:external fetches use
+    // (server/proxies.js setupAppNetworkProxy): POST /api/proxy with JSON
+    // { url, method, headers, body, bodyEncoding } → envelope
+    // { status, statusText, headers, body, bodyEncoding }. The route is
+    // session + CSRF protected; the host page's system-fetch.js HMAC
+    // signature exempts us from its rate limiter.
+
+    function omniCsrfToken() {
+      try {
+        // Multi-user: the CSRF token belongs to the active session (the one
+        // X-Nova-Session below authenticates as); the boot-injected meta tag
+        // belongs to the anonymous page session.
+        if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.() &&
+            window.SessionManager?.csrf) {
+          const active = window.SessionManager.csrf();
+          if (active) return active;
+        }
+        return document.querySelector('meta[name="csrf-token"]')?.content || '';
+      } catch { return ''; }
+    }
+
+    async function omniProxyFetchJson(url, signal) {
+      const headers = { 'Content-Type': 'application/json' };
+      const csrf = omniCsrfToken();
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+      try {
+        if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.() &&
+            window.SessionManager?.token) {
+          const token = window.SessionManager.token();
+          if (token) headers['X-Nova-Session'] = token;
+        }
+      } catch { /* bearer is best-effort */ }
+      const res = await fetch('/api/proxy', {
+        method: 'POST',
+        credentials: 'same-origin',
+        signal,
+        headers,
+        body: JSON.stringify({
+          url,
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          body: null,
+          bodyEncoding: 'utf8',
+        }),
+      });
+      if (!res.ok) throw new Error(`proxy ${res.status}`);
+      return res.json();
+    }
+
+    async function omniFetchCompletions(q, signal) {
+      const acUrl = 'https://ac.duckduckgo.com/ac/?' +
+        new URLSearchParams({ q, type: 'list' });
+      const envelope = await omniProxyFetchJson(acUrl, signal);
+      if (!envelope || typeof envelope.status !== 'number' ||
+          envelope.status < 200 || envelope.status >= 300) {
+        throw new Error(`ac ${envelope?.status ?? 'malformed envelope'}`);
+      }
+      let text = envelope.body;
+      if (envelope.bodyEncoding === 'base64' && typeof text === 'string') {
+        try {
+          text = new TextDecoder().decode(Uint8Array.from(atob(text), ch => ch.charCodeAt(0)));
+        } catch { throw new Error('ac body undecodable'); }
+      }
+      if (typeof text !== 'string') throw new Error('ac body missing');
+      const data = JSON.parse(text);
+      // type=list → [query, [completion, …]]; default shape → [{phrase}, …].
+      const raw = Array.isArray(data)
+        ? (Array.isArray(data[1]) ? data[1] : data)
+        : [];
+      return raw
+        .map(c => (c && typeof c === 'object') ? c.phrase : c)
+        .filter(c => typeof c === 'string' && c.trim())
+        .map(c => c.trim());
+    }
+
+    /** The trailing "Search <engine> for '<q>'" action row. */
+    function omniSearchRow(q) {
+      const engine = SEARCH_ENGINES[getSetting('searchEngine', 'brave')];
+      return [{
+        type: 'search',
+        label: _t('apps.browser.omnibox.searchWith', {
+          engine: engine?.label || 'Brave',
+          query: q,
+        }),
+        url: getSearchUrl(q),
+        barText: q,
+      }];
+    }
+
+    function omniScheduleWeb(q, localItems, gen) {
+      clearTimeout(omniWebTimer);
+      omniWebAbort?.abort();
+      if (q.length < OMNI_WEB_MIN_QUERY) return;
+      omniWebTimer = setTimeout(async () => {
+        omniWebAbort = new AbortController();
+        const timer = setTimeout(() => omniWebAbort.abort(), OMNI_WEB_TIMEOUT_MS);
+        let completions;
+        try {
+          completions = await omniFetchCompletions(q, omniWebAbort.signal);
+        } catch {
+          // Suggestions are strictly additive — a failed or superseded relay
+          // call must never disturb the local rows already on screen.
+          clearTimeout(timer);
+          return;
+        }
+        clearTimeout(timer);
+        if (gen !== omniGen) return; // newer query / close superseded us
+        // Keep web rows distinct from local rows, from the typed query and
+        // from each other (case-insensitive label comparison).
+        const seen = new Set([q.toLowerCase()]);
+        for (const item of localItems) seen.add(String(item.label || '').toLowerCase());
+        const webItems = [];
+        for (const completion of completions) {
+          const lc = completion.toLowerCase();
+          if (seen.has(lc)) continue;
+          seen.add(lc);
+          webItems.push({
+            type: 'web',
+            label: completion,
+            url: getSearchUrl(completion),
+            barText: completion,
+          });
+          if (webItems.length >= OMNI_WEB_MAX) break;
+        }
+        if (!webItems.length) return;
+        omniRender([...localItems, ...webItems, ...omniSearchRow(q)]);
+      }, OMNI_WEB_DEBOUNCE_MS);
     }
 
     // URL bar events
@@ -4879,13 +5165,15 @@ registerApp({
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           omniHighlight(Math.min(omniIdx + 1, omniItems.length - 1));
-          if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].url || omniItems[omniIdx].label;
+          // barText (web completions, search action) keeps the human-readable
+          // query in the bar; bookmarks/history fall back to their URL.
+          if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].barText ?? (omniItems[omniIdx].url || omniItems[omniIdx].label);
           return;
         }
         if (e.key === 'ArrowUp') {
           e.preventDefault();
           omniHighlight(Math.max(omniIdx - 1, 0));
-          if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].url || omniItems[omniIdx].label;
+          if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].barText ?? (omniItems[omniIdx].url || omniItems[omniIdx].label);
           return;
         }
         if (e.key === 'Escape') { omniClose(); return; }
@@ -4899,6 +5187,10 @@ registerApp({
 
     urlBar.addEventListener('input', () => {
       clearTimeout(omniTimer);
+      // A new keystroke supersedes any queued/in-flight web suggestion
+      // request — cancel it so stale completions can never render.
+      clearTimeout(omniWebTimer);
+      omniWebAbort?.abort();
       omniTimer = setTimeout(() => omniQuery(urlBar.value), OMNI_DEBOUNCE_MS);
     });
 
@@ -4908,8 +5200,12 @@ registerApp({
       urlBar.value = stripHttps(currentUrl || urlBar.value);
     });
 
-    // Clean up omnibox timer on app teardown.
-    state.cleanups.push(() => clearTimeout(omniTimer));
+    // Clean up omnibox timers and in-flight suggestion requests on teardown.
+    state.cleanups.push(() => {
+      clearTimeout(omniTimer);
+      clearTimeout(omniWebTimer);
+      omniWebAbort?.abort();
+    });
 
     // Global keyboard shortcuts
     const _onBrowserKeydown = e => {

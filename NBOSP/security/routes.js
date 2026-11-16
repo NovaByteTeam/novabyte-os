@@ -161,7 +161,17 @@ router.post('/admin-mode',
             // only owner/admin roles may touch it.
             let accountsExist = false;
             try {
-                const usersDb = require('./security/users-db');
+                // SECURITY (2026-11-15 audit, finding H1): this require used to
+                // read './security/users-db', which from NBOSP/security/routes.js
+                // resolves to NBOSP/security/security/users-db.js — a module that
+                // does not exist. The MODULE_NOT_FOUND was silently swallowed by
+                // this same try/catch, so accountsExist stayed false forever and
+                // the multi-user guard below NEVER fired: any session could flip
+                // the legacy admin flag on a fully-populated multi-user machine,
+                // defeating the 2026-11-12 L1 fix. Correct path is
+                // ../server/security/users-db (the sibling admin-state import at
+                // the top of this file already uses that prefix).
+                const usersDb = require('../server/security/users-db');
                 accountsExist = usersDb.hasAccounts();
             } catch (_) { /* users-db unavailable: keep legacy behaviour */ }
             if (accountsExist) {
@@ -215,12 +225,21 @@ setInterval(() => {
 // anywhere in the app, so /sessions and DELETE /sessions/:id always saw an
 // empty Map / 404'd on every id. The real session store already exists:
 // middleware.js persists Express sessions to a SQLite `sessions` table
-// (via better-sqlite3-session-store) at NBOSP/data/sessions.db. This reads
-// that table directly instead of maintaining a second, parallel, never-
-// synced copy of the same data.
+// (via better-sqlite3-session-store) under the runtime data dir (see the
+// resolution note below). This reads that table directly instead of
+// maintaining a second, parallel, never-synced copy of the same data.
 const path = require('path');
 const Database = require('better-sqlite3');
-const SESSION_DB_PATH = path.join(__dirname, '..', 'data', 'sessions.db');
+// SECURITY (2026-11-15 audit, finding M1): this used to be a hard-coded
+// NBOSP/data/sessions.db. The real session store lives under
+// getRuntimeDataDir(NBOSP)/data (server/middleware.js), which honors
+// NBOSP_DATA_DIR — and the OS image sets it (S99nbosp). With the hard-coded
+// path, /api/security/sessions read (and DELETE /sessions/:id revoked
+// entries in) a DIFFERENT database than the one the live server writes to —
+// always stale/empty on the shipped image. Resolve the same way middleware
+// does so both files agree on one sessions.db.
+const { getRuntimeDataDir } = require('../scripts/runtime-data-dir');
+const SESSION_DB_PATH = path.join(getRuntimeDataDir(path.resolve(__dirname, '..')), 'data', 'sessions.db');
 let sessionDb = null;
 function getSessionDb() {
     // Lazy-opened: this file loads before middleware.js has necessarily

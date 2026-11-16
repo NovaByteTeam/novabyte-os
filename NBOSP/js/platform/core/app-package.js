@@ -550,6 +550,46 @@ const AppPackage = (() => {
 
   // ─── Install / uninstall ─────────────────────────────────────────────────────
 
+  /**
+   * Shut every running instance of one app down BEFORE its install is
+   * replaced: open windows (forceKill — a system:background:live grant must
+   * not turn this into an orphaned webview running the old code against a
+   * half-replaced install) and backgrounded sandboxes. Same shape as
+   * AppRegistry.unregisterApp()'s shutdown block and App Manager's
+   * replace-flow helper; kept here so every force-replace funnelled through
+   * installPackage() (Packages tool "Force overwrite", MyAppsManager
+   * forced installs, the boot reconciler and the system-bundle watcher —
+   * both no-ops at their call time) gets the ordering for free. Defensive
+   * typeof guards throughout: this module also runs in bare test VMs where
+   * WM/AppSandbox/Notify/OS don't exist, and on hosts where nothing is
+   * running yet (boot) — in both cases it silently does nothing.
+   * Returns whether any window was open (callers may relaunch after swap).
+   */
+  async function closeRunningAppInstances(appId) {
+    let hadWindows = false;
+    try {
+      if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+        const openWindowIds = [];
+        for (const [wid, wstate] of OS.windows) {
+          if (wstate && wstate.appId === appId) openWindowIds.push(wid);
+        }
+        hadWindows = openWindowIds.length > 0;
+        await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid, { forceKill: true })));
+      }
+    } catch (_) { /* best-effort shutdown */ }
+    try {
+      if (typeof AppSandbox !== 'undefined' && AppSandbox.getAllSandboxes) {
+        for (const sandbox of AppSandbox.getAllSandboxes()) {
+          if (sandbox && sandbox.appId === appId && sandbox.backgrounded) {
+            AppSandbox.terminateBackground(sandbox.sandboxId);
+            if (typeof Notify !== 'undefined' && Notify.unpin) Notify.unpin(`pin_bg_${appId}`);
+          }
+        }
+      }
+    } catch (_) { /* best-effort shutdown */ }
+    return hadWindows;
+  }
+
   async function installPackage(pkg, options = {}) {
     let verified = false;
     let signer = null;
@@ -602,6 +642,28 @@ const AppPackage = (() => {
       }
       throw new Error(msg);
     }
+    // SECURITY (2026-11-15 audit, finding L5): every pkg.files key must pass
+    // the same shape gate as entry/guestEntry. NovaAppPackageStore.installApp
+    // already rejects bad keys (normalizePackagePath) — but its throw was
+    // caught right below and downgraded to a console.warn, so the app
+    // registered in-memory WITH its files while never persisting them: after
+    // a reload the install was silently broken (registry row, no bundle).
+    // Validating here turns a bad key into a rejected install up front, and
+    // the store write can no longer fail for a shape this gate passed.
+    if (pkg.files && typeof pkg.files === 'object') {
+      const UNSAFE_FILE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+      for (const fileKey of Object.keys(pkg.files)) {
+        if (UNSAFE_FILE_KEYS.has(fileKey)
+          || fileKey.includes('\\') || fileKey.includes(':') || /[\x00-\x1f\x7f]/.test(fileKey)
+          || fileKey.startsWith('/') || fileKey.split('/').some(seg => seg === '.' || seg === '..' || seg === '')) {
+          const msg = `Invalid package file key: ${JSON.stringify(fileKey)}`;
+          if (typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: `Install failed for ${pkg.manifest.id}: ${msg}`, data: { appId: pkg.manifest.id, reason: 'file-key' } });
+          }
+          throw new Error(msg);
+        }
+      }
+    }
     if (pkg.manifest.permissions?.includes('system:root')
       && typeof pkg.files?.[pkg.manifest.unrestrictedEntry] !== 'string') {
       const msg = `Root package is missing unrestrictedEntry file "${pkg.manifest.unrestrictedEntry}"`;
@@ -624,6 +686,20 @@ const AppPackage = (() => {
           EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: msg, data: { appId: pkg.manifest.id, reason: 'duplicate' } });
       }
       throw new Error(msg);
+    }
+
+    // Close-first (2026-11-16): reaching here with an `existing` install
+    // means this install REPLACES it. Every running instance of the old
+    // app — open windows and backgrounded sandboxes — must be shut down
+    // BEFORE the registry entry below and the package-store record are
+    // swapped underneath it; otherwise the live window keeps executing the
+    // old code against a half-replaced install. App Manager's dialog flow
+    // closes on its own before calling its store writes; this covers every
+    // other force-replace surface (Packages tool, MyAppsManager, future
+    // callers). At boot-reconcile time nothing is running, and the
+    // system-bundle watcher closes before it gets here, so both are no-ops.
+    if (existing) {
+      await closeRunningAppInstances(pkg.manifest.id);
     }
 
     // A package may declare itself as a system app, but that declaration
@@ -825,9 +901,23 @@ const AppPackage = (() => {
         warnings.push('Icon is neither a data: URI, a plain asset path, nor an emoji; it will be rendered as escaped text');
       }
     }
-    if (manifest.id && !manifest.id.startsWith('webapp_')) {
-      if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/.test(manifest.id))
+    if (manifest.id) {
+      // SECURITY (2026-11-15 audit, finding H5): the reverse-domain rule
+      // used to live inside a negated `!startsWith('webapp_')` branch — so
+      // ANY id beginning with `webapp_` skipped format validation entirely,
+      // and arbitrary characters (quotes, angle brackets) flowed into
+      // registry ids and privileged-shell templates (my-apps-manager
+      // interpolated the raw id into data-app-id attributes). Validate
+      // BOTH shapes: reverse-domain ids, and webapp_ shortcut ids with the
+      // same charset nova-app-launcher.js's serving-alias regex documents
+      // (lowercase alphanumerics, dot, underscore, dash; bounded length).
+      if (manifest.id.startsWith('webapp_')) {
+        if (!/^webapp_[a-z0-9._-]{1,112}$/.test(manifest.id)) {
+          errors.push(`Invalid app ID "${manifest.id}". webapp_ ids may only use lowercase letters, digits, dots, underscores and dashes.`);
+        }
+      } else if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/.test(manifest.id)) {
         errors.push(`Invalid app ID "${manifest.id}". Must be reverse domain format.`);
+      }
     }
     if (manifest.version && !/^\d+\.\d+\.\d+$/.test(manifest.version))
       warnings.push(`Version "${manifest.version}" doesn't follow semver (x.y.z)`);
@@ -1005,6 +1095,7 @@ const AppPackage = (() => {
     verifyAgainstTrustStore, generateSigningKeyPair,
     installPackage, uninstallPackage, extractPackage, inspectPackage,
     computeIntegrity, verifyIntegrity,
+    closeRunningAppInstances,
     getSigningMethod, getIntegrityMethod,
     listSigningMethods, listIntegrityMethods,
     SIGNING_METHODS, INTEGRITY_METHODS,

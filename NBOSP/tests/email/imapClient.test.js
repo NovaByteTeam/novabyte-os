@@ -13,7 +13,7 @@ class FakeImapFlow {
     FakeImapFlow.last = this;
   }
   async connect() { this.calls.push('connect'); if (FakeImapFlow.connectError) throw FakeImapFlow.connectError; }
-  async logout() { this.calls.push('logout'); }
+  async logout() { this.calls.push('logout'); if (FakeImapFlow.logoutFails) throw new Error('logout broken'); }
   async list() { return FakeImapFlow.listResult; }
   async mailboxOpen(name) {
     this.calls.push(['open', name]);
@@ -53,6 +53,7 @@ beforeEach(() => {
   FakeImapFlow.openError = null;
   FakeImapFlow.opensToFail = 0;
   FakeImapFlow.connectError = null;
+  FakeImapFlow.logoutFails = false;
 });
 
 describe('email/protocols/imapClient.js — imapConnect', () => {
@@ -89,12 +90,16 @@ describe('email/protocols/imapClient.js — imapFolders', () => {
     FakeImapFlow.listResult = [
       { path: 'INBOX', name: 'INBOX', delimiter: '/', flags: ['\\HasNoChildren'] },
       { path: 'Sent &#x27;Items&#x27;', delimiter: '/' },
+      // no name and no delimiter: the last-segment fallback splits on '/'
+      { path: 'Plain/Child' },
     ];
     const folders = await imapClient.imapFolders(CREDS);
     expect(folders[0]).toEqual({ path: 'INBOX', name: 'INBOX', delimiter: '/', flags: ['\\HasNoChildren'] });
     expect(folders[1].name).toBe("Sent 'Items'");
     // name falls back to the last path segment when the server omits it
     expect(folders[1].path).toBe("Sent 'Items'");
+    // the delimiter-less, name-less entry derives its name from the path tail
+    expect(folders[2].name).toBe('Child');
     expect(FakeImapFlow.last.calls).toContain('logout');
   });
 });
@@ -107,17 +112,20 @@ describe('email/protocols/imapClient.js — imapMessages', () => {
       { uid: 2, seq: 2, flags: new Set(['\\Seen']), envelope: { subject: 'two' } },
       { uid: 3, seq: 3, flags: new Set(['\\Seen']), envelope: { subject: 'three' } },
     ];
+    // a fetched message without an envelope maps onto the empty-object arm
+    FakeImapFlow.fetchResult.push({ uid: 9, seq: 4, flags: new Set(['\\Flagged']) });
     const res = await imapClient.imapMessages(CREDS, 'INBOX', 1, 20, (p) => p);
     expect(res.total).toBe(3);
     expect(res.page).toBe(1);
     expect(res.pages).toBe(1);
     // reversed → newest first
-    expect(res.messages.map((m) => m.subject)).toEqual(['three', 'two', 'one']);
-    expect(res.messages[1].seen).toBe(true);
-    expect(res.messages[2].seen).toBe(false);
-    expect(res.messages[2].from).toBe('A <a@x.com>');
-    expect(res.messages[2].to).toBe('b@x.com');
-    expect(res.messages[2].date).toBe('2026-01-01T00:00:00.000Z');
+    expect(res.messages.map((m) => m.subject)).toEqual(['(no subject)', 'three', 'two', 'one']);
+    expect(res.messages[1].seen).toBe(true);  // 'three'
+    expect(res.messages[2].seen).toBe(true);   // 'two' carries \Seen
+    expect(res.messages[3].seen).toBe(false);  // 'one' is unseen
+    expect(res.messages[3].from).toBe('A <a@x.com>');
+    expect(res.messages[3].to).toBe('b@x.com');
+    expect(res.messages[3].date).toBe('2026-01-01T00:00:00.000Z');
   });
 
   it('computes pages and clamps the fetch window to the requested page', async () => {
@@ -201,11 +209,17 @@ describe('email/protocols/imapClient.js — imapSearch', () => {
       { uid: 1, flags: new Set(), envelope: { subject: 'old', from: [{ address: 'a@x.com' }], date: '2026-01-01T00:00:00Z' } },
       { uid: 3, flags: new Set(['\\Seen']), envelope: { subject: 'new' } },
     ];
+    // a result without an envelope maps onto the empty-object arm
+    FakeImapFlow.fetchResult.push({ uid: 7, flags: new Set() });
     const messages = await imapClient.imapSearch(CREDS, 'needle', 'INBOX');
-    expect(messages).toHaveLength(2);
+    expect(messages).toHaveLength(3);
     expect(messages[0].subject).toBe('old');
     expect(messages[1].subject).toBe('new');
     expect(messages[1].seen).toBe(true);
+    const bare = messages[2];
+    expect(bare.subject).toBe('(no subject)');
+    expect(bare.from).toBe('');
+    expect(bare.date).toBeNull();
   });
 
   it('returns [] when the search yields no uids', async () => {
@@ -235,6 +249,10 @@ describe('email/protocols/imapClient.js — resolveFolder', () => {
     FakeImapFlow.opensToFail = 999; // every open fails
     FakeImapFlow.listResult = [{ path: 'INBOX', name: 'INBOX' }];
     await expect(imapClient.resolveFolder(client, 'Nowhere')).rejects.toThrow('Folder not found: Nowhere');
+    // a list containing a name-less folder exercises the (f.name || '') arm
+    // of the alias matcher: the empty string never matches an alias.
+    FakeImapFlow.listResult = [{ path: 'INBOX' }, { path: 'x', name: 'Sent' }];
+    await expect(imapClient.resolveFolder(client, 'Nowhere')).rejects.toThrow('Folder not found: Nowhere');
   });
 });
 
@@ -251,5 +269,73 @@ describe('email/protocols/imapClient.js — decodeEntities', () => {
     expect(imapClient.decodeEntities('plain')).toBe('plain');
     expect(imapClient.decodeEntities('')).toBe('');
     expect(imapClient.decodeEntities(null)).toBeNull();
+  });
+
+  it('evicts the oldest decoded paths once the cache passes 500 entries', async () => {
+    // 260 folders x (path + name) = 520 distinct decode calls — past the cap
+    FakeImapFlow.listResult = Array.from({ length: 260 }, (_, i) => ({
+      path: `folder&amp;${i}`,
+      name: `box&amp;${i}`,
+      delimiter: '/',
+      flags: [],
+    }));
+    const folders = await imapClient.imapFolders(CREDS);
+    expect(folders).toHaveLength(260);
+    expect(folders[0].path).toBe('folder&0');
+    expect(folders[259].name).toBe('box&259');
+  });
+
+  it('a broken logout never surfaces — every operation swallows it in finally', async () => {
+    FakeImapFlow.logoutFails = true;
+    FakeImapFlow.listResult = [{ path: 'INBOX', name: 'INBOX', delimiter: '/', flags: [] }];
+    await expect(imapClient.imapFolders(CREDS)).resolves.toHaveLength(1);
+
+    FakeImapFlow.exists = 1;
+    FakeImapFlow.fetchResult = [{ uid: 4, seq: 1, source: 'raw-message', flags: new Set(), envelope: { subject: 's' } }];
+    const page = await imapClient.imapMessages(CREDS, 'INBOX', 1, 20, (p) => p);
+    expect(page.messages[0].from).toBe(''); // no envelope.from → '' (branch)
+
+    await expect(imapClient.imapMessage(CREDS, 'INBOX', 4, (p) => p)).resolves.toBeTruthy();
+    await expect(imapClient.imapBatch(CREDS, 'delete', [4], 'INBOX')).resolves.toBeUndefined();
+
+    FakeImapFlow.searchResult = [3];
+    FakeImapFlow.fetchResult = [{ uid: 3, envelope: { subject: 'anon' }, flags: new Set() }];
+    const hits = await imapClient.imapSearch(CREDS, 'needle', 'INBOX');
+    expect(hits[0].from).toBe(''); // from absent → '' fallback
+  });
+
+  it('a non-array uid list no-ops exactly like an empty one', async () => {
+    await expect(imapClient.imapBatch(CREDS, 'read', 'nope', 'INBOX')).resolves.toBeUndefined();
+    expect(FakeImapFlow.last).toBeNull(); // never even constructed a client
+  });
+
+  it('imapSearch without imapflow injected fails cleanly', async () => {
+    imapClient.setDependencies({});
+    await expect(imapClient.imapSearch(CREDS, 'q', 'INBOX')).rejects.toThrow('Missing dependency');
+    imapClient.setDependencies({ ImapFlow: FakeImapFlow, PostalMime: FakePostalMime });
+  });
+
+  it('imapMessage without postal-mime injected fails cleanly', async () => {
+    imapClient.setDependencies({ ImapFlow: FakeImapFlow });
+    await expect(imapClient.imapMessage(CREDS, 'INBOX', 7)).rejects.toThrow('Missing dependency');
+    imapClient.setDependencies({ ImapFlow: FakeImapFlow, PostalMime: FakePostalMime });
+  });
+
+  it('imapBatch without imapflow injected fails cleanly before touching the list', async () => {
+    imapClient.setDependencies({ PostalMime: FakePostalMime });
+    await expect(imapClient.imapBatch(CREDS, 'delete', [1], 'INBOX')).rejects.toThrow('Missing dependency');
+    imapClient.setDependencies({ ImapFlow: FakeImapFlow, PostalMime: FakePostalMime });
+  });
+
+  it('envelopes without a subject collapse to "(no subject)"', async () => {
+    FakeImapFlow.exists = 1;
+    FakeImapFlow.fetchResult = [{ uid: 11, seq: 1, flags: new Set(), envelope: {} }];
+    const page = await imapClient.imapMessages(CREDS, 'INBOX', 1, 20, (p) => p);
+    expect(page.messages[0].subject).toBe('(no subject)');
+
+    FakeImapFlow.searchResult = [12];
+    FakeImapFlow.fetchResult = [{ uid: 12, envelope: {}, flags: new Set() }];
+    const hits = await imapClient.imapSearch(CREDS, 'needle', 'INBOX');
+    expect(hits[0].subject).toBe('(no subject)');
   });
 });

@@ -80,7 +80,7 @@
       "systemName": "Sistema"
     },
     "launchpad": {
-      "desktopAria": "Desktop",
+      "desktopAria": "Scrivania",
       "taskbarAria": "Barra delle applicazioni",
       "openLaunchpadAria": "Apri il Launchpad",
       "runningAppsAria": "Esecuzione di applicazioni",
@@ -218,7 +218,7 @@
       "enterPin": "Inserisci il tuo PIN",
       "tooManyAttempts": "Troppi tentativi",
       "tryAgainIn": "{{label}}. Riprova dentro {{seconds}}S",
-      "passphrase": "Passphrase",
+      "passphrase": "Frase segreta",
       "passphraseAria": "Passphrase dell'account",
       "usePinInstead": "Utilizza invece il PIN",
       "usePinInsteadAria": "Torna all'immissione del PIN",
@@ -234,7 +234,7 @@
       "currentDateAria": "Data attuale",
       "whoSigningIn": "Chi sta effettuando l'accesso?",
       "signInAsAria": "Accedi come {{name}}",
-      "accountType": "{{role}} account",
+      "accountType": "Account {{role}}",
       "locked": "Bloccato",
       "resumable": "Riprendibile",
       "continueAsGuestAria": "Continua come ospite",
@@ -541,7 +541,7 @@
     "sidebar": {
       "appearance": "Aspetto",
       "accessibility": "Accessibilità",
-      "desktop": "Desktop",
+      "desktop": "Scrivania",
       "system": "Sistema",
       "dateAndRegion": "Data e regione",
       "connectivity": "Connettività",
@@ -708,7 +708,10 @@
       "wipeEverything": "Pulisci tutto",
       "wiping": "Cancellazione dei dati",
       "wipingBody": "Attendere prego...",
-      "resetFailed": "Reimpostazione non riuscita"
+      "resetFailed": "Reimpostazione non riuscita",
+      "accountUsage": "Spazio di archiviazione dell'account",
+      "yourUsage": "Il tuo spazio di archiviazione",
+      "totalUsed": "Spazio di archiviazione totale utilizzato"
     },
     "desktop": {
       "wallpaper": "Carta da parati",
@@ -759,7 +762,7 @@
       "channelsHint": "Le app ordinano le notifiche in canali (Messaggi, Promozioni, ...). Scegli un'importanza per canale: Bloccato lo silenzia completamente.",
       "systemUnavailable": "Sistema di canali di notifica non disponibile.",
       "noChannels": "Nessuna app ha ancora creato canali di notifica. I canali vengono visualizzati qui quando un'app li dichiara nel suo manifest o li crea tramite l'API delle notifiche.",
-      "reset": "Reset",
+      "reset": "Reimposta",
       "levelOff": "Spento",
       "levelLow": "Basso",
       "levelNorm": "Norma",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Le app a cui sono state concesse autorizzazioni di amministratore ora possono utilizzarle.",
       "adminModeDisabledBody": "Le concessioni delle autorizzazioni di amministratore ora sono di nuovo inerti.",
       "adminModeUpdateFailed": "Impossibile aggiornare la modalità amministratore",
-      "tryAgain": "Riprova"
+      "tryAgain": "Riprova",
+      "exportTo": "Scegli dove salvare l'esportazione"
     },
     "root": {
       "intro": "Le app root vengono eseguite direttamente nella pagina del sistema operativo con accesso illimitato e possono eseguire operazioni di amministratore reale (root). Ogni app root richiede prima la tua conferma all'interno di un prompt NovaByte - mai all'interno dell'app - e ogni operazione privilegiata viene eseguita tramite sudo controllato e senza password (NOPASSWD) e viene scritta nel registro di sicurezza. Questa non è una sandbox o una normale autorizzazione per l'app.",
@@ -957,6 +961,11 @@
       "pushRegistered": "spingere registrato",
       "queuedPushOne": "1 push in coda",
       "queuedPushesMany": "{{count}} push in coda"
+    },
+    "adminLock": {
+      "title": "È richiesto un amministratore",
+      "body": "Questa impostazione è disponibile solo per gli account amministratore. Accedi con un account amministratore per modificarla.",
+      "switchUser": "Cambia utente"
     }
   },
   "apps": {
@@ -969,7 +978,7 @@
         "newTab": "Nuova scheda",
         "newTabAria": "Nuova scheda",
         "closeTabAria": "Chiudi scheda",
-        "incognito": "Incognito"
+        "incognito": "Navigazione in incognito"
       },
       "menu": {
         "newIncognitoTab": "Nuova scheda di navigazione in incognito",
@@ -1027,7 +1036,7 @@
         "goodMorning": "🌤Buongiorno",
         "goodAfternoon": "☀️ Buon pomeriggio",
         "goodEvening": "🌙 Buonasera",
-        "incognito": "🕶 Incognito",
+        "incognito": "🕶 Navigazione in incognito",
         "recent": "Recente"
       },
       "find": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "Salva con nome non ha restituito un percorso file.",
         "tooManyRedirects": "Troppi reindirizzamenti",
         "unsupportedRedirect": "Reindirizzamento non supportato",
+        "localAddressBlocked": "Gli indirizzi locali e di rete interna non possono essere scaricati.",
         "interrupted": "La risposta al download è stata interrotta",
         "closedEarly": "Il file di download è stato chiuso prima del completamento",
         "timedOut": "Connessione scaduta",
@@ -1226,7 +1236,7 @@
         "accessibilityDesc": "Regola le impostazioni di visualizzazione e interazione.",
         "labs": "Laboratori",
         "labsDesc": "Funzionalità sperimentali: potrebbero essere instabili.",
-        "reset": "Reset",
+        "reset": "Reimposta",
         "resetDesc": "Ripristina tutte le impostazioni ai valori predefiniti di fabbrica.",
         "homepage": "Home page",
         "homepageDesc": "Pagina visualizzata quando si apre una nuova scheda",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "Impostazioni non ripristinate",
         "settingsResetTitle": "Ripristino delle impostazioni",
         "settingsResetBody": "Tutte le impostazioni del browser sono state ripristinate ai valori predefiniti."
+      },
+      "omnibox": {
+        "searchWith": "Cerca su {{engine}} \"{{query}}\""
       }
     },
     "files": {
@@ -1373,7 +1386,9 @@
         "viewIcons": "Visualizza: Icone",
         "viewList": "Visualizza: Elenco",
         "selectAll": "Seleziona tutto",
-        "delete": "Eliminare"
+        "delete": "Eliminare",
+        "pinToQuickAccess": "Aggiungi ad Accesso rapido",
+        "unpinFromQuickAccess": "Rimuovi da Accesso rapido"
       },
       "dialogs": {
         "chooseDestinationFolder": "Scegli la cartella di destinazione",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "File bloccato",
         "invalidDrop": "File non valido eliminato.",
         "failedToAdd": "Impossibile aggiungere il file.",
-        "couldNotVerify": "Impossibile verificare\"{{file}}\" - caduto in uno stato sicuro e saltato."
+        "couldNotVerify": "Impossibile verificare\"{{file}}\" - caduto in uno stato sicuro e saltato.",
+        "quickAccessFailed": "Aggiornamento di Accesso rapido non riuscito",
+        "quickAccessNotSaved": "Impossibile salvare le posizioni aggiunte.",
+        "quickAccessNotFolder": "È possibile aggiungere solo cartelle esistenti."
       },
       "linux": {
         "openParentFolder": "Apri la cartella principale",
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "Rete",
-        "fs": "FS"
+        "fs": "Sistema di file"
       },
       "network": {
         "desc": "Mostra i percorsi proxy, lo stato di guardia SSRF e la configurazione di rete recente.",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} annullato",
         "failed": ", {{count}} fallito",
         "total": "({{count}} totale)"
+      },
+      "editor": {
+        "open": "Modifica",
+        "openTitle": "Modifica il codice di questo modulo in tempo reale e ricaricalo a caldo",
+        "title": "Modifica di {{id}}",
+        "save": "Salva e ricarica",
+        "back": "← Torna ai moduli",
+        "fetchFailed": "Impossibile caricare {{path}}: HTTP {{status}}",
+        "saved": "Salvato su disco e ricaricato nell'OS in esecuzione",
+        "saveFailed": "Salvataggio non riuscito: {{message}}",
+        "lines": "{{count}} righe",
+        "unsaved": "Modificato — non ancora salvato",
+        "emptyRefused": "Salvataggio di un modulo vuoto rifiutato"
       }
     },
     "install": {
@@ -1775,7 +1806,7 @@
       "devModeRequired": "Abilita la modalità sviluppatore nelle Impostazioni per utilizzare Perf Monitor.",
       "pause": "Pausa",
       "resume": "Riprendere",
-      "reset": "Reset",
+      "reset": "Reimposta",
       "export": "Esportare",
       "clear": "Chiaro",
       "fps": "FPS",
@@ -1785,7 +1816,7 @@
       "memory": "Memoria",
       "domNodesByWindow": "Nodi DOM per finestra",
       "noWindowsOpen": "Nessuna finestra aperta",
-      "notAvailableShort": "n / a",
+      "notAvailableShort": "Non disponibile",
       "longTaskLog": "Registro attività lunghe",
       "longTaskUnsupported": "Il monitoraggio delle attività lunghe non è supportato in questo browser",
       "noLongTasks": "Nessuna attività lunga ancora registrata",
@@ -1801,20 +1832,20 @@
       "noRequestsMatch": "Nessuna richiesta corrisponde al filtro corrente",
       "noRequestsRecorded": "Nessuna richiesta ancora registrata",
       "sourceBrowser": "navigatore · {{label}}",
-      "sourceOs": "os · {{label}}",
+      "sourceOs": "Sistema operativo · {{label}}",
       "showBody": "▸ corpo",
       "hideBody": "▾ corpo",
       "bodyNotCaptured": "corpo non catturato{{type}}",
-      "statusError": "ERR",
+      "statusError": "Errore",
       "unknownApp": "app sconosciuta",
       "networkError": "errore di rete",
       "bodyTruncated": "{{text}}…(troncato)",
-      "durationMs": "{{value}}SM",
-      "fpsValue": "{{value}} fps",
+      "durationMs": "{{value}} ms",
+      "fpsValue": "{{value}} FPS",
       "memoryValue": "{{value}} MB",
       "longTasksValue": "{{count}} (>50ms)",
       "none": "Nessuno",
-      "notAvailable": "N / A"
+      "notAvailable": "Non disponibile"
     },
     "terminal": {
       "appDataMissing": "Directory dei dati dell'app mancante.",
@@ -1858,7 +1889,11 @@
       "errorLine": "Errore: {{message}}",
       "terminalError": "[errore terminale] {{message}}",
       "shellExited": "[La shell è uscita con lo stato {{status}}. Premi Invio per iniziarne uno nuovo.]",
-      "unknownStatus": "sconosciuto"
+      "unknownStatus": "sconosciuto",
+      "shortcutsClearLine": "=cancella la riga  ",
+      "shortcutsLineStart": "=inizio riga  ",
+      "shortcutsLineEnd": "=fine riga  ",
+      "shortcutsPaste": "=incolla"
     },
     "myApps": {
       "appInstalledTitle": "Applicazione installata",
@@ -1948,17 +1983,17 @@
       "alarms": "Allarmi",
       "add": "Aggiungere",
       "noAlarms": "Nessun allarme impostato. Tocca + Aggiungi per crearne uno.",
-      "am": "SONO",
+      "am": "AM",
       "pm": "PM",
       "repeatOnce": "Una volta",
       "repeatEveryDay": "Ogni giorno",
       "repeatWeekdays": "Giorni feriali",
-      "dayInitialSun": "S",
-      "dayInitialMon": "M",
-      "dayInitialTue": "T",
-      "dayInitialWed": "W",
-      "dayInitialThu": "T",
-      "dayInitialFri": "F",
+      "dayInitialSun": "D",
+      "dayInitialMon": "L",
+      "dayInitialTue": "M",
+      "dayInitialWed": "M",
+      "dayInitialThu": "G",
+      "dayInitialFri": "V",
       "dayInitialSat": "S",
       "daySun": "Sole",
       "dayMon": "Lun",
@@ -1973,7 +2008,7 @@
       "repeat": "Ripetere",
       "delete": "Eliminare",
       "start": "Inizio",
-      "reset": "Reset",
+      "reset": "Reimposta",
       "pause": "Pausa",
       "restart": "Ricomincia",
       "stop": "Fermare",
@@ -1993,7 +2028,7 @@
       "colorPurple": "Viola",
       "colorSalmon": "Salmone",
       "colorSky": "Cielo",
-      "colorLime": "Lime",
+      "colorLime": "Verde lime",
       "daySun": "Sole",
       "dayMon": "Lun",
       "dayTue": "Mar",
@@ -2001,12 +2036,12 @@
       "dayThu": "Gio",
       "dayFri": "Ven",
       "daySat": "Sab",
-      "miniDaySun": "S",
-      "miniDayMon": "M",
-      "miniDayTue": "T",
-      "miniDayWed": "W",
-      "miniDayThu": "T",
-      "miniDayFri": "F",
+      "miniDaySun": "D",
+      "miniDayMon": "L",
+      "miniDayTue": "M",
+      "miniDayWed": "M",
+      "miniDayThu": "G",
+      "miniDayFri": "V",
       "miniDaySat": "S",
       "upcoming": "Prossimamente",
       "newEvent": "Nuovo evento",
@@ -2068,7 +2103,11 @@
       "inputPlaceholder": "Inserisci JS per valutare o \"reg query HKNS\\shell\" per la CLI del registro\nInvio per eseguire · Maiusc+Invio per il ritorno a capo · ↑/↓ per la cronologia",
       "run": "Correre",
       "readyMessage": "Consolle pronta. Digita un'espressione sopra e premi Invio o Esegui.\nMaiusc+Invio per una nuova riga, ↑/↓ per richiamare i comandi precedenti.",
-      "noOutputMatches": "(nessun output corrisponde\"{{query}}\")"
+      "noOutputMatches": "(nessun output corrisponde\"{{query}}\")",
+      "exportDialogTitle": "Esporta output della Console",
+      "exportedTitle": "Output della Console esportato",
+      "exportedBody": "Salvato in {{path}}",
+      "exportFailedTitle": "Esportazione della Console non riuscita"
     },
     "contacts": {
       "appDataMissing": "Directory dei dati dell'app mancante.",
@@ -2112,7 +2151,7 @@
       "score": "Punto: {{score}}",
       "controlsHint": "Tasti freccia/WASD",
       "canvasAria": "Tela del gioco del serpente",
-      "gameOver": "Game Over",
+      "gameOver": "Partita terminata",
       "playAgain": "↺ Riproduci di nuovo"
     },
     "downloads": {
@@ -2129,7 +2168,9 @@
       "alarm": "Allarme",
       "alarmFor": "Allarme per {{time}}",
       "email": "E-mail",
-      "emailNewMail": "{{count}} nuovo arrivato {{account}}"
+      "emailNewMail": "{{count}} nuovo arrivato {{account}}",
+      "timerDone": "Timer completato",
+      "timerDoneBody": "Il tuo timer è terminato."
     },
     "store": {
       "releaseTrack": "Traccia di rilascio",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "Posizione della sovrapposizione di debug",
         "devNovaReg": "Stato dell'editor NovaReg",
         "devNovaRegDesc": "I preferiti di questo editor e la cronologia dei salti."
-      }
+      },
+      "importDialogTitle": "Importa dati del Registro"
     },
     "appmanager": {
       "fallbackPackageName": "Questo pacchetto",
@@ -2740,7 +2782,7 @@
       "addWebAppSub": "Aggiungi qualsiasi sito web come app.",
       "urlLabel": "URL *",
       "nameLabel": "Nome *",
-      "namePlaceholder": "La mia applicazione",
+      "namePlaceholder": "La mia app",
       "iconOptionalLabel": "Icona (facoltativa)",
       "chooseImageBtn": "Scegli l'immagine",
       "iconNotImageError": "Scegli un file immagine.",
@@ -2770,7 +2812,7 @@
       "copyFailedBtn": "Copia non riuscita",
       "appIdLabel": "ID app (dominio inverso, ad esempio com.test.app)",
       "appNameLabel": "Nome dell'app",
-      "appNamePlaceholder": "Prova l'app",
+      "appNamePlaceholder": "App di prova",
       "versionLabel": "Versione (x.y.z)",
       "entryFileLabel": "Percorso del file di ingresso",
       "signingMethodLabel": "Metodo di firma:",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "La scrittura dei file non è disponibile in questo runtime.",
         "csvExported": "CSV esportato in {{path}}",
         "csvExportFailed": "Esportazione CSV non riuscita: {{message}}"
-      }
+      },
+      "degradedRefresh": "Impossibile aggiornare gli account — viene mostrato l'ultimo elenco noto.",
+      "sessionExpired": "La tua sessione è scaduta — accedi di nuovo.",
+      "retry": "Riprova",
+      "confirmPin": "Conferma PIN",
+      "pinMismatch": "I PIN non corrispondono.",
+      "resetPinSelfWarning": "Reimpostare il PIN di {{name}}?",
+      "resetPinSelfWarningBody": "Reimpostare il proprio PIN disconnette questo account ovunque — ogni sessione viene revocata. Effettuerai di nuovo l'accesso con il PIN temporaneo mostrato in seguito e poi ne sceglierai uno nuovo.",
+      "resetPinSelfWarningConfirm": "Reimposta e disconnetti",
+      "resetPinSelfWarningDone": "Il tuo PIN è stato reimpostato. Accedi di nuovo con questo PIN temporaneo — ti verrà chiesto di sceglierne uno nuovo."
     },
     "events": {
       "gate": {
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} nuovo arrivato {{account}}",
         "newMailTitle": "{{email}} — {{count}} nuovo"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Accesso rapido",
+      "home": "Pagina iniziale",
+      "breadcrumbsAria": "Posizione",
+      "editPath": "Modifica percorso",
+      "newFolder": "Nuova cartella",
+      "newFile": "Nuovo file",
+      "createFailed": "Creazione non riuscita",
+      "createFolderFailed": "Impossibile creare la cartella: {{message}}",
+      "createFileFailed": "Impossibile creare il file: {{message}}",
+      "fileType": "Tipo di file",
+      "allTypes": "Tutti i file (*.*)",
+      "pinned": "Aggiunti",
+      "mounts": "Unità montate",
+      "saveFailed": "Impossibile salvare il file",
+      "unavailable": "Finestra di dialogo file di sistema non disponibile",
+      "search": "Cerca in questa cartella",
+      "searchAria": "Cerca in questa cartella",
+      "noMatches": "(Nessun risultato)"
     }
   }
 }

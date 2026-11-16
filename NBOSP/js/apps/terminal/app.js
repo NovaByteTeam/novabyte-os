@@ -5,7 +5,6 @@
 // Registers itself with the host OS via the global registerApp() entry point.
 // All DOM output is rendered through createEl / writeLine / writeHTML so the
 // visual output matches the original implementation byte-for-byte.
-// The rewrite is great thing btw we had lots of issues with complex whatever its called commands, its just a way more efficent way to build upon it without worrying about effiency or issues i think, so good luck i guess, spent 7 bloody fucking hours of my life btw so dont misuse this app [DELETE THIS LINE IN PRODUCTION]
 
 // App bundle id used for the AppDirs runtime guard.
 const APP_BUNDLE_ID = 'com.nbosp.terminal';
@@ -477,7 +476,9 @@ const COMMANDS = {
     const sections = [
       [_t('apps.terminal.helpSectionFilesystem'), 'ls  ll  la  l  cd  pwd  mkdir  rmdir  rm  touch  cp  mv  cat  head  tail  stat  chmod  find  tree  diff'],
       [_t('apps.terminal.helpSectionText'), 'echo  printf  grep  sort  uniq  cut  wc  base64'],
-      [_t('apps.terminal.helpSectionSystem'), 'clear  history  env  export  unset  alias  unalias  which  hostname  whoami  uname  uptime  date  ps  kill  sleep'],
+      // `help` itself was the only command missing from the curated sections
+      // (bug: `help` output listed 49 of 50 commands). Filed under System.
+      [_t('apps.terminal.helpSectionSystem'), 'clear  help  history  env  export  unset  alias  unalias  which  hostname  whoami  uname  uptime  date  ps  kill  sleep'],
       [_t('apps.terminal.helpSectionMath'), 'expr  seq'],
       [_t('apps.terminal.helpSectionFun'), 'neofetch  fastfetch  yes  true  false  exit']
     ];
@@ -487,7 +488,10 @@ const COMMANDS = {
     }
     writeHTML(tab, `  <span class="shell-yellow">${escapeHtml(_t('apps.terminal.helpAllCommands'))}</span> <span class="shell-dim">${[...BUILTINS].join('  ')}</span>`);
     writeHTML(tab, `  <span class="shell-yellow">${escapeHtml(_t('apps.terminal.helpAliases'))}</span> <span class="shell-dim">${Object.keys(DEFAULT_ALIASES).join('  ')}</span>`);
-    writeHTML(tab, `\n  <span class="shell-dim">${escapeHtml(_t('apps.terminal.shortcutsIntro'))}<span class="shell-green">Tab</span>${escapeHtml(_t('apps.terminal.shortcutsAutocomplete'))}<span class="shell-green">↑↓</span>${escapeHtml(_t('apps.terminal.shortcutsHistory'))}<span class="shell-green">Ctrl+L</span>${escapeHtml(_t('apps.terminal.shortcutsClear'))}<span class="shell-green">Ctrl+C</span>${escapeHtml(_t('apps.terminal.shortcutsCancel'))}</span>`);
+    // Bugfix: the shortcuts line omitted the readline bindings the input
+    // handler actually implements (Ctrl+U/A/E/V — see the keydown handler),
+    // so users had no way to discover line-clear / cursor / paste keys.
+    writeHTML(tab, `\n  <span class="shell-dim">${escapeHtml(_t('apps.terminal.shortcutsIntro'))}<span class="shell-green">Tab</span>${escapeHtml(_t('apps.terminal.shortcutsAutocomplete'))}<span class="shell-green">↑↓</span>${escapeHtml(_t('apps.terminal.shortcutsHistory'))}<span class="shell-green">Ctrl+L</span>${escapeHtml(_t('apps.terminal.shortcutsClear'))}<span class="shell-green">Ctrl+C</span>${escapeHtml(_t('apps.terminal.shortcutsCancel'))}  <span class="shell-green">Ctrl+U</span>${escapeHtml(_t('apps.terminal.shortcutsClearLine'))}<span class="shell-green">Ctrl+A</span>${escapeHtml(_t('apps.terminal.shortcutsLineStart'))}<span class="shell-green">Ctrl+E</span>${escapeHtml(_t('apps.terminal.shortcutsLineEnd'))}<span class="shell-green">Ctrl+V</span>${escapeHtml(_t('apps.terminal.shortcutsPaste'))}</span>`);
     return '';
   },
 
@@ -1394,14 +1398,14 @@ function initLinuxTerminal(content, state) {
     ? FS.rootId
     : os.homedir();
   const controller = new AbortController();
-  const root = createEl('div', { style: 'height:100%;display:flex;flex-direction:column;background:#0b0e14;color:#e6edf3;font:13px monospace;' });
+  const root = createEl('div', { style: 'height:100%;display:flex;flex-direction:column;background:var(--bg-base);color:var(--text-primary);font:13px monospace;' });
   const output = createEl('pre', {
     role: 'log',
     'aria-label': _t('apps.terminal.outputAria'),
     style: 'flex:1;overflow:auto;margin:0;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;'
   });
-  const inputRow = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid #30363d;' });
-  const prompt = createEl('span', { textContent: `${os.userInfo().username}@novabyte:$`, style: 'color:#79c0ff;white-space:nowrap;' });
+  const inputRow = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border-subtle);' });
+  const prompt = createEl('span', { textContent: `${os.userInfo().username}@novabyte:$`, style: 'color:var(--accent);white-space:nowrap;' });
   const input = createEl('input', {
     className: 'shell-input',
     'aria-label': _t('apps.terminal.shellCommandAria'),

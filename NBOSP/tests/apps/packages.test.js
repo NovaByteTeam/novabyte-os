@@ -201,7 +201,7 @@ describe("'Packages' app (js/apps/packages)", () => {
 
     const box = signPanel.querySelector('pre');
     expect(box.style.display).toBe('block');
-    expect(box.style.borderColor).toBe('rgb(63, 185, 80)'); // ok=true → green
+    expect(box.style.borderColor).toBe('var(--text-success)');
     const payload = JSON.parse(box.textContent);
     expect(payload.verified).toBe(true);
     expect(payload.verifyDetail).toBe('verified');
@@ -233,7 +233,7 @@ describe("'Packages' app (js/apps/packages)", () => {
 
     let box = signPanel.querySelector('pre');
     expect(JSON.parse(box.textContent).error).toBe('Manifest invalid');
-    expect(box.style.borderColor).toBe('rgb(248, 81, 73)');
+    expect(box.style.borderColor).toBe('var(--text-danger)');
 
     // Entry not among the packaged files (name restored so validation passes).
     nameInput.value = 'Test App';

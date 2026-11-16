@@ -21,7 +21,7 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
 
     // AbortController covers the filter input and every per-row
     // focus/close button rebound on each render(). state.cleanups.push is
@@ -70,7 +70,7 @@ registerApp({
         titleWrap.appendChild(createEl('strong', { textContent: app.name || app.id }));
         header.appendChild(titleWrap);
         const badges = [];
-        if (app.verified) badges.push(createEl('span', { textContent: _t('apps.inspector.verifiedBadge'), style: 'font-size:11px;color:#3fb950;' }));
+        if (app.verified) badges.push(createEl('span', { textContent: _t('apps.inspector.verifiedBadge'), style: 'font-size:11px;color:var(--text-success);' }));
         if (app.permissions?.length) badges.push(createEl('span', { textContent: _t('apps.inspector.permsCount', { count: app.permissions.length }), style: 'font-size:11px;color:var(--text-muted);' }));
         badges.forEach(b => header.appendChild(b));
         header.addEventListener('click', () => {
@@ -89,7 +89,7 @@ registerApp({
         if (appWinIds.length) {
           const closeAllBtn = createEl('button', {
             textContent: _t('apps.inspector.closeAll', { count: appWinIds.length }),
-            style: 'padding:2px 8px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:10px;margin-top:6px;'
+            style: 'padding:2px 8px;background:transparent;color:var(--text-danger);border:1px solid var(--text-danger);border-radius:4px;cursor:pointer;font-size:10px;margin-top:6px;'
           });
           closeAllBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -113,7 +113,7 @@ registerApp({
         // minSize are all real declared fields) but weren't surfaced here
         // before, only id/name/permissions/verified/launchCount were.
         if (expandedApps.has(app.id)) {
-          const detail = createEl('div', { style: 'margin-top:8px;padding:8px;background:var(--bg-default);border-radius:4px;font-size:11px;font-family:monospace;display:flex;flex-direction:column;gap:4px;' });
+          const detail = createEl('div', { style: 'margin-top:8px;padding:8px;background:var(--bg-base);border-radius:4px;font-size:11px;font-family:monospace;display:flex;flex-direction:column;gap:4px;' });
           const rows = [
             ['description', app.description || _t('apps.inspector.noneValue')],
             ['category', app.category || _t('apps.inspector.noneValue')],
@@ -183,13 +183,13 @@ registerApp({
         // impossible for the id to go stale regardless of how often/when
         // render() re-runs relative to when the click actually fires.
         const btns = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
-        const focusBtn = createEl('button', { textContent: _t('apps.inspector.focus'), style: 'padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
+        const focusBtn = createEl('button', { textContent: _t('apps.inspector.focus'), style: 'padding:3px 10px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
         focusBtn.dataset.windowId = win.id;
         focusBtn.addEventListener('click', (e) => {
           e.stopPropagation(); // don't also toggle the detail panel
           window.WM?.focusWindow?.(e.currentTarget.dataset.windowId);
         }, { signal: ac.signal });
-        const closeBtn = createEl('button', { textContent: _t('common.close'), style: 'padding:3px 10px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;' });
+        const closeBtn = createEl('button', { textContent: _t('common.close'), style: 'padding:3px 10px;background:transparent;color:var(--text-danger);border:1px solid var(--text-danger);border-radius:4px;cursor:pointer;font-size:11px;' });
         closeBtn.dataset.windowId = win.id;
         closeBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -214,7 +214,7 @@ registerApp({
         // generically rather than guessed at by name. `content` (a DOM
         // node) is excluded since it isn't meaningfully displayable as text.
         if (expandedWins.has(win.id)) {
-          const detail = createEl('div', { style: 'margin-top:8px;padding:8px;background:var(--bg-default);border-radius:4px;font-size:11px;font-family:monospace;display:flex;flex-direction:column;gap:4px;' });
+          const detail = createEl('div', { style: 'margin-top:8px;padding:8px;background:var(--bg-base);border-radius:4px;font-size:11px;font-family:monospace;display:flex;flex-direction:column;gap:4px;' });
           const known = new Set(['appId', 'id', 'x', 'y', 'width', 'height', 'minimized', 'maximized', 'content', 'cleanups']);
           const otherKeys = Object.keys(win).filter(k => !known.has(k));
           if (otherKeys.length) {
@@ -258,7 +258,7 @@ registerApp({
     // local to render() and would otherwise require hoisting state out or
     // risking a stale closure if render() ran again (e.g. via a live
     // event) between the last paint and the click actually firing.
-    exportBtn.addEventListener('click', () => {
+    exportBtn.addEventListener('click', async () => {
       const apps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
       const wins = typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [];
       const q = filterInput.value.trim().toLowerCase();
@@ -278,16 +278,16 @@ registerApp({
           minimized: !!w.minimized, maximized: !!w.maximized, focused: OS.focusedWindowId === w.id,
         })),
       };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = createEl('a', { href: url, download: 'nbosp-inspector-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // Same delayed-revoke pattern as the export buttons in the other
-      // apps in this codebase — some browsers cancel the download if the
-      // blob URL is revoked before the click's download actually starts.
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      try {
+        await SystemDialogs.saveContent({
+          title: _t('apps.inspector.export'),
+          suggestedName: 'nbosp-inspector-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json',
+          accept: '.json',
+        }, JSON.stringify(payload, null, 2));
+      } catch (error) {
+        console.error('[Inspector] Export failed:', error);
+        Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error', appName: 'Inspector' });
+      }
     }, { signal: ac.signal });
 
     // Live updates: OS.events fires 'app:opened' / 'app:closed' / 'app:focused'

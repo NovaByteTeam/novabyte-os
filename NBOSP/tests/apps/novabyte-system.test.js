@@ -45,6 +45,7 @@ function createSystem(hardwareContext = {}) {
     process: hardwareContext.process,
     screen: hardwareContext.screen,
     NovaConnectivity: hardwareContext.connectivity,
+    NovaUserScope: hardwareContext.userScope,
     childProcess: hardwareContext.childProcess,
     require: vi.fn(moduleName => {
       if (moduleName === 'fs') return hardwareContext.fs;
@@ -94,6 +95,39 @@ describe('NovaByte System settings coordinator', () => {
     api.security.setLockPin('new-credential-hash');
     expect(cache.lockPin).toBe('new-credential-hash');
     expect(context.OS.lockPin).toBe('new-credential-hash');
+  });
+
+  it('refuses Developer Mode and Root Access for standard accounts on multi-user machines', () => {
+    // 2026-11-16: host-side admin gate — the debugging tier must not be
+    // armable by a standard account through any caller.
+    const { api, context, cache } = createSystem({
+      userScope: { enabled: () => true, uid: () => 'u-sam', isActiveAdmin: () => false },
+    });
+
+    expect(() => api.developer.setMode(true)).toThrow(/administrator accounts/);
+    expect(cache.devMode).toBe(false);
+    expect(context.DebugOverlay.enable).not.toHaveBeenCalled();
+    expect(() => api.developer.setRootAccess(true)).toThrow(/administrator accounts/);
+    expect(cache.rootAccessEnabled).toBe(false);
+
+    // disabling is allowed for anyone (a standard account that somehow has
+    // devMode on can still turn it off)
+    expect(api.developer.setMode(false)).toBe(true);
+  });
+
+  it('allows Developer Mode for admin accounts and on single-user machines', () => {
+    const admin = createSystem({
+      userScope: { enabled: () => true, uid: () => 'u-ada', isActiveAdmin: () => true },
+    });
+    expect(admin.api.developer.setMode(true)).toBe(true);
+    expect(admin.cache.devMode).toBe(true);
+
+    // NovaUserScope.isActiveAdmin() returns true on legacy single-user boxes.
+    const legacy = createSystem({
+      userScope: { enabled: () => false, isActiveAdmin: () => true },
+    });
+    expect(legacy.api.developer.setMode(true)).toBe(true);
+    expect(legacy.cache.devMode).toBe(true);
   });
 
   it('filters protected and invalid values during import and export', async () => {

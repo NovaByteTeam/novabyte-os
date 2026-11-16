@@ -16,11 +16,21 @@ HOME_DIR=/home/nbosp
 PROFILE=$HOME_DIR/.config/novabyte
 KIOSK_INIT=/etc/init.d/S99nbosp
 MNT=/mnt/nbosp-recovery
-TMP=/tmp/nbosp-recovery.$$
+# SECURITY (2026-11-15 audit, finding LOW-5): PID-suffixed temp dir in
+# world-writable /tmp was guessable — mkdir -p succeeds on a pre-created
+# attacker-owned directory and the root script then writes listings into
+# it and rm -rf's it on exit. mktemp -d gives an unpredictable, exclusive
+# directory (Buildroot busybox mktemp is available in the recovery env).
+TMP=$(mktemp -d /tmp/nbosp-recovery.XXXXXX) || { echo "recovery: mktemp failed" >&2; exit 1; }
+# Stash for machine-secret files while a backup runs (see do_backup) —
+# kept in /run (tmpfs, survives a crash, cleared on reboot) so a SIGKILL
+# mid-backup can at worst lose auto-regenerable material, never user data.
+STASH=/run/nbosp-recovery-stash.$$
 
-mkdir -p "$TMP" "$MNT"
+mkdir -p "$MNT"
 
 cleanup() {
+  unstash_runtime_secrets
   umount "$MNT" 2>/dev/null
   rm -rf "$TMP"
 }
@@ -54,6 +64,40 @@ pause() { ask "Press Enter to continue..." >/dev/null; }
 confirm_word() {
   ask "$2 Type $1 to confirm: " || return 1
   [ "$REPLY" = "$1" ]
+}
+
+# ── machine-secret stash (backup exclusion) ──────────────────────
+# SECURITY (2026-11-15 audit, finding M15): $PROFILE/runtime holds the
+# machine's bootstrap secrets (.env: SESSION_SECRET + NBOSP_CRED_KEY) and
+# its CA/TLS private keys. do_backup used to tar the WHOLE home directory
+# — unencrypted, onto any removable drive, with no typed confirmation
+# (restore and factory reset both had one). The secrets below are stashed
+# out of the tree while the archive is written and restored right after
+# (and by the cleanup trap if anything dies mid-backup). They are all
+# auto-regenerable at next boot (scripts/env.js and scripts/certs.js), so
+# even a worst-case crash mid-stash costs nothing the machine cannot
+# rebuild. Account data (runtime/data/users.db) stays IN the backup.
+stash_runtime_secrets() {
+  [ -d "$PROFILE/runtime" ] || return 0
+  mkdir -p "$STASH" 2>/dev/null || return 1
+  for f in "$PROFILE/runtime/.env" \
+           "$PROFILE/runtime/ca.key" \
+           "$PROFILE/runtime/ca.crt" \
+           "$PROFILE/runtime/ca.trusted" \
+           "$PROFILE/runtime/cert.key" \
+           "$PROFILE/runtime/cert.crt"; do
+    [ -e "$f" ] && mv "$f" "$STASH/"
+  done
+  return 0
+}
+
+unstash_runtime_secrets() {
+  [ -d "$STASH" ] || return 0
+  [ -d "$PROFILE/runtime" ] || mkdir -p "$PROFILE/runtime"
+  for f in "$STASH"/* "$STASH"/.env; do
+    [ -e "$f" ] && mv "$f" "$PROFILE/runtime/"
+  done
+  rmdir "$STASH" 2>/dev/null
 }
 
 # ── kiosk launch ───────────────────────────────────────────────────────
@@ -157,10 +201,17 @@ release_device() {
 do_backup() {
   cls
   say "Back up user data (/home/nbosp: files, settings, app data) to a drive."
+  warn "Machine secrets (TLS/CA keys, session encryption keys) are NOT included."
   say
   pick_device || { pause; return; }
+  # SECURITY (2026-11-15 audit, finding M15): writing an archive to removable
+  # media now needs the same typed confirmation restore and factory reset
+  # already require — a single menu keypress used to be enough to export the
+  # entire home directory to any attached drive.
+  confirm_word BACKUP "Write the backup to $DEV?" || { say "Cancelled."; release_device; pause; return; }
   out="$DEST/nbosp-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
   say "Writing $out ..."
+  stash_runtime_secrets || { err "Could not prepare backup (secret stash failed)."; release_device; pause; return; }
   if tar -czf "$out" -C / home/nbosp 2>"$TMP/tarerr"; then
     sync
     ok "Backup complete: $(basename "$out") ($(du -h "$out" | awk '{print $1}'))"
@@ -168,6 +219,7 @@ do_backup() {
     err "Backup failed: $(tail -n 3 "$TMP/tarerr")"
     rm -f "$out"
   fi
+  unstash_runtime_secrets
   release_device
   pause
 }

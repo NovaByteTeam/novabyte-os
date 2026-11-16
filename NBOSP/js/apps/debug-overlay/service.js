@@ -497,6 +497,19 @@ const DebugOverlay = (() => {
   function disable() {
     _enabled = false;
     if (typeof OS !== 'undefined' && OS.settings) OS.settings.set('debugOverlayVisible', false);
+    _teardown();
+  }
+
+  // Visual-only suppression — no preference write. Used at the lock/login
+  // gate so the dev HUD never shows on the login screen (2026-11-15) while
+  // the user's debugOverlayVisible preference survives the lock and the
+  // overlay re-arms per account on the next session mount.
+  function hide() {
+    _enabled = false;
+    _teardown();
+  }
+
+  function _teardown() {
     if (_rafId) {
       cancelAnimationFrame(_rafId);
       _rafId = null;
@@ -526,7 +539,7 @@ const DebugOverlay = (() => {
     return _enabled;
   }
 
-  return { enable, disable, toggle, isEnabled, _copyDebugInfo };
+  return { enable, disable, hide, toggle, isEnabled, _copyDebugInfo };
 })();
 
 window.DebugOverlay = DebugOverlay;

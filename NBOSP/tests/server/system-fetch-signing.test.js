@@ -2,7 +2,10 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
-import { isTrustedSystemAppRequest } from '../../server/rate-limit-auth.js';
+import { createRequire } from 'node:module';
+// Same CJS instance the server's auth-routes chain uses (uniform loading
+// style across workers keeps the v8 coverage merge honest).
+const { isTrustedSystemAppRequest } = createRequire(import.meta.url)('../../server/rate-limit-auth.js');
 
 const MODULE_CODE = fs.readFileSync(
   path.resolve(__dirname, '../../js/platform/security/system-fetch.js'),

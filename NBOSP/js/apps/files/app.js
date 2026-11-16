@@ -169,14 +169,24 @@
       } catch { return null; }
     }
 
-    persistViewState() {
+    static writeViewBag(bag) {
       try {
         const r = window.NovaRegistry;
         if (!r || typeof r.set !== 'function') return false;
-        r.set(FilesApp.FILES_BAG_PATH, { viewMode: this.viewMode, sortBy: this.sortBy, sortAsc: this.sortAsc },
-          { type: 'REG_JSON', source: 'shell-bags' });
-        return true;
+        return r.set(FilesApp.FILES_BAG_PATH, bag, { type: 'REG_JSON', source: 'shell-bags' }) !== false;
       } catch { return false; }
+    }
+
+    persistViewState() {
+      const bag = FilesApp.readViewBag() || {};
+      const next = { ...bag, viewMode: this.viewMode, sortBy: this.sortBy, sortAsc: this.sortAsc };
+      if (this.quickAccessEdited || Array.isArray(bag.pinnedFolderIds)) {
+        next.pinnedFolderIds = [...this.pinnedFolderIds];
+      }
+      if (this.hostQuickAccessEdited || Array.isArray(bag.pinnedHostPaths)) {
+        next.pinnedHostPaths = [...this.pinnedHostPaths];
+      }
+      return FilesApp.writeViewBag(next);
     }
 
     constructor(content, state, options = {}) {
@@ -208,6 +218,14 @@
       this.sortBy = 'name';
       this.sortAsc = true;
       const filesBag = FilesApp.readViewBag();
+      this.pinnedFolderIds = Array.isArray(filesBag?.pinnedFolderIds)
+        ? [...new Set(filesBag.pinnedFolderIds.filter(id => typeof id === 'string'))]
+        : [];
+      this.pinnedHostPaths = Array.isArray(filesBag?.pinnedHostPaths)
+        ? [...new Set(filesBag.pinnedHostPaths.filter(target => typeof target === 'string'))]
+        : [];
+      this.quickAccessEdited = false;
+      this.hostQuickAccessEdited = false;
       if (filesBag) {
         if (filesBag.viewMode === 'icon' || filesBag.viewMode === 'list') this.viewMode = filesBag.viewMode;
         if (['name', 'size', 'mime', 'modified'].includes(filesBag.sortBy)) this.sortBy = filesBag.sortBy;
@@ -392,11 +410,127 @@
       this.listView.append(listHeader, this.listBody);
 
       filesWrap.append(this.filesGrid, this.listView);
-      root.appendChild(filesWrap);
+
+      // Windows-Explorer body row: quick-access sidebar (same design as the
+      // system file dialog) + the file area. The sidebar is host-global
+      // chrome — the dialog's class set is reused verbatim so both surfaces
+      // stay visually identical.
+      this.sidebar = createEl('nav', {
+        className: 'system-file-dialog-sidebar',
+        'aria-label': _t('apps.sysdialog.quickAccess'),
+        style: 'flex:0 0 auto;min-height:0;',
+      });
+      const bodyRow = createEl('div', { style: 'flex:1;min-height:0;display:flex;align-items:stretch;overflow:hidden;' });
+      bodyRow.append(this.sidebar, filesWrap);
+      root.appendChild(bodyRow);
 
       // Status bar — implicit aria-live polite via role="status".
       this.statusBar = createEl('div', { className: 'vault-statusbar', role: 'status' });
       root.appendChild(this.statusBar);
+
+      this.buildQuickAccess();
+    }
+
+    // Quick-access sidebar (Windows Explorer / sysdialog design): Home plus
+    // the account's special folders in Windows order, with the active
+    // location highlighted. Labels are the folders' real VFS names so the
+    // sidebar never disagrees with what the grid shows.
+    buildQuickAccess() {
+      this.sidebar.replaceChildren();
+      this.sideTargets = [];
+      const header = createEl('div', { className: 'system-file-dialog-side-header', textContent: _t('apps.sysdialog.quickAccess') });
+      this.sidebar.appendChild(header);
+      const push = (label, folderId, icon, pinned = false) => {
+        if (!folderId) return;
+        const btn = createEl('button', {
+          type: 'button',
+          className: 'system-file-dialog-side-item',
+          'aria-label': label,
+          'aria-current': 'false',
+        });
+        const iconWrap = createEl('span', { className: 'system-file-dialog-side-icon' });
+        iconWrap.innerHTML = svgIcon(icon, 16);
+        const nameEl = createEl('span', { className: 'system-file-dialog-side-name', textContent: label });
+        btn.append(iconWrap, nameEl);
+        btn.addEventListener('click', () => {
+          if (this.nav.cwd !== folderId) this.navigateTo(folderId);
+        }, { signal: this.signal });
+        if (pinned) {
+          btn.addEventListener('contextmenu', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            ContextMenu.show(event.clientX, event.clientY, [{
+              label: _t('apps.files.contextMenu.unpinFromQuickAccess'),
+              action: () => this.setPinnedFolder(folderId, false),
+            }]);
+          }, { signal: this.signal });
+        }
+        this.sidebar.appendChild(btn);
+        this.sideTargets.push({ el: btn, id: folderId });
+      };
+      const SPECIAL_ICONS = {
+        desktop: 'monitor', documents: 'file-text', downloads: 'download',
+        pictures: 'image', music: 'music', videos: 'play',
+      };
+      push(_t('apps.sysdialog.home'), FS.rootId, 'folder-open');
+      const namesById = new Map((FS.listDir(FS.rootId) || []).map(n => [n.id, n.name]));
+      for (const key of ['desktop', 'documents', 'downloads', 'pictures', 'music', 'videos']) {
+        const folderId = FS.specialFolders?.[key];
+        if (!folderId) continue;
+        push(namesById.get(folderId) || key, folderId, SPECIAL_ICONS[key] || 'folder');
+      }
+      const pinnedFolderIds = this.pinnedFolderIds.filter(id => {
+        const node = FS.files.get(id);
+        return node?.type === 'folder' && !this.sideTargets.some(target => target.id === id);
+      });
+      if (pinnedFolderIds.length) {
+        this.sidebar.appendChild(createEl('div', {
+          className: 'system-file-dialog-side-header',
+          textContent: _t('apps.sysdialog.pinned'),
+        }));
+        for (const id of pinnedFolderIds) {
+          const node = FS.files.get(id);
+          push(node.name, id, 'folder', true);
+        }
+      }
+      this.updateSidebarActive();
+    }
+
+    setPinnedFolder(folderId, pinned) {
+      if (pinned && FS.files.get(folderId)?.type !== 'folder') {
+        Notify.show({
+          title: _t('apps.files.notifications.quickAccessFailed'),
+          body: _t('apps.files.notifications.quickAccessNotFolder'),
+          type: 'error',
+          appName: 'Files',
+        });
+        return;
+      }
+      const next = pinned
+        ? [...new Set([...this.pinnedFolderIds, folderId])]
+        : this.pinnedFolderIds.filter(id => id !== folderId);
+      const previous = this.pinnedFolderIds;
+      this.pinnedFolderIds = next;
+      this.quickAccessEdited = true;
+      if (!this.persistViewState()) {
+        this.pinnedFolderIds = previous;
+        Notify.show({
+          title: _t('apps.files.notifications.quickAccessFailed'),
+          body: _t('apps.files.notifications.quickAccessNotSaved'),
+          type: 'error',
+          appName: 'Files',
+        });
+        return;
+      }
+      this.buildQuickAccess();
+    }
+
+    updateSidebarActive() {
+      for (const { el, id } of this.sideTargets || []) {
+        const on = id === this.nav.cwd;
+        el.classList.toggle('active', on);
+        el.setAttribute('aria-current', on ? 'true' : 'false');
+      }
     }
 
     // Targeted re-label pass for the toolbar/list-header chrome that
@@ -414,6 +548,9 @@
       this.emptyTrashBtn.title = _t('apps.files.toolbar.emptyTrash');
       this.emptyTrashBtn.setAttribute('aria-label', _t('apps.files.toolbar.emptyTrash'));
       this.filesGrid.setAttribute('aria-label', _t('shell.files.filesAria'));
+      // The sidebar carries localized chrome (Quick access header, Home) —
+      // a full rebuild re-reads them through the live catalogue.
+      try { if (this.sidebar) this.buildQuickAccess(); } catch (_) { /* cosmetic */ }
       const listHeader = this.listView.firstElementChild;
       if (listHeader) {
         [...listHeader.children].forEach((th, i) => {
@@ -465,6 +602,12 @@
         return;
       }
       this.nav.cwd = folderId;
+      // Reaching the account root is also the sidebar refresh point: the
+      // special folders live there, and ensureDefaultSystemFolders() may
+      // have created missing ones since the sidebar was last built.
+      if (folderId === FS.rootId) {
+        try { this.buildQuickAccess(); } catch (_) { /* sidebar is cosmetic */ }
+      }
       // Drop any forward history when navigating to a new location.
       if (this.nav.historyIdx < this.nav.history.length - 1) {
         this.nav.history = this.nav.history.slice(0, this.nav.historyIdx + 1);
@@ -770,7 +913,7 @@
       this.listBody.addEventListener('mouseenter', (e) => {
         const row = e.target.closest?.('.vault-list-row');
         if (row?._fileNode && !this.selectedIds.has(row._fileNode.id)) {
-          row.style.background = 'rgba(255,255,255,0.04)';
+          row.style.background = 'var(--bg-hover)';
         }
       }, { capture: true, signal: this.signal });
       this.listBody.addEventListener('mouseleave', (e) => {
@@ -834,6 +977,7 @@
     // search query changes.
     renderFiles(searchQuery) {
       this.updatePathBar();
+      this.updateSidebarActive();
       let files = FS.listDir(this.nav.cwd);
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -881,6 +1025,13 @@
           label: count > 1 ? _t('apps.files.contextMenu.exportMany', { count }) : _t('apps.files.contextMenu.exportOne'),
           icon: 'download',
           action: () => this.exportToHost([...selectedFileIds]),
+        });
+      }
+      if (f.type === 'folder' && !inTrash) {
+        const pinned = this.pinnedFolderIds.includes(f.id);
+        items.push({
+          label: _t(pinned ? 'apps.files.contextMenu.unpinFromQuickAccess' : 'apps.files.contextMenu.pinToQuickAccess'),
+          action: () => this.setPinnedFolder(f.id, !pinned),
         });
       }
       if (isHtmlFile(f)) {
@@ -1375,14 +1526,31 @@
       this.state = state;
       this.options = options;
       this.fs = require('fs').promises;
-      this.fsConstants = require('fs').constants;
+      this.fsSync = require('fs');
+      this.fsConstants = this.fsSync.constants;
       this.path = require('path');
       this.os = require('os');
       this.childProcess = require('child_process');
+      const filesBag = FilesApp.readViewBag();
+      this.pinnedHostPaths = Array.isArray(filesBag?.pinnedHostPaths)
+        ? [...new Set(filesBag.pinnedHostPaths.filter(target => {
+          if (typeof target !== 'string' || !this.path.isAbsolute(target)) return false;
+          try { return this.fsSync.statSync(target).isDirectory(); } catch { return false; }
+        }).map(target => this.path.resolve(target)))]
+        : [];
+      this.hostQuickAccessEdited = false;
       this.homePath = typeof FS !== 'undefined' && typeof FS.rootId === 'string'
         ? FS.rootId
         : this.os.homedir();
-      this.currentPath = this.path.resolve(options.path || this.homePath);
+      // Bugfix: opening a desktop folder ignored the requested folder. On Linux
+      // the desktop/launcher passes folderId, and the FS node id there IS the
+      // absolute path — treat it as the start path. (Browser-mode FilesApp
+      // already honors folderId; this mirrors that for the Linux backend.)
+      this.currentPath = this.path.resolve(
+        options.path
+        || (typeof options.folderId === 'string' && options.folderId.startsWith('/') ? options.folderId : null)
+        || this.homePath
+      );
       this.state._linuxPath = this.currentPath;
       this.selectedPath = null;
       this.selectedPaths = new Set();
@@ -1407,6 +1575,7 @@
       const root = createEl('div', {
         style: 'height:100%;display:flex;flex-direction:column;min-height:0;color:var(--text-primary);'
       });
+      this.root = root;
       const toolbar = createEl('div', {
         style: 'display:flex;gap:6px;align-items:center;padding:8px;border-bottom:1px solid var(--border-subtle);'
       });
@@ -1460,8 +1629,18 @@
         role: 'status',
         style: 'padding:5px 10px;border-top:1px solid var(--border-subtle);color:var(--text-muted);font-size:11px;'
       });
-      root.append(toolbar, this.list, this.status);
+      // Windows-Explorer body row: quick-access sidebar (the system file
+      // dialog's class set, reused verbatim) + the file listing.
+      this.sidebar = createEl('nav', {
+        className: 'system-file-dialog-sidebar',
+        'aria-label': _t('apps.sysdialog.quickAccess'),
+        style: 'flex:0 0 auto;min-height:0;',
+      });
+      const bodyRow = createEl('div', { style: 'flex:1;min-height:0;display:flex;align-items:stretch;overflow:hidden;' });
+      bodyRow.append(this.sidebar, this.list);
+      root.append(toolbar, bodyRow, this.status);
       this.content.appendChild(root);
+      this.buildQuickAccess();
 
       this.list.addEventListener('contextmenu', event => {
         const row = event.target.closest('[data-path]');
@@ -1556,6 +1735,7 @@
     async render() {
       const version = ++this.renderVersion;
       this.pathInput.value = this.currentPath;
+      this.updateSidebarActive();
       this.list.replaceChildren(createEl('div', {
         textContent: _t('apps.files.linux.loading'),
         style: 'padding:12px;color:var(--text-muted);'
@@ -1640,6 +1820,144 @@
       this.searchInput.placeholder = _t('apps.files.linux.searchThisFolder');
       this.searchInput.setAttribute('aria-label', _t('apps.files.toolbar.searchAria'));
       this.list.setAttribute('aria-label', _t('apps.files.linux.listAria'));
+      // The sidebar carries localized chrome (Quick access header, Home) —
+      // a rebuild re-reads them through the live catalogue.
+      try { if (this.sidebar) this.buildQuickAccess(); } catch (_) { /* cosmetic */ }
+    }
+
+    // Quick-access sidebar (Windows Explorer / sysdialog design): Home plus
+    // the common folders that exist under the account root, with the active
+    // location highlighted. Folder names stay literal — they are the on-disk
+    // artifact names, matching the system dialog's convention.
+    buildQuickAccess() {
+      const fsSync = require('fs');
+      this.sidebar.replaceChildren();
+      this.sideTargets = [];
+      const header = createEl('div', { className: 'system-file-dialog-side-header', textContent: _t('apps.sysdialog.quickAccess') });
+      this.sidebar.appendChild(header);
+      const push = (label, target, icon, pinned = false) => {
+        const btn = createEl('button', {
+          type: 'button',
+          className: 'system-file-dialog-side-item',
+          'aria-label': label,
+          'aria-current': 'false',
+        });
+        const iconWrap = createEl('span', { className: 'system-file-dialog-side-icon' });
+        iconWrap.innerHTML = svgIcon(icon, 16);
+        const nameEl = createEl('span', { className: 'system-file-dialog-side-name', textContent: label });
+        btn.append(iconWrap, nameEl);
+        btn.addEventListener('click', () => {
+          if (this.path.resolve(target) === this.path.resolve(this.currentPath)) return;
+          this.navigate(target);
+        }, { signal: this.controller.signal });
+        if (pinned) {
+          btn.addEventListener('contextmenu', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            ContextMenu.show(event.clientX, event.clientY, [{
+              label: _t('apps.files.contextMenu.unpinFromQuickAccess'),
+              action: () => this.setPinnedHostPath(target, false),
+            }]);
+          }, { signal: this.controller.signal });
+        }
+        this.sidebar.appendChild(btn);
+        this.sideTargets.push({ el: btn, target: this.path.resolve(target) });
+      };
+      push(_t('apps.sysdialog.home'), this.homePath, 'folder-open');
+      const QUICK = [['Desktop', 'monitor'], ['Documents', 'file-text'], ['Downloads', 'download'], ['Pictures', 'image'], ['Music', 'music']];
+      for (const [folder, icon] of QUICK) {
+        const target = this.path.join(this.homePath, folder);
+        try {
+          if (!fsSync.statSync(target).isDirectory()) continue;
+        } catch (_) { continue; }
+        push(folder, target, icon);
+      }
+      const quickPaths = new Set(this.sideTargets.map(item => item.target));
+      const pinnedPaths = this.pinnedHostPaths.filter(target => {
+        try {
+          return this.path.isAbsolute(target) && this.fsSync.statSync(target).isDirectory()
+            && !quickPaths.has(this.path.resolve(target));
+        } catch { return false; }
+      });
+      if (pinnedPaths.length) {
+        this.sidebar.appendChild(createEl('div', {
+          className: 'system-file-dialog-side-header',
+          textContent: _t('apps.sysdialog.pinned'),
+        }));
+        for (const target of pinnedPaths) {
+          push(this.path.basename(target) || target, target, 'folder', true);
+        }
+      }
+      let mountedVolumes = [];
+      try {
+        mountedVolumes = window.SystemDialogs?.getMountedVolumes?.() || [];
+      } catch (error) {
+        console.error('[Files] Could not enumerate mounted volumes:', error);
+      }
+      const mountedPaths = new Set();
+      const uniqueMounts = mountedVolumes.filter(volume => {
+        const target = this.path.resolve(volume.path);
+        if (quickPaths.has(target) || pinnedPaths.some(pin => this.path.resolve(pin) === target) || mountedPaths.has(target)) return false;
+        mountedPaths.add(target);
+        return true;
+      });
+      if (uniqueMounts.length) {
+        this.sidebar.appendChild(createEl('div', {
+          className: 'system-file-dialog-side-header',
+          textContent: _t('apps.sysdialog.mounts'),
+        }));
+        for (const volume of uniqueMounts) push(volume.label, volume.path, 'hard-drive');
+      }
+      this.updateSidebarActive();
+    }
+
+    persistQuickAccess() {
+      const bag = FilesApp.readViewBag() || {};
+      return FilesApp.writeViewBag({ ...bag, pinnedHostPaths: [...this.pinnedHostPaths] });
+    }
+
+    setPinnedHostPath(target, pinned) {
+      const normalized = this.path.resolve(target);
+      if (pinned) {
+        try {
+          if (!this.fsSync.statSync(normalized).isDirectory()) throw new Error(_t('apps.files.notifications.quickAccessNotFolder'));
+        } catch (error) {
+          Notify.show({
+            title: _t('apps.files.notifications.quickAccessFailed'),
+            body: error.message,
+            type: 'error',
+            appName: 'Files',
+          });
+          return;
+        }
+      }
+      const next = pinned
+        ? [...new Set([...this.pinnedHostPaths.map(path => this.path.resolve(path)), normalized])]
+        : this.pinnedHostPaths.filter(path => this.path.resolve(path) !== normalized);
+      const previous = this.pinnedHostPaths;
+      this.pinnedHostPaths = next;
+      this.hostQuickAccessEdited = true;
+      if (!this.persistQuickAccess()) {
+        this.pinnedHostPaths = previous;
+        this.hostQuickAccessEdited = false;
+        Notify.show({
+          title: _t('apps.files.notifications.quickAccessFailed'),
+          body: _t('apps.files.notifications.quickAccessNotSaved'),
+          type: 'error',
+          appName: 'Files',
+        });
+        return;
+      }
+      this.buildQuickAccess();
+    }
+
+    updateSidebarActive() {
+      const current = this.path.resolve(this.currentPath);
+      for (const { el, target } of this.sideTargets || []) {
+        const on = target === current;
+        el.classList.toggle('active', on);
+        el.setAttribute('aria-current', on ? 'true' : 'false');
+      }
     }
 
     // Live re-localisation — rebuild this window's UI when the OS language
@@ -1719,6 +2037,12 @@
           { label: _t('apps.files.linux.openFolder'), action: () => this.navigate(entry.path) },
           { label: _t('apps.files.linux.pasteIntoFolder'), disabled: !this.clipboard, action: () => this.pasteClipboard(entry.path) }
         );
+        items.push({
+          label: _t(this.pinnedHostPaths.some(path => this.path.resolve(path) === this.path.resolve(entry.path))
+            ? 'apps.files.contextMenu.unpinFromQuickAccess'
+            : 'apps.files.contextMenu.pinToQuickAccess'),
+          action: () => this.setPinnedHostPath(entry.path, !this.pinnedHostPaths.some(path => this.path.resolve(path) === this.path.resolve(entry.path))),
+        });
       } else if (isNovaPackage(entry.name)) {
         items.push({ label: _t('apps.files.linux.install'), disabled: entry.unavailable, action: () => this.installPackage(entry.path) });
       } else {
@@ -1792,6 +2116,17 @@
         // App Manager only accepts a lowercase ".novaapp" suffix.
         const name = this.path.basename(filePath).replace(/\.novaapp$/i, '.novaapp');
         const file = new File([data], name, { type: 'application/octet-stream' });
+        // Bugfix: right-click Install on a .novaapp failed with
+        // "ENOENT: open ''" — files built via `new File(...)` get path ''.
+        // Re-attaching the absolute path used to be a plain assignment, but
+        // NW.js ≥0.120 makes File#path a getter-only accessor, so that throws
+        // ("Cannot set property path of #<File> which has only a getter") and
+        // the whole install dies. Shadow the accessor with an own data
+        // property instead; if shadowing is ever refused, the synthetic File
+        // still carries the bytes and App Manager falls back to file.text().
+        try {
+          Object.defineProperty(file, 'path', { value: filePath, configurable: true });
+        } catch (_) { /* rely on the file.text() fallback in processFile */ }
 
         // Same gate the window manager applies to a dropped file.
         if (window.Scanner) {
@@ -2066,7 +2401,11 @@
     minSize: [480, 340],
     init(content, state, options) {
       if (typeof process !== 'undefined' && process.platform === 'linux') {
-        new LinuxFilesApp(content, state, options).mount();
+        const app = new LinuxFilesApp(content, state, options);
+        // Test/hook affordance for the Linux backend (mirrors App Manager's
+        // content._novaAppProcessFile hook) — no other consumer.
+        content._linuxFilesApp = app;
+        app.mount();
         return;
       }
       const app = new FilesApp(content, state, options);

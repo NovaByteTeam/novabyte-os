@@ -80,7 +80,7 @@
       "systemName": "System"
     },
     "launchpad": {
-      "desktopAria": "Desktop",
+      "desktopAria": "Schreibtisch",
       "taskbarAria": "Taskleiste",
       "openLaunchpadAria": "Launchpad öffnen",
       "runningAppsAria": "Laufende Anwendungen",
@@ -89,7 +89,7 @@
       "searchAria": "Anwendungsbereiche durchsuchen",
       "searchPlaceholder": "Apps suchen",
       "noAppsFound": "Keine Apps gefunden",
-      "webApp": "Web App"
+      "webApp": "Web-App"
     },
     "desktop": {
       "open": "Offen",
@@ -98,7 +98,7 @@
       "unpinFromTaskbar": "Aus der Taskleiste lösen",
       "pinToDesktop": "Auf dem Desktop anheften",
       "unpinFromDesktop": "Vom Desktop lösen",
-      "systemApp": "System App",
+      "systemApp": "System-App",
       "uninstall": "Deinstallieren",
       "removeWebApp": "Web-App entfernen",
       "moveToTrash": "In Papierkorb legen",
@@ -218,7 +218,7 @@
       "enterPin": "Geben Sie Ihren PIN ein",
       "tooManyAttempts": "Zu viele Versuche",
       "tryAgainIn": "{{label}}Versuche es erneut in {0}! {{seconds}}s",
-      "passphrase": "Passphrase",
+      "passphrase": "Kennwortsatz",
       "passphraseAria": "Passphrase des Kontos",
       "usePinInstead": "Stattdessen PIN verwenden",
       "usePinInsteadAria": "Zurück zur PIN-Eingabe wechseln",
@@ -332,13 +332,13 @@
       },
       "risk": {
         "low": "Niedrig",
-        "medium": "Medium",
+        "medium": "Mittel",
         "high": "Hoch",
         "critical": "Kritisch"
       },
       "category": {
         "filesystem": "Dateisystem",
-        "apps": "Apps",
+        "apps": "Anwendungen",
         "network": "Netzwerk",
         "email": "E-Mail",
         "calendar": "Kalender",
@@ -498,19 +498,19 @@
     "appearance": {
       "title": "Gestalten Sie nach belieben",
       "sub": "Wählen Sie ein Design und eine Akzentfarbe aus. Sie können diese jederzeit unter Einstellungen → Erscheinungsbild ändern.",
-      "theme": "Theme",
+      "theme": "Thema",
       "accent": "Akzentfarbe",
       "accentAria": "Akzentfarbe"
     },
     "done": {
       "title": "Sie sind startklar",
       "sub": "Willkommen bei NovaByte OS, {{name}}. Die Dateien Ihres Kontos befinden sich unter users/{{username}}/home – Fügen Sie jederzeit weitere Konten über die Benutzer-App hinzu.",
-      "finish": "Finish"
+      "finish": "Fertigstellen"
     },
     "completed": {
       "title": "Die Einrichtung ist bereits abgeschlossen",
       "sub": "Auf diesem Gerät sind bereits Konten vorhanden. Die Einrichtung beim ersten Start wird nur einmal ausgeführt – verwalten Sie Konten über die App „Benutzer“ und Einstellungen über die App „Einstellungen“.",
-      "close": "Close",
+      "close": "Schließen",
       "closeAria": "NovaByte-Setup schließen"
     }
   },
@@ -541,7 +541,7 @@
     "sidebar": {
       "appearance": "Aussehen",
       "accessibility": "Zugänglichkeit",
-      "desktop": "Desktop",
+      "desktop": "Schreibtisch",
       "system": "System",
       "dateAndRegion": "Datum und Region",
       "connectivity": "Konnektivität",
@@ -708,7 +708,10 @@
       "wipeEverything": "Wischen Sie alles ab",
       "wiping": "Daten löschen",
       "wipingBody": "Bitte warten...",
-      "resetFailed": "Zurücksetzen fehlgeschlagen"
+      "resetFailed": "Zurücksetzen fehlgeschlagen",
+      "accountUsage": "Kontenspeicher",
+      "yourUsage": "Dein Speicher",
+      "totalUsed": "Belegter Gesamtspeicher"
     },
     "desktop": {
       "wallpaper": "Tapete",
@@ -762,7 +765,7 @@
       "reset": "Zurücksetzen",
       "levelOff": "Aus",
       "levelLow": "Niedrig",
-      "levelNorm": "Norm",
+      "levelNorm": "Normal",
       "levelHigh": "Hoch",
       "levelOffTitle": "Blockiert – es wird nichts angezeigt",
       "levelLowTitle": "Nur Panel, kein Toast",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Apps, denen Administratorrechte erteilt wurden, können sie jetzt verwenden.",
       "adminModeDisabledBody": "Die Erteilung von Administratorrechten ist jetzt wieder inaktiv.",
       "adminModeUpdateFailed": "Der Admin-Modus konnte nicht aktualisiert werden",
-      "tryAgain": "Versuchen Sie es erneut"
+      "tryAgain": "Versuchen Sie es erneut",
+      "exportTo": "Wähle, wo der Export gespeichert werden soll"
     },
     "root": {
       "intro": "Root-Apps werden direkt auf der Betriebssystemseite mit uneingeschränktem Zugriff ausgeführt und können echte Administrator-(Root-)Vorgänge ausführen. Jede Root-App fragt zunächst in einer NovaByte-Eingabeaufforderung nach Ihrer Bestätigung – niemals innerhalb der App – und jeder privilegierte Vorgang läuft über das überwachte, passwortlose Sudo (NOPASSWD) und wird in das Sicherheitsprotokoll geschrieben. Dies ist keine Sandbox oder normale App-Berechtigung.",
@@ -920,7 +924,7 @@
       "serviceWorkers": "Servicemitarbeiter",
       "supportedCheck": "Unterstützt ✓",
       "licence": "Lizenz",
-      "copyright": "Copyright",
+      "copyright": "Urheberrecht",
       "copySystemInfo": "📋 Systeminformationen kopieren",
       "copied": "Kopiert",
       "copiedBody": "Systeminformationen in die Zwischenablage kopiert",
@@ -957,6 +961,11 @@
       "pushRegistered": "Push registriert",
       "queuedPushOne": "1 Push in der Warteschlange",
       "queuedPushesMany": "{{count}} in der Warteschlange befindliche Pushs"
+    },
+    "adminLock": {
+      "title": "Administrator erforderlich",
+      "body": "Diese Einstellung ist nur für Administratorkonten verfügbar. Melde dich mit einem Administratorkonto an, um sie zu ändern.",
+      "switchUser": "Benutzer wechseln"
     }
   },
   "apps": {
@@ -1047,7 +1056,7 @@
         "switchToWebview": "Wechseln Sie in den Webview-Modus"
       },
       "popup": {
-        "badge": "Popup",
+        "badge": "Pop-up",
         "closeAria": "Popup schließen"
       },
       "downloads": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "„Speichern unter“ hat keinen Dateipfad zurückgegeben.",
         "tooManyRedirects": "Zu viele Weiterleitungen",
         "unsupportedRedirect": "Nicht unterstützte Weiterleitung",
+        "localAddressBlocked": "Lokale und interne Netzwerkadressen können nicht heruntergeladen werden.",
         "interrupted": "Die Download-Antwort wurde unterbrochen",
         "closedEarly": "Die Download-Datei wurde vor Abschluss geschlossen",
         "timedOut": "Zeitüberschreitung bei der Verbindung",
@@ -1069,7 +1079,7 @@
         "cameraTitle": "Zugriff auf Kamera oder Mikrofon",
         "locationPrompt": "Erlauben {{origin}} um auf Ihren Standort zuzugreifen? Ihre Auswahl bleibt bestehen, bis der Browser geschlossen wird.",
         "cameraPrompt": "Erlauben {{origin}} um auf Ihre Kamera oder Ihr Mikrofon zuzugreifen? Ihre Auswahl bleibt bestehen, bis der Browser geschlossen wird.",
-        "block": "Block",
+        "block": "Blockieren",
         "allow": "Erlauben"
       },
       "error": {
@@ -1228,7 +1238,7 @@
         "labsDesc": "Experimentelle Funktionen – können instabil sein.",
         "reset": "Zurücksetzen",
         "resetDesc": "Setzen Sie alle Einstellungen auf die Werkseinstellungen zurück.",
-        "homepage": "Homepage",
+        "homepage": "Startseite",
         "homepageDesc": "Seite, die beim Öffnen eines neuen Tabs angezeigt wird",
         "homepageSpeedDial": "Kurzwahl",
         "homepageBlank": "Leere Seite",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "Einstellungen wurden nicht zurückgesetzt",
         "settingsResetTitle": "Einstellungen zurückgesetzt",
         "settingsResetBody": "Alle Browsereinstellungen wurden auf die Standardeinstellungen zurückgesetzt."
+      },
+      "omnibox": {
+        "searchWith": "Bei {{engine}} nach \"{{query}}\" suchen"
       }
     },
     "files": {
@@ -1368,12 +1381,14 @@
         "moveToTrash": "In den Papierkorb verschieben",
         "newFile": "Neue Datei",
         "newFolder": "Neuer Ordner",
-        "paste": "Paste",
+        "paste": "Einfügen",
         "sortByDate": "Nach Datum sortieren",
         "viewIcons": "Ansicht: Symbole",
         "viewList": "Ansicht: Liste",
         "selectAll": "Wählen Sie „Alle“ aus",
-        "delete": "Löschen"
+        "delete": "Löschen",
+        "pinToQuickAccess": "An Schnellzugriff anheften",
+        "unpinFromQuickAccess": "Vom Schnellzugriff lösen"
       },
       "dialogs": {
         "chooseDestinationFolder": "Wählen Sie Zielordner",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "Datei blockiert",
         "invalidDrop": "Ungültige Datei gelöscht.",
         "failedToAdd": "Datei konnte nicht hinzugefügt werden.",
-        "couldNotVerify": "Konnte nicht überprüft werden „{{file}}„ – fiel in einen sicheren Zustand und hüpfte."
+        "couldNotVerify": "Konnte nicht überprüft werden „{{file}}„ – fiel in einen sicheren Zustand und hüpfte.",
+        "quickAccessFailed": "Schnellzugriff konnte nicht aktualisiert werden",
+        "quickAccessNotSaved": "Die angehefteten Orte konnten nicht gespeichert werden.",
+        "quickAccessNotFolder": "Nur vorhandene Ordner können angeheftet werden."
       },
       "linux": {
         "openParentFolder": "Übergeordneten Ordner öffnen",
@@ -1495,7 +1513,7 @@
         "devModeRequired": "Aktivieren Sie den Entwicklermodus in den Einstellungen, um Berechtigungen zu verwenden."
       },
       "tabs": {
-        "apps": "Apps",
+        "apps": "Anwendungen",
         "consentLog": "Einwilligungsprotokoll"
       },
       "list": {
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "Netzwerk",
-        "fs": "FS"
+        "fs": "Dateisystem"
       },
       "network": {
         "desc": "Zeigt Proxy-Routen, SSRF-Schutzstatus und aktuelle Netzwerkkonfiguration an.",
@@ -1579,7 +1597,7 @@
         "desc": "Virtueller Dateisystembaum mit Stammverzeichnis /. Aus Sicherheitsgründen im Entwicklungsmodus schreibgeschützt.",
         "notInitialized": "FS nicht initialisiert",
         "filterPlaceholder": "Nach Namen filtern…",
-        "export": "Export",
+        "export": "Exportieren",
         "exportTitle": "Laden Sie den aktuell sichtbaren Baum als JSON herunter (nur Metadaten, kein Dateiinhalt)",
         "clickToInspect": "Klicken Sie auf einen Knoten, um ihn zu überprüfen.",
         "nodeGone": "Knoten existiert nicht mehr.",
@@ -1608,7 +1626,7 @@
         "timeOf": "{{current}} von {{total}}"
       },
       "controls": {
-        "shuffle": "Shuffle",
+        "shuffle": "Zufällig mischen",
         "previousTrack": "Vorheriger Titel",
         "playPause": "Wiedergabe/Pause",
         "play": "Spielen",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} abgesagt",
         "failed": ", {{count}} fehlgeschlagen",
         "total": "({{count}} gesamt)"
+      },
+      "editor": {
+        "open": "Bearbeiten",
+        "openTitle": "Den Code dieses Moduls live bearbeiten und neu laden",
+        "title": "{{id}} wird bearbeitet",
+        "save": "Speichern & neu laden",
+        "back": "← Zurück zu den Modulen",
+        "fetchFailed": "{{path}} konnte nicht geladen werden: HTTP {{status}}",
+        "saved": "Auf Festplatte gespeichert und ins laufende OS neu geladen",
+        "saveFailed": "Speichern fehlgeschlagen: {{message}}",
+        "lines": "{{count}} Zeilen",
+        "unsaved": "Bearbeitet — noch nicht gespeichert",
+        "emptyRefused": "Leeres Modul wird nicht gespeichert"
       }
     },
     "install": {
@@ -1776,7 +1807,7 @@
       "pause": "Pause",
       "resume": "Wieder aufnehmen",
       "reset": "Zurücksetzen",
-      "export": "Export",
+      "export": "Exportieren",
       "clear": "Klar",
       "fps": "FPS",
       "memoryMb": "Speicher (MB)",
@@ -1785,7 +1816,7 @@
       "memory": "Erinnerung",
       "domNodesByWindow": "DOM-Knoten nach Fenster",
       "noWindowsOpen": "Keine Fenster geöffnet",
-      "notAvailableShort": "n / A",
+      "notAvailableShort": "Nicht verfügbar",
       "longTaskLog": "Langes Aufgabenprotokoll",
       "longTaskUnsupported": "Die Verfolgung langer Aufgaben wird in diesem Browser nicht unterstützt",
       "noLongTasks": "Es wurden noch keine langen Aufgaben erfasst",
@@ -1805,16 +1836,16 @@
       "showBody": "▸ Körper",
       "hideBody": "▾ Körper",
       "bodyNotCaptured": "Körper nicht erfasst{{type}}",
-      "statusError": "ERR",
+      "statusError": "Fehler",
       "unknownApp": "unbekannte App",
       "networkError": "Netzwerkfehler",
       "bodyTruncated": "{{text}}…(gekürzt)",
-      "durationMs": "{{value}}MS",
-      "fpsValue": "{{value}} fps",
+      "durationMs": "{{value}} ms",
+      "fpsValue": "{{value}} FPS",
       "memoryValue": "{{value}} MB",
-      "longTasksValue": "{{count}} (>50ms)",
+      "longTasksValue": "{{count}} (>50 ms)",
       "none": "Keiner",
-      "notAvailable": "N / A"
+      "notAvailable": "Nicht verfügbar"
     },
     "terminal": {
       "appDataMissing": "App-Datenverzeichnis fehlt.",
@@ -1840,7 +1871,7 @@
       "shortcutsCancel": "=abbrechen",
       "exitHint": "Verwenden Sie zum Beenden die Schaltfläche zum Schließen des Fensters.",
       "contextCopy": "Kopie",
-      "contextPaste": "Paste",
+      "contextPaste": "Einfügen",
       "contextClear": "Klar",
       "contextSelectAll": "Wählen Sie „Alle“ aus",
       "copiedTitle": "Kopiert",
@@ -1858,7 +1889,11 @@
       "errorLine": "Fehler: {{message}}",
       "terminalError": "[Terminalfehler] {{message}}",
       "shellExited": "[Shell wurde mit Status beendet {{status}}. Drücken Sie die Eingabetaste, um einen neuen zu starten.]",
-      "unknownStatus": "unbekannt"
+      "unknownStatus": "unbekannt",
+      "shortcutsClearLine": "=Zeile löschen  ",
+      "shortcutsLineStart": "=Zeilenanfang  ",
+      "shortcutsLineEnd": "=Zeilenende  ",
+      "shortcutsPaste": "=einfügen"
     },
     "myApps": {
       "appInstalledTitle": "App installiert",
@@ -1906,7 +1941,7 @@
       "requiresNovaByteOS": "Diese App erfordert NovaByte OS.",
       "devModeRequired": "Aktivieren Sie den Entwicklermodus in den Einstellungen, um Inspector zu verwenden.",
       "filterPlaceholder": "Nach App-ID, Name oder Fenster-ID filtern …",
-      "export": "Export",
+      "export": "Exportieren",
       "exportTitle": "Laden Sie die aktuell gefilterten Apps + Windows als JSON herunter",
       "registeredApps": "Registrierte Apps ({{count}})",
       "verifiedBadge": "✓ verifiziert",
@@ -1941,23 +1976,23 @@
     "clock": {
       "appDataMissing": "App-Datenverzeichnis fehlt.",
       "requiresNovaByteOS": "Diese App erfordert NovaByte OS.",
-      "tabAlarm": "Alarm",
+      "tabAlarm": "Wecker",
       "tabClock": "Uhr",
       "tabTimer": "Timer",
       "tabStopwatch": "Stoppuhr",
       "alarms": "Alarm",
       "add": "Hinzufügen",
       "noAlarms": "Keine Alarme eingestellt. Tippen Sie auf + Hinzufügen, um eines zu erstellen.",
-      "am": "BIN",
-      "pm": "PN",
+      "am": "vorm.",
+      "pm": "nachm.",
       "repeatOnce": "Einmal",
       "repeatEveryDay": "Täglich",
       "repeatWeekdays": "Wochentags",
       "dayInitialSun": "S",
       "dayInitialMon": "M",
-      "dayInitialTue": "T",
-      "dayInitialWed": "W",
-      "dayInitialThu": "T",
+      "dayInitialTue": "D",
+      "dayInitialWed": "M",
+      "dayInitialThu": "D",
       "dayInitialFri": "F",
       "dayInitialSat": "S",
       "daySun": "Sonne",
@@ -1972,7 +2007,7 @@
       "labelPlaceholder": "Etikett (optional)",
       "repeat": "Wiederholen",
       "delete": "Löschen",
-      "start": "Start",
+      "start": "Starten",
       "reset": "Zurücksetzen",
       "pause": "Pause",
       "restart": "Neustart",
@@ -2003,9 +2038,9 @@
       "daySat": "Sa",
       "miniDaySun": "S",
       "miniDayMon": "M",
-      "miniDayTue": "T",
-      "miniDayWed": "W",
-      "miniDayThu": "T",
+      "miniDayTue": "D",
+      "miniDayWed": "M",
+      "miniDayThu": "D",
       "miniDayFri": "F",
       "miniDaySat": "S",
       "upcoming": "Demnächst",
@@ -2023,7 +2058,7 @@
       "titlePlaceholder": "Veranstaltungstitel",
       "titleLabel": "Titel",
       "dateLabel": "Datum",
-      "startLabel": "Start",
+      "startLabel": "Starten",
       "endLabel": "Ende",
       "descPlaceholder": "Beschreibung (optional)",
       "descLabel": "Beschreibung",
@@ -2063,12 +2098,16 @@
       "filterPlaceholder": "Filterausgabe…",
       "clear": "Klar",
       "clearTitle": "Alle Ausgaben in dieser Sitzung löschen",
-      "export": "Export",
+      "export": "Exportieren",
       "exportTitle": "Laden Sie die Ausgabe dieser Sitzung als TXT-Datei herunter",
       "inputPlaceholder": "Geben Sie JS zur Auswertung oder „reg query HKNS\\shell“ für die Registrierungs-CLI ein\nEingabetaste zum Ausführen · Umschalt+Eingabetaste für Zeilenumbruch · ↑/↓ für Verlauf",
       "run": "Ausführen",
       "readyMessage": "Konsole bereit. Geben Sie oben einen Ausdruck ein und drücken Sie die Eingabetaste oder Ausführen.\nUmschalt+Eingabetaste für eine neue Zeile, ↑/↓, um vorherige Befehle abzurufen.",
-      "noOutputMatches": "(keine Ausgabe entspricht „{{query}}\")"
+      "noOutputMatches": "(keine Ausgabe entspricht „{{query}}\")",
+      "exportDialogTitle": "Konsolenausgabe exportieren",
+      "exportedTitle": "Konsolenausgabe exportiert",
+      "exportedBody": "Gespeichert unter {{path}}",
+      "exportFailedTitle": "Konsolenexport fehlgeschlagen"
     },
     "contacts": {
       "appDataMissing": "App-Datenverzeichnis fehlt.",
@@ -2118,7 +2157,7 @@
     "downloads": {
       "appDataMissing": "App-Datenverzeichnis fehlt.",
       "requiresNovaByte": "Diese App erfordert NovaByte OS.",
-      "title": "Downloads",
+      "title": "Heruntergeladene Dateien",
       "clearCompleted": "Klar abgeschlossen",
       "unnamed": "(unbenannt)",
       "removeAria": "Entfernen {{name}}",
@@ -2126,10 +2165,12 @@
       "emptyHint": "Hier werden vom Browser gespeicherte Dateien angezeigt"
     },
     "backgroundApps": {
-      "alarm": "Alarm",
+      "alarm": "Wecker",
       "alarmFor": "Alarm für {{time}}",
       "email": "E-Mail",
-      "emailNewMail": "{{count}} Neu in {{account}}"
+      "emailNewMail": "{{count}} Neu in {{account}}",
+      "timerDone": "Timer abgeschlossen",
+      "timerDoneBody": "Dein Timer ist abgelaufen."
     },
     "store": {
       "releaseTrack": "Release-Track",
@@ -2153,8 +2194,8 @@
       "documentation": "Dokumentation",
       "reportIssue": "Melden Sie ein Problem",
       "moreInformation": "Weitere Informationen",
-      "links": "Links",
-      "screenshots": "Screenshots",
+      "links": "Verknüpfungen",
+      "screenshots": "Bildschirmfotos",
       "screenshotAlt": "{{app}} Screenshot",
       "iconAlt": "{{app}} Symbol",
       "packageRequestFailed": "Paketanforderung fehlgeschlagen ({{status}})",
@@ -2229,7 +2270,7 @@
       "discoverThisApp": "Entdecken Sie diese App für NovaByte OS.",
       "versionLabel": "Version {{version}}",
       "viewApp": "App ansehen",
-      "appsHeading": "Apps",
+      "appsHeading": "Anwendungen",
       "allApps": "Alle Apps",
       "availableAppsAria": "Verfügbare Apps",
       "byAuthor": "von {{author}}",
@@ -2260,7 +2301,7 @@
       "noResults": "Keine Ergebnisse für „{{query}}\"",
       "filesSection": "Dateien",
       "contactsSection": "Kontakte",
-      "downloadsSection": "Downloads",
+      "downloadsSection": "Heruntergeladene Dateien",
       "webSection": "Web",
       "fetchingWeb": "Web-Ergebnisse werden abgerufen…",
       "searchWebFor": "Suchen Sie Brave nach „{{query}}\"",
@@ -2295,7 +2336,7 @@
       "filterPlaceholder": "Schlüssel filtern…",
       "newKeyBtn": "+ Schlüssel",
       "newValueBtn": "+ Wert",
-      "newLinkBtn": "+ Link",
+      "newLinkBtn": "+ Verknüpfung",
       "deleteBtn": "Löschen",
       "copyPathBtn": "Pfad kopieren",
       "findBtn": "Finden",
@@ -2303,8 +2344,8 @@
       "permBtn": "Berechtigungen",
       "snapBtn": "Schnappschüsse",
       "auditBtn": "Prüfung",
-      "exportBtn": "Export",
-      "importBtn": "Import",
+      "exportBtn": "Exportieren",
+      "importBtn": "Importieren",
       "auditTitle": "Prüfung schreiben (neueste zuerst)",
       "statusBrowsing": "Durchsuchen {{path}}",
       "defaultValueName": "(Standard)",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "Debug-Overlay-Position",
         "devNovaReg": "Status des NovaReg-Editors",
         "devNovaRegDesc": "Die Favoriten und Sprunghistorie dieses Herausgebers."
-      }
+      },
+      "importDialogTitle": "Registrierungsdaten importieren"
     },
     "appmanager": {
       "fallbackPackageName": "Dieses Paket",
@@ -2538,7 +2580,7 @@
       "impersonationBody": "deklariert sich selbst als NovaByte-Systempaket, verfügt jedoch nicht über eine gültige, passende Systemsignatur und intakte Inhalte.",
       "impersonationWhyTitle": "Warum dies blockiert ist, ist nicht nur eine Warnung",
       "impersonationWhyBody": "Ein echtes NovaByte System-Paket hat keinen legitimen Grund, die Signatur- oder Integritätsprüfung nicht zu bestehen. Diese Kombination – das Anfordern des Systemabzeichens bei gleichzeitigem Nichtbestehen dieser Prüfung – ist ein klares Zeichen für den Versuch, sich als vertrauenswürdige Systemkomponente auszugeben, und nicht für einen gewöhnlichen Veröffentlichungsfehler. NovaByte OS bietet für diesen Fall keine Außerkraftsetzung an.",
-      "okayBtn": "Okay",
+      "okayBtn": "In Ordnung",
       "fallbackAppName": "Diese App",
       "versionUnknown": "unbekannt",
       "integrityPassed": "bestanden – Inhalte stimmen mit dem Build-Time-Hash überein",
@@ -2608,7 +2650,7 @@
       "notReadyBody": "App Manager wird immer noch geladen – versuchen Sie es gleich noch einmal.",
       "appDataMissing": "App-Datenverzeichnis fehlt.",
       "requiresNovaByte": "Diese App erfordert NovaByte OS.",
-      "tabApps": "Apps",
+      "tabApps": "Anwendungen",
       "tabWebApps": "Web-Apps",
       "searchPlaceholder": "Suchen…",
       "installBtnLabel": "Installieren",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "Das Schreiben von Dateien ist in dieser Laufzeit nicht verfügbar.",
         "csvExported": "CSV exportiert nach {{path}}",
         "csvExportFailed": "CSV-Export fehlgeschlagen: {{message}}"
-      }
+      },
+      "degradedRefresh": "Konten konnten nicht aktualisiert werden — die zuletzt bekannte Liste wird angezeigt.",
+      "sessionExpired": "Deine Sitzung ist abgelaufen — melde dich erneut an.",
+      "retry": "Erneut versuchen",
+      "confirmPin": "PIN bestätigen",
+      "pinMismatch": "Die PINs stimmen nicht überein.",
+      "resetPinSelfWarning": "PIN für {{name}} zurücksetzen?",
+      "resetPinSelfWarningBody": "Das Zurücksetzen deiner eigenen PIN meldet dieses Konto überall ab — jede Sitzung wird widerrufen. Du meldest dich anschließend mit der temporär angezeigten PIN wieder an und wählst dann eine neue.",
+      "resetPinSelfWarningConfirm": "Zurücksetzen und abmelden",
+      "resetPinSelfWarningDone": "Deine PIN wurde zurückgesetzt. Melde dich mit dieser temporären PIN wieder an — du wirst aufgefordert, eine neue zu wählen."
     },
     "events": {
       "gate": {
@@ -3006,7 +3057,7 @@
         "newest": "Das Neueste zuerst",
         "oldest": "Älteste zuerst",
         "severity": "Schwere",
-        "az": "A-Z"
+        "az": "A–Z"
       },
       "toolbar": {
         "saveView": "+ Ansicht speichern",
@@ -3018,7 +3069,7 @@
         "resume": "Wieder aufnehmen",
         "clear": "Klar",
         "clearTitle": "Löschen Sie das Ereignisprotokoll",
-        "export": "Export",
+        "export": "Exportieren",
         "exportTitle": "Laden Sie die gefilterten Ereignisse als TXT-Datei herunter",
         "alerts": "⚡ Warnungen",
         "alertsTitle": "Alarmregeln verwalten",
@@ -3109,7 +3160,7 @@
       "context": {
         "cut": "Schneiden",
         "copy": "Kopie",
-        "paste": "Paste",
+        "paste": "Einfügen",
         "selectAll": "Wählen Sie „Alle“ aus",
         "wordCount": "Wortanzahl"
       },
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} Neu in {{account}}",
         "newMailTitle": "{{email}} — {{count}} neu"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Schnellzugriff",
+      "home": "Start",
+      "breadcrumbsAria": "Speicherort",
+      "editPath": "Pfad bearbeiten",
+      "newFolder": "Neuer Ordner",
+      "newFile": "Neue Datei",
+      "createFailed": "Erstellen fehlgeschlagen",
+      "createFolderFailed": "Der Ordner konnte nicht erstellt werden: {{message}}",
+      "createFileFailed": "Die Datei konnte nicht erstellt werden: {{message}}",
+      "fileType": "Dateityp",
+      "allTypes": "Alle Dateien (*.*)",
+      "pinned": "Angeheftet",
+      "mounts": "Eingehängte Laufwerke",
+      "saveFailed": "Datei konnte nicht gespeichert werden",
+      "unavailable": "Systemdateidialog ist nicht verfügbar",
+      "search": "Diesen Ordner durchsuchen",
+      "searchAria": "Diesen Ordner durchsuchen",
+      "noMatches": "(Keine Treffer)"
     }
   }
 }

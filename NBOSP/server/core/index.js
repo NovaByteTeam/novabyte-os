@@ -14,8 +14,10 @@ const { configureSSL } = require('./ssl');
 const { setupMiddleware, closeSessionDb } = require('../middleware');
 const { mountRoutes } = require('../routes');
 const { setupFaviconRoutes, closeFaviconDb } = require('../favicons');
+const usersDb = require('../security/users-db');
 const { setupFrameCheckProxy, setupAppNetworkProxy, setupEmailImageProxy } = require('../proxies');
 const { setupEventsRoutes } = require('./events-routes');
+const { moduleOverrides } = require('./module-overrides');
 
 // Global error handlers
 process.on('uncaughtException', (error) => {
@@ -165,6 +167,9 @@ const jsCacheOptions = {
     etag: true,
     immutable: !isDevelopment
 };
+
+// Edits saved from the Modules app win over the shipped files; must precede static.
+app.use(moduleOverrides());
 
 // Serve static assets (but NOT index.html — handled by GET / route above)
 app.use(express.static(path.resolve(__dirname, '..', '..'), { ignore: ['index.html'] }));
@@ -662,14 +667,19 @@ server.on('error', (error) => {
 // runs its own internal setInterval that this process has no handle to and
 // can't unref or clear, so a clean shutdown within 10s isn't guaranteed
 // even after everything we CAN close is closed.
+function closeResources() {
+    try { _indexHtmlWatcher.close(); } catch (_) {}
+    clearInterval(_appServeSweepTimer);
+    closeFaviconDb();
+    closeSessionDb();
+    usersDb.close();
+}
+
 const gracefulShutdown = (signal) => {
     console.log(`\n[${signal}] Received. Starting graceful shutdown...`);
     server.close(() => {
         console.log('[HTTP] Server closed');
-        try { _indexHtmlWatcher.close(); } catch (_) {}
-        clearInterval(_appServeSweepTimer);
-        closeFaviconDb();
-        closeSessionDb();
+        closeResources();
         console.log('[Shutdown] Resources closed');
         process.exit(0);
     });
@@ -707,4 +717,4 @@ server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 server.maxRequestsPerSocket = 1000;
 
-module.exports = { app, server };
+module.exports = { app, server, closeResources };

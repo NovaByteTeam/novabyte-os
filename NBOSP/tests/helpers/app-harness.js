@@ -42,7 +42,7 @@ const REGISTRY_PREFS_URL = new URL('../../js/platform/core/registry-prefs.js', i
 
 // Host-provided globals every window app may touch. Overridable per test via
 // the `stubs` option (keys listed here win unless overridden).
-function installCommonStubs(w, stubs = {}) {
+export function installCommonStubs(w, stubs = {}) {
   const ipcCalls = [];
   const nova = {
     calls: ipcCalls,

@@ -67,6 +67,15 @@ registerApp({
 
     function pad(n) { return String(Math.floor(n)).padStart(2, '0'); }
 
+    // The user's 12/24h preference (Settings → clockFormat; default '12h').
+    // Fully guarded so the app still renders when OS/settings are absent
+    // (e.g. the app-test harness), matching the background service's reader.
+    function use24h() {
+      try {
+        return typeof OS !== 'undefined' && OS?.settings?.get?.('clockFormat') === '24h';
+      } catch { return false; }
+    }
+
     const clockSvc = window.__NBOSP_BG?.clock;
 
     function syncClockState() {
@@ -219,8 +228,12 @@ registerApp({
 
       if (sec !== _lastClockSec) {
         _lastClockSec = sec;
+        // Bugfix: the digital face used the locale-default 12/24h rendering,
+        // ignoring the user's explicit clockFormat preference. Pass hour12
+        // from the setting (re-read each second so a live change applies).
+        const use24 = use24h();
         digitalEl.textContent = now.toLocaleTimeString([], {
-          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: !use24,
         });
         dateEl.textContent = now.toLocaleDateString([], {
           weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -315,6 +328,10 @@ registerApp({
       for (const { idx, al } of sorted) {
         const [hhS, mmS] = al.time.split(':');
         const hh = +hhS, mm = +mmS;
+        // Bugfix: the alarm list was hard-coded to 12h and ignored the
+        // clockFormat preference (the notification path had the inverse
+        // bug — raw 24h). Render in the user's chosen format now.
+        const use24 = use24h();
         const ampm = hh < 12 ? _t('apps.clock.am') : _t('apps.clock.pm');
         const h12  = hh % 12 || 12;
 
@@ -323,10 +340,13 @@ registerApp({
         left.addEventListener('click', () => openAlarmModal(idx));
 
         const timeRow = createEl('div', { style: 'display:flex;align-items:baseline;gap:5px;' });
-        const timeEl  = createEl('div', { className: 'nbc-alarm-time', textContent: `${h12}:${pad(mm)}` });
+        const timeEl  = createEl('div', { className: 'nbc-alarm-time', textContent: use24 ? `${pad(hh)}:${pad(mm)}` : `${h12}:${pad(mm)}` });
         timeEl.style.color = al.enabled ? 'var(--text-primary)' : 'var(--text-muted)';
-        const ampmEl = createEl('div', { className: 'nbc-alarm-ampm', textContent: ampm });
-        timeRow.append(timeEl, ampmEl);
+        timeRow.append(timeEl);
+        if (!use24) {
+          const ampmEl = createEl('div', { className: 'nbc-alarm-ampm', textContent: ampm });
+          timeRow.append(ampmEl);
+        }
 
         const meta = createEl('div', { className: 'nbc-alarm-meta' });
         const parts = [];
@@ -421,7 +441,7 @@ registerApp({
         const on = al.days.includes(i);
         const btn = createEl('button', {
           title: d,
-          style: `flex:1;padding:7px 0;border-radius:50%;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${on ? 'var(--accent)' : 'var(--border-subtle)'};background:${on ? 'var(--accent)' : 'transparent'};color:${on ? '#fff' : 'var(--text-muted)'};aspect-ratio:1;transition:all 0.12s;`,
+          style: `flex:1;padding:7px 0;border-radius:50%;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${on ? 'var(--accent)' : 'var(--border-subtle)'};background:${on ? 'var(--accent)' : 'transparent'};color:${on ? 'var(--text-on-accent)' : 'var(--text-muted)'};aspect-ratio:1;transition:all 0.12s;`,
         });
         btn.textContent = d.charAt(0);
         btn.dataset.i  = i;
@@ -430,7 +450,7 @@ registerApp({
           const isOn = btn.dataset.on === '1';
           btn.dataset.on    = isOn ? '0' : '1';
           btn.style.background   = isOn ? 'transparent' : 'var(--accent)';
-          btn.style.color        = isOn ? 'var(--text-muted)' : '#fff';
+          btn.style.color        = isOn ? 'var(--text-muted)' : 'var(--text-on-accent)';
           btn.style.borderColor  = isOn ? 'var(--border-subtle)' : 'var(--accent)';
         });
         daysRow.appendChild(btn);
@@ -442,7 +462,7 @@ registerApp({
 
       let delBtn = null;
       if (isEdit) {
-        delBtn = createEl('button', { textContent: _t('apps.clock.delete'), className: 'btn btn-sm', style: 'color:#f85149;border-color:#f85149;' });
+        delBtn = createEl('button', { textContent: _t('apps.clock.delete'), className: 'btn btn-sm', style: 'color:var(--text-danger);border-color:var(--text-danger);' });
         delBtn.addEventListener('click', () => {
           db.alarms.splice(idx, 1);
           saveDb();

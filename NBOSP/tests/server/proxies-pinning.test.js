@@ -20,7 +20,9 @@ const require = createRequire(import.meta.url);
 const dns = require('node:dns');
 const undici = require('undici');
 
-import proxies from '../../server/proxies.js';
+// CJS require — same instance style as proxies.test.js (uniform loading
+// across workers keeps the v8 coverage merge honest).
+const proxies = createRequire(import.meta.url)('../../server/proxies.js');
 const { _dnsResolvePrivate, _pinnedFetch, _dnsPrivateCache } = proxies._internal;
 
 // A host whose "DNS" says: one public IPv6 first (what verbatim order looks
@@ -169,6 +171,31 @@ describe('proxies.js — multi-candidate SSRF resolution and pinned fetch', () =
       // The Agent's connect lookup override must only ever hand out the
       // validated IP — that is the whole DNS-rebinding guarantee.
       agent.opts.connect.lookup('pin.example', {}, (err, result) => {
+        expect(err).toBeNull();
+        expect(result).toEqual([{ address: '104.26.11.35', family: 4 }]);
+      });
+    });
+
+    it('reports family 6 for IPv6 candidates (family ternary arm)', async () => {
+      lookupMock.mockResolvedValueOnce([{ address: '2606:4700::6810:84e5', family: 6 }]);
+      const d = await _dnsResolvePrivate('v6.example');
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
+      await _pinnedFetch('https://v6.example/', {}, d);
+      const agent = fetchMock.mock.calls[0][1].dispatcher;
+      agent.opts.connect.lookup('v6.example', {}, (err, result) => {
+        expect(err).toBeNull();
+        expect(result).toEqual([{ address: '2606:4700::6810:84e5', family: 6 }]);
+      });
+    });
+
+    it('accepts the single-address dnsResult form (dnsResult.address arm)', async () => {
+      // a resolver result shaped {address, family} instead of {addresses: []}
+      const d = { private: false, address: '104.26.11.35', family: 4 };
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, marker: 'single' });
+      const resp = await _pinnedFetch('https://single.example/', {}, d);
+      expect(resp.marker).toBe('single');
+      const agent = fetchMock.mock.calls[0][1].dispatcher;
+      agent.opts.connect.lookup('single.example', {}, (err, result) => {
         expect(err).toBeNull();
         expect(result).toEqual([{ address: '104.26.11.35', family: 4 }]);
       });

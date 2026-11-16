@@ -32,7 +32,7 @@ function makeFetchRouter(routes) {
   return { fetchImpl, calls };
 }
 
-async function loadSessionManager({ routes = {}, mountEnabled = true } = {}) {
+async function loadSessionManager({ routes = {}, mountEnabled = true, settingsValues = null, extraWindow = null } = {}) {
   const { fetchImpl, calls } = makeFetchRouter(routes);
   const mounts = { scopeActive: [], scopeUsernames: [], registry: [], userRoots: [], userRootArgs: [], layoutUpgrades: [], settingsLoads: 0, permissionReloads: 0 };
   const scope = {
@@ -59,6 +59,14 @@ async function loadSessionManager({ routes = {}, mountEnabled = true } = {}) {
     upgradeUserLayout(uid, username) { mounts.layoutUpgrades.push([uid, username]); },
   };
   const events = [];
+  const osStub = {
+    settings: {
+      load: async () => { mounts.settingsLoads += 1; },
+      ...(settingsValues ? { get: (key) => settingsValues[key] } : {}),
+    },
+    events: { emit: (name, payload) => events.push({ name, payload }), on: () => {} },
+    windows: new Map(),
+  };
   const loaded = await loadServiceApp('session', {
     stubs: {
       extra: {
@@ -66,13 +74,8 @@ async function loadSessionManager({ routes = {}, mountEnabled = true } = {}) {
         NovaRegistry: registry,
         MultiUserMigration: migration,
         SessionManager: undefined,
-        OS: {
-          settings: {
-            load: async () => { mounts.settingsLoads += 1; },
-          },
-          events: { emit: (name, payload) => events.push({ name, payload }), on: () => {} },
-          windows: new Map(),
-        },
+        OS: osStub,
+        ...(extraWindow || {}),
         FS: {
           setUserRoot: async (uid, opts) => { mounts.userRoots.push(uid); mounts.userRootArgs.push({ uid, opts }); },
         },
@@ -100,7 +103,7 @@ async function loadSessionManager({ routes = {}, mountEnabled = true } = {}) {
   const manager = loaded.window.SessionManager;
   const emitted = [];
   manager.on((event) => emitted.push(event));
-  return { manager, calls, mounts, events, emitted, scope };
+  return { manager, calls, mounts, events, emitted, scope, os: osStub };
 }
 
 afterEach(() => { try { dom?.window.close(); } catch { /* already closed */ } });
@@ -372,5 +375,62 @@ describe('SessionManager (js/apps/session service)', () => {
     expect(mounts.userRoots).toEqual(['guest']);
     expect(mounts.userRootArgs[0].opts).toMatchObject({ guest: true });
     expect(mounts.registry).toEqual(['guest']);
+  });
+
+  it('mountUserScope re-applies the account\'s per-user runtime state: DND flag, saved volume, dev-mode surface', async () => {
+    const overlayCalls = [];
+    const volumeCalls = [];
+    const { manager, os } = await loadSessionManager({
+      routes: {
+        'POST /api/auth/login': () => ({
+          status: 200,
+          json: { success: true, data: { sessionId: 'sid-DND', csrfToken: 't', user: { uid: 'u1', username: 'ada', displayName: 'Ada', role: 'standard', pinLength: 4 } } },
+        }),
+      },
+      // DND on, devMode on with the overlay visible ⇒ enable; volume restored
+      // through the tray export (guarded when absent — see the next test).
+      settingsValues: { doNotDisturb: true, devMode: true, debugOverlayVisible: true },
+      extraWindow: {
+        TrayService: { applySavedVolume: () => { volumeCalls.push('applySavedVolume'); } },
+        DebugOverlay: {
+          enable: () => { overlayCalls.push('enable'); },
+          disable: () => { overlayCalls.push('disable'); },
+        },
+      },
+    });
+    await manager.login({ uid: 'u1', secret: '1234' });
+    expect(os.dnd).toBe(true); // the boot-time OS.dnd read is re-applied per account
+    expect(volumeCalls).toEqual(['applySavedVolume']);
+    expect(overlayCalls).toEqual(['enable']);
+
+    // Switching away takes the departing account's dev HUD down; the next
+    // account's mount re-applies its own.
+    await manager.suspendForSwitch();
+    expect(overlayCalls).toEqual(['enable', 'disable']);
+    expect(os.dnd).toBe(true); // NOT reset on suspend — the next mount re-applies it
+  });
+
+  it('a devMode-off account gets the overlay disabled on login, and a missing TrayService export is tolerated', async () => {
+    const overlayCalls = [];
+    const { manager, os } = await loadSessionManager({
+      routes: {
+        'POST /api/auth/login': () => ({
+          status: 200,
+          json: { success: true, data: { sessionId: 'sid-NOVOL', csrfToken: 't', user: { uid: 'u2', username: 'sam', displayName: 'Sam', role: 'standard', pinLength: 4 } } },
+        }),
+      },
+      settingsValues: { doNotDisturb: false, devMode: false },
+      extraWindow: {
+        DebugOverlay: {
+          enable: () => { overlayCalls.push('enable'); },
+          disable: () => { overlayCalls.push('disable'); },
+        },
+        // Deliberately NO TrayService / no applySavedVolume — the mount must
+        // skip volume restore without throwing.
+      },
+    });
+    await manager.login({ uid: 'u2', secret: '1234' });
+    expect(os.dnd).toBe(false);
+    expect(overlayCalls).toEqual(['disable']);
   });
 });

@@ -166,7 +166,7 @@
       });
       const nextButton = createEl('button', {
         textContent: _t('apps.install.buttons.continue'),
-        style: 'box-sizing:border-box;flex:1 1 150px;min-width:0;padding:10px 18px;border:0;border-radius:7px;background:var(--accent);color:#fff;font-weight:600;white-space:normal;line-height:1.35;cursor:pointer'
+        style: 'box-sizing:border-box;flex:1 1 150px;min-width:0;padding:10px 18px;border:0;border-radius:7px;background:var(--accent);color:var(--text-on-accent);font-weight:600;white-space:normal;line-height:1.35;cursor:pointer'
       });
       const refreshDisks = () => {
         try {

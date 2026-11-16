@@ -1,6 +1,6 @@
 {
   "common": {
-    "ok": "OK",
+    "ok": "Aceptar",
     "cancel": "Cancelar",
     "back": "Atrás",
     "next": "Siguiente",
@@ -439,7 +439,7 @@
     "progressAria": "Progreso de la instalación",
     "back": "Atrás",
     "backAria": "Paso anterior",
-    "skip": "Skip",
+    "skip": "Omitir",
     "skipAria": "Saltar este paso",
     "next": "Siguiente",
     "nextAria": "Siguiente paso",
@@ -708,7 +708,10 @@
       "wipeEverything": "Limpiar todo",
       "wiping": "Borrar datos",
       "wipingBody": "Espere por favor...",
-      "resetFailed": "Reinicio fallido"
+      "resetFailed": "Reinicio fallido",
+      "accountUsage": "Almacenamiento de la cuenta",
+      "yourUsage": "Tu almacenamiento",
+      "totalUsed": "Almacenamiento total utilizado"
     },
     "desktop": {
       "wallpaper": "Papel pintado",
@@ -835,7 +838,8 @@
       "adminModeEnabledBody": "Las aplicaciones a las que se les otorgan permisos de administrador ahora pueden usarlos.",
       "adminModeDisabledBody": "Las concesiones de permisos de administrador ahora vuelven a ser inertes.",
       "adminModeUpdateFailed": "No se pudo actualizar el modo de administrador",
-      "tryAgain": "Intentar otra vez"
+      "tryAgain": "Intentar otra vez",
+      "exportTo": "Elige dónde guardar la exportación"
     },
     "root": {
       "intro": "Las aplicaciones raíz se ejecutan directamente en la página del sistema operativo con acceso sin restricciones y pueden realizar operaciones reales de administrador (raíz). Cada aplicación raíz primero solicita su confirmación dentro de un mensaje de NovaByte (nunca dentro de la aplicación) y cada operación privilegiada se ejecuta a través de sudo auditado y sin contraseña (NOPASSWD) y se escribe en el registro de seguridad. Este no es un entorno de pruebas ni un permiso de aplicación normal.",
@@ -957,6 +961,11 @@
       "pushRegistered": "empujar registrado",
       "queuedPushOne": "1 empujón en cola",
       "queuedPushesMany": "{{count}} empujones en cola"
+    },
+    "adminLock": {
+      "title": "Se requiere administrador",
+      "body": "Este ajuste solo está disponible para cuentas de administrador. Inicia sesión con una cuenta de administrador para cambiarlo.",
+      "switchUser": "Cambiar de usuario"
     }
   },
   "apps": {
@@ -1057,6 +1066,7 @@
         "noPathBody": "Guardar como no devolvió una ruta de archivo.",
         "tooManyRedirects": "Demasiadas redirecciones",
         "unsupportedRedirect": "Redirección no admitida",
+        "localAddressBlocked": "No se pueden descargar direcciones locales o de red interna.",
         "interrupted": "La respuesta de descarga fue interrumpida",
         "closedEarly": "El archivo de descarga se cerró antes de completarse",
         "timedOut": "Se agotó el tiempo de conexión",
@@ -1320,6 +1330,9 @@
         "settingsNotResetTitle": "Configuración no restablecida",
         "settingsResetTitle": "Restablecer configuración",
         "settingsResetBody": "Todas las configuraciones del navegador restauradas a sus valores predeterminados."
+      },
+      "omnibox": {
+        "searchWith": "Buscar en {{engine}} \"{{query}}\""
       }
     },
     "files": {
@@ -1373,7 +1386,9 @@
         "viewIcons": "Ver: Iconos",
         "viewList": "Ver: Lista",
         "selectAll": "Seleccionar todo",
-        "delete": "Borrar"
+        "delete": "Borrar",
+        "pinToQuickAccess": "Anclar al acceso rápido",
+        "unpinFromQuickAccess": "Desanclar del acceso rápido"
       },
       "dialogs": {
         "chooseDestinationFolder": "Elija la carpeta de destino",
@@ -1438,7 +1453,10 @@
         "fileBlocked": "Archivo bloqueado",
         "invalidDrop": "Se eliminó un archivo no válido.",
         "failedToAdd": "No se pudo agregar el archivo.",
-        "couldNotVerify": "No se pudo verificar \"{{file}}\" — cayó en un estado seguro y se saltó."
+        "couldNotVerify": "No se pudo verificar \"{{file}}\" — cayó en un estado seguro y se saltó.",
+        "quickAccessFailed": "No se pudo actualizar el acceso rápido",
+        "quickAccessNotSaved": "No se pudieron guardar las ubicaciones ancladas.",
+        "quickAccessNotFolder": "Solo se pueden anclar carpetas existentes."
       },
       "linux": {
         "openParentFolder": "Abrir carpeta principal",
@@ -1525,7 +1543,7 @@
         "statusGranted": "Otorgada",
         "statusDenied": "Denegado",
         "statusPending": "Pendiente",
-        "tierNormal": "normal",
+        "tierNormal": "Normal",
         "tierDangerous": "peligroso",
         "tierDeclared": "declarado"
       },
@@ -1549,7 +1567,7 @@
       },
       "tabs": {
         "network": "Red",
-        "fs": "FS"
+        "fs": "Sistema de archivos"
       },
       "network": {
         "desc": "Muestra rutas de proxy, estado de protección SSRF y configuración de red reciente.",
@@ -1695,6 +1713,19 @@
         "cancelled": ", {{count}} cancelado",
         "failed": ", {{count}} fallido",
         "total": "({{count}} total)"
+      },
+      "editor": {
+        "open": "Editar",
+        "openTitle": "Edita el código de este módulo en vivo y recárgalo al instante",
+        "title": "Editando {{id}}",
+        "save": "Guardar y recargar",
+        "back": "← Volver a los módulos",
+        "fetchFailed": "No se pudo cargar {{path}}: HTTP {{status}}",
+        "saved": "Guardado en disco y recargado en el OS en ejecución",
+        "saveFailed": "Error al guardar: {{message}}",
+        "lines": "{{count}} líneas",
+        "unsaved": "Editado — aún sin guardar",
+        "emptyRefused": "No se guardará un módulo vacío"
       }
     },
     "install": {
@@ -1785,7 +1816,7 @@
       "memory": "Memoria",
       "domNodesByWindow": "Nodos DOM por ventana",
       "noWindowsOpen": "No hay ventanas abiertas",
-      "notAvailableShort": "n / A",
+      "notAvailableShort": "No disponible",
       "longTaskLog": "Registro de tareas largo",
       "longTaskUnsupported": "El seguimiento de tareas largas no es compatible con este navegador",
       "noLongTasks": "Aún no se han registrado tareas largas",
@@ -1801,20 +1832,20 @@
       "noRequestsMatch": "Ninguna solicitud coincide con el filtro actual",
       "noRequestsRecorded": "Aún no se han registrado solicitudes",
       "sourceBrowser": "navegador · {{label}}",
-      "sourceOs": "sistema operativo · {{label}}",
+      "sourceOs": "Sistema operativo · {{label}}",
       "showBody": "▸ cuerpo",
       "hideBody": "▾ cuerpo",
       "bodyNotCaptured": "cuerpo no capturado{{type}}",
-      "statusError": "ERRAR",
+      "statusError": "Error",
       "unknownApp": "aplicación desconocida",
       "networkError": "error de red",
       "bodyTruncated": "{{text}}…(truncado)",
-      "durationMs": "{{value}}EM",
-      "fpsValue": "{{value}} fps",
-      "memoryValue": "{{value}} MEGABYTE",
-      "longTasksValue": "{{count}} (>50ms)",
+      "durationMs": "{{value}} ms",
+      "fpsValue": "{{value}} FPS",
+      "memoryValue": "{{value}} MB",
+      "longTasksValue": "{{count}} (>50 ms)",
       "none": "Ninguno",
-      "notAvailable": "N / A"
+      "notAvailable": "No disponible"
     },
     "terminal": {
       "appDataMissing": "Falta el directorio de datos de la aplicación.",
@@ -1858,7 +1889,11 @@
       "errorLine": "Error: {{message}}",
       "terminalError": "[error terminal] {{message}}",
       "shellExited": "[Shell salió con estado {{status}}. Presione Enter para comenzar uno nuevo.]",
-      "unknownStatus": "desconocido"
+      "unknownStatus": "desconocido",
+      "shortcutsClearLine": "=limpiar línea  ",
+      "shortcutsLineStart": "=inicio de línea  ",
+      "shortcutsLineEnd": "=final de línea  ",
+      "shortcutsPaste": "=pegar"
     },
     "myApps": {
       "appInstalledTitle": "Aplicación instalada",
@@ -1948,17 +1983,17 @@
       "alarms": "Alarmas",
       "add": "Agregar",
       "noAlarms": "No hay alarmas configuradas. Toque + Agregar para crear uno.",
-      "am": "SOY",
-      "pm": "P.M",
+      "am": "a. m.",
+      "pm": "p. m.",
       "repeatOnce": "Una vez",
       "repeatEveryDay": "Cada día",
       "repeatWeekdays": "Días laborables",
-      "dayInitialSun": "S",
+      "dayInitialSun": "D",
       "dayInitialMon": "METRO",
       "dayInitialTue": "t",
-      "dayInitialWed": "W",
+      "dayInitialWed": "X",
       "dayInitialThu": "t",
-      "dayInitialFri": "F",
+      "dayInitialFri": "V",
       "dayInitialSat": "S",
       "daySun": "Sol",
       "dayMon": "Lun",
@@ -2001,12 +2036,12 @@
       "dayThu": "Jue",
       "dayFri": "Vie",
       "daySat": "Se sentó",
-      "miniDaySun": "S",
+      "miniDaySun": "D",
       "miniDayMon": "METRO",
       "miniDayTue": "t",
-      "miniDayWed": "W",
+      "miniDayWed": "X",
       "miniDayThu": "t",
-      "miniDayFri": "F",
+      "miniDayFri": "V",
       "miniDaySat": "S",
       "upcoming": "Próximo",
       "newEvent": "Nuevo evento",
@@ -2068,7 +2103,11 @@
       "inputPlaceholder": "Ingrese JS para evaluar, o `reg query HKNS\\shell` para la CLI del Registro\nEnter para ejecutar · Shift+Enter para nueva línea · ↑/↓ para historial",
       "run": "Ejecutar",
       "readyMessage": "Consola lista. Escriba una expresión arriba y presione Entrar o Ejecutar.\nShift+Enter para una nueva línea, ↑/↓ para recuperar comandos anteriores.",
-      "noOutputMatches": "(ninguna salida coincide \"{{query}}\")"
+      "noOutputMatches": "(ninguna salida coincide \"{{query}}\")",
+      "exportDialogTitle": "Exportar salida de la consola",
+      "exportedTitle": "Salida de la consola exportada",
+      "exportedBody": "Guardado en {{path}}",
+      "exportFailedTitle": "No se pudo exportar la consola"
     },
     "contacts": {
       "appDataMissing": "Falta el directorio de datos de la aplicación.",
@@ -2129,7 +2168,9 @@
       "alarm": "Alarma",
       "alarmFor": "alarma para {{time}}",
       "email": "Correo electrónico",
-      "emailNewMail": "{{count}} nuevo en {{account}}"
+      "emailNewMail": "{{count}} nuevo en {{account}}",
+      "timerDone": "Temporizador terminado",
+      "timerDoneBody": "Tu temporizador ha terminado."
     },
     "store": {
       "releaseTrack": "Pista de lanzamiento",
@@ -2529,7 +2570,8 @@
         "devOverlayPosition": "Posición de superposición de depuración",
         "devNovaReg": "Estado del editor NovaReg",
         "devNovaRegDesc": "Los favoritos de este editor y el historial de saltos."
-      }
+      },
+      "importDialogTitle": "Importar datos del registro"
     },
     "appmanager": {
       "fallbackPackageName": "este paquete",
@@ -2866,7 +2908,7 @@
       "table": {
         "account": "Cuenta",
         "username": "Nombre de usuario",
-        "role": "Role",
+        "role": "Rol",
         "status": "Estado",
         "lastSignIn": "Último inicio de sesión",
         "storage": "Almacenamiento",
@@ -2898,7 +2940,7 @@
         "displayNamePlaceholder": "Sam Nova",
         "usernameLabel": "Nombre de usuario (de 3 a 32 caracteres, inmutable)",
         "usernamePlaceholder": "sam",
-        "role": "Role",
+        "role": "Rol",
         "pinLabel": "PIN (4 a 6 dígitos)",
         "passphraseLabel": "Frase de contraseña (opcional, más de 8 caracteres)",
         "passphrasePlaceholder": "recomendado para administradores",
@@ -2975,7 +3017,16 @@
         "fileWriteUnavailable": "La escritura de archivos no está disponible en este tiempo de ejecución.",
         "csvExported": "CSV exportado a {{path}}",
         "csvExportFailed": "La exportación CSV falló: {{message}}"
-      }
+      },
+      "degradedRefresh": "No se han podido actualizar las cuentas — se muestra la última lista conocida.",
+      "sessionExpired": "Tu sesión ha caducado — vuelve a iniciar sesión.",
+      "retry": "Reintentar",
+      "confirmPin": "Confirmar PIN",
+      "pinMismatch": "Los PIN no coinciden.",
+      "resetPinSelfWarning": "¿Restablecer el PIN de {{name}}?",
+      "resetPinSelfWarningBody": "Restablecer tu propio PIN cierra la sesión de esta cuenta en todas partes — se revocan todas las sesiones. Volverás a iniciar sesión con el PIN temporal que se mostrará a continuación y luego elegirás uno nuevo.",
+      "resetPinSelfWarningConfirm": "Restablecer y cerrar sesión",
+      "resetPinSelfWarningDone": "Tu PIN se ha restablecido. Vuelve a iniciar sesión con este PIN temporal — se te pedirá elegir uno nuevo."
     },
     "events": {
       "gate": {
@@ -3006,7 +3057,7 @@
         "newest": "Lo nuevo primero",
         "oldest": "El más viejo primero",
         "severity": "Gravedad",
-        "az": "ARIZONA"
+        "az": "A–Z"
       },
       "toolbar": {
         "saveView": "+ Guardar vista",
@@ -3232,6 +3283,26 @@
         "newIn": "{{count}} nuevo en {{account}}",
         "newMailTitle": "{{email}} — {{count}} nuevo"
       }
+    },
+    "sysdialog": {
+      "quickAccess": "Acceso rápido",
+      "home": "Inicio",
+      "breadcrumbsAria": "Ubicación",
+      "editPath": "Editar ruta",
+      "newFolder": "Nueva carpeta",
+      "newFile": "Nuevo archivo",
+      "createFailed": "Error al crear",
+      "createFolderFailed": "No se ha podido crear la carpeta: {{message}}",
+      "createFileFailed": "No se ha podido crear el archivo: {{message}}",
+      "fileType": "Tipo de archivo",
+      "allTypes": "Todos los tipos (*.*)",
+      "pinned": "Anclados",
+      "mounts": "Unidades montadas",
+      "saveFailed": "No se pudo guardar el archivo",
+      "unavailable": "El diálogo de archivos del sistema no está disponible",
+      "search": "Buscar en esta carpeta",
+      "searchAria": "Buscar en esta carpeta",
+      "noMatches": "(Sin coincidencias)"
     }
   }
 }

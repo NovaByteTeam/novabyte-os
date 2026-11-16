@@ -63,15 +63,27 @@ async function certsAreFresh(paths) {
 
 // temp file + rename, so a reset leaves the old file or the new one, never half of it
 async function writeFileAtomic(file, data, mode) {
-  const tmp = `${file}.${process.pid}.tmp`;
-  const handle = await fs.promises.open(tmp, 'w', mode);
+  // SECURITY (2026-11-15 audit, finding LOW-7): the temp name used to be
+  // PID-only and opened with plain 'w' — predictable AND symlink-following
+  // in any directory writable by another principal (env.js's atomic writer
+  // already got the random-suffix + exclusive treatment; mirror it here).
+  // 'wx' fails with EEXIST if anything (pre-planted link or file) already
+  // occupies the name.
+  const rand = crypto.randomBytes(4).toString('hex');
+  const tmp = `${file}.${process.pid}.${Date.now()}.${rand}.tmp`;
+  const handle = await fs.promises.open(tmp, 'wx', mode);
   try {
     await handle.writeFile(data, 'utf8');
     await handle.sync();
   } finally {
     await handle.close();
   }
-  await fs.promises.rename(tmp, file);
+  try {
+    await fs.promises.rename(tmp, file);
+  } catch (err) {
+    try { await fs.promises.unlink(tmp); } catch (_) {}
+    throw err;
+  }
 }
 
 async function generateCerts() {

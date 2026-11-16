@@ -878,8 +878,14 @@ async function r8() {
 
   // Internal grant opens host-service URLs (proxied through the local service).
   await PM.grantPermission('net:internal', surfer.id);
-  const internal = await call('nova:net:fetch', { url: 'http://127.0.0.1:3003/api/data' }, ctx);
-  check('internal fetch with net:internal succeeds', internal.result != null && !internal.error, code(internal));
+  // SECURITY (2026-11-15 fix, sandbox finding H3): same-origin host API routes
+  // are no longer directly fetchable by apps even with net:internal — the
+  // permission-checked IPC bridge handlers own that surface. Only the app's
+  // own served bundle (/api/apps/serve/...) stays fetchable.
+  const internalApi = await call('nova:net:fetch', { url: 'http://127.0.0.1:3003/api/data' }, ctx);
+  check('host /api routes are not directly fetchable by apps (2026-11-15 fix)', code(internalApi) === 'PERMISSION_DENIED', code(internalApi));
+  const internal = await call('nova:net:fetch', { url: 'http://127.0.0.1:3003/x' }, ctx);
+  check('internal non-API fetch with net:internal succeeds', internal.result != null && !internal.error, code(internal));
 
   // Dangerous schemes never resolve into a fetch.
   for (const url of ['file:///etc/passwd', 'ftp://host/x', '//protocol-relative.example/x']) {

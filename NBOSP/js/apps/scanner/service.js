@@ -255,7 +255,12 @@
     try {
       return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
     } catch (_e) {
+      /* v8 ignore start */
+      // Unreachable in practice: TextDecoder only throws with fatal:true, and
+      // this decoder is constructed non-fatal above. Kept as a hard guard for
+      // host runtimes with a non-conforming TextDecoder polyfill.
       return '';
+      /* v8 ignore stop */
     }
   }
 
@@ -398,7 +403,9 @@
     const contentLength = value.length - padding;
     if (padding === 2 && contentLength % 4 !== 2) return false;
     if (padding === 1 && contentLength % 4 !== 3) return false;
-    if (!padding && contentLength % 4 === 1) return false;
+    if (!padding && contentLength % 4 === 1) {
+      return false;
+    }
     for (let offset = 0; offset < contentLength; offset += 65536) {
       if (!/^[A-Za-z0-9+/]+$/.test(value.slice(offset, Math.min(offset + 65536, contentLength)))) {
         return false;

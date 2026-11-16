@@ -21,7 +21,7 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:auto;padding:16px;font-size:13px;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:auto;padding:16px;font-size:13px;';
 
     const ac = new AbortController();
     state.cleanups.push(() => ac.abort());
@@ -74,7 +74,7 @@ registerApp({
       stats.appendChild(card);
     };
 
-    const fpsEl = createEl('div', { textContent: '--', style: 'font-size:20px;font-weight:700;color:#3fb950;font-family:monospace;' });
+    const fpsEl = createEl('div', { textContent: '--', style: 'font-size:20px;font-weight:700;color:var(--text-success);font-family:monospace;' });
     addStat(_t('apps.perf.fps'), fpsEl);
 
     const memEl = createEl('div', { textContent: '--', style: 'font-size:13px;font-family:monospace;' });
@@ -149,7 +149,7 @@ registerApp({
         const row = createEl('div', { style: 'display:flex;flex-direction:column;gap:1px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;font-size:11px;font-family:monospace;' });
         const topLine = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
         const left = createEl('span', { textContent: entry.detail ? entry.detail.source : _t('apps.perf.noAttribution'), style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:' + (entry.detail ? 'var(--text-primary)' : 'var(--text-muted)') + ';' });
-        const right = createEl('span', { textContent: _t('apps.perf.durationMs', { value: entry.duration }), style: 'flex-shrink:0;color:' + (entry.duration > 200 ? '#f85149' : '#fbbf24') + ';' });
+        const right = createEl('span', { textContent: _t('apps.perf.durationMs', { value: entry.duration }), style: 'flex-shrink:0;color:' + (entry.duration > 200 ? 'var(--text-danger)' : 'var(--text-warning)') + ';' });
         topLine.appendChild(left);
         topLine.appendChild(right);
         row.appendChild(topLine);
@@ -215,7 +215,7 @@ registerApp({
         const topLine = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
         const methodBadge = createEl('span', { textContent: entry.method || '?', style: 'flex-shrink:0;color:var(--text-muted);width:42px;' });
         const urlEl = createEl('span', { textContent: entry.url, style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;color:var(--text-primary);' });
-        const statusColor = entry.error ? '#f85149' : (entry.status >= 400 ? '#f85149' : (entry.status >= 300 ? '#fbbf24' : '#3fb950'));
+        const statusColor = entry.error ? 'var(--text-danger)' : (entry.status >= 400 ? 'var(--text-danger)' : (entry.status >= 300 ? 'var(--text-warning)' : 'var(--text-success)'));
         const statusEl = createEl('span', { textContent: entry.error ? _t('apps.perf.statusError') : (entry.status ?? '—'), style: 'flex-shrink:0;color:' + statusColor + ';width:32px;text-align:right;' });
         topLine.appendChild(methodBadge);
         topLine.appendChild(urlEl);
@@ -228,7 +228,7 @@ registerApp({
         // above the netLog declaration) — omit it entirely for browser
         // entries rather than showing a fabricated or misleading number.
         if (entry.duration != null) metaLine.appendChild(createEl('span', { textContent: _t('apps.perf.durationMs', { value: entry.duration }) }));
-        if (entry.error) metaLine.appendChild(createEl('span', { textContent: entry.error, style: 'color:#f85149;' }));
+        if (entry.error) metaLine.appendChild(createEl('span', { textContent: entry.error, style: 'color:var(--text-danger);' }));
 
         // Only OS-level entries can ever have a body — Browser-tab entries
         // always have body === undefined/null and bodySkipped left unset,
@@ -249,7 +249,7 @@ registerApp({
             }
             bodyPre = createEl('pre', {
               textContent: entry.body,
-              style: 'margin:4px 0 0;padding:6px;background:var(--bg-default);border-radius:4px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:10px;'
+              style: 'margin:4px 0 0;padding:6px;background:var(--bg-base);border-radius:4px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:10px;'
             });
             row.appendChild(bodyPre);
             bodyToggle.textContent = _t('apps.perf.hideBody');
@@ -568,9 +568,9 @@ registerApp({
 
         frameCount = 0;
         lastFrameTime = now;
-        drawChart(canvas, fpsHistory, '#00ff00', 60);
-        drawChart(memCanvas, memHistory, '#67e8f9', null);
-        drawChart(domCanvas, domHistory, '#fbbf24', null);
+        drawChart(canvas, fpsHistory, themeColor('--text-success', '#00ff00'), 60);
+        drawChart(memCanvas, memHistory, themeColor('--accent', '#67e8f9'), null);
+        drawChart(domCanvas, domHistory, themeColor('--text-warning', '#fbbf24'), null);
         updateStats(domCount);
         renderPerWindow();
       }
@@ -582,6 +582,10 @@ registerApp({
     // history array, the line color, and an optional reference line value
     // (only FPS has a meaningful fixed reference at 60; memory and DOM
     // count scale against their own observed max instead).
+    function themeColor(token, fallback) {
+      return getComputedStyle(content).getPropertyValue(token).trim() || fallback;
+    }
+
     function drawChart(cv, history, color, referenceY) {
       const ctx = cv.getContext('2d');
       const w = cv.width = cv.offsetWidth * 2;
@@ -595,12 +599,14 @@ registerApp({
 
       if (referenceY) {
         const yRef = ch - (referenceY / max) * ch;
-        ctx.strokeStyle = 'rgba(0,255,0,0.2)';
+        ctx.globalAlpha = 0.2;
+        ctx.strokeStyle = themeColor('--text-success', '#00ff00');
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(0, yRef);
         ctx.lineTo(cw, yRef);
         ctx.stroke();
+        ctx.globalAlpha = 1;
       }
 
       ctx.strokeStyle = color;
@@ -616,8 +622,10 @@ registerApp({
       ctx.lineTo(cw, ch);
       ctx.lineTo(0, ch);
       ctx.closePath();
-      ctx.fillStyle = color.startsWith('#') ? color + '14' : color; // ~8% alpha fill
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = color;
       ctx.fill();
+      ctx.globalAlpha = 1;
     }
 
     function updateStats(domCount) {
@@ -633,7 +641,7 @@ registerApp({
         fpsBelowThresholdStreak = 0;
       }
       const fpsAlert = fpsBelowThresholdStreak >= FPS_ALERT_SUSTAIN;
-      fpsEl.style.color = fpsAlert ? '#f85149' : '#3fb950';
+      fpsEl.style.color = fpsAlert ? 'var(--text-danger)' : 'var(--text-success)';
 
       if (performance.memory) {
         const mb = memHistory[memHistory.length - 1] || 0;
@@ -648,11 +656,11 @@ registerApp({
       if (domBaseline === null) domBaseline = domCount;
       const domSpike = domCount - domBaseline >= DOM_SPIKE_DELTA;
       domEl.textContent = String(domCount);
-      domEl.style.color = domSpike ? '#f85149' : 'var(--text-primary)';
+      domEl.style.color = domSpike ? 'var(--text-danger)' : 'var(--text-primary)';
 
       if (longTaskSupported) {
         longEl.textContent = longTaskCount > 0 ? _t('apps.perf.longTasksValue', { count: longTaskCount }) : _t('apps.perf.none');
-        longEl.style.color = longTaskCount > 0 ? '#fbbf24' : 'var(--text-primary)';
+        longEl.style.color = longTaskCount > 0 ? 'var(--text-warning)' : 'var(--text-primary)';
         longTaskCount = 0; // reset for next window; the observer accumulates continuously
       } else {
         longEl.textContent = _t('apps.perf.notAvailable');
@@ -673,16 +681,16 @@ registerApp({
       longTaskLog.length = 0;
       fpsBelowThresholdStreak = 0;
       domBaseline = null;
-      fpsEl.style.color = '#3fb950';
+      fpsEl.style.color = 'var(--text-success)';
       domEl.style.color = 'var(--text-primary)';
       longEl.style.color = 'var(--text-primary)';
-      drawChart(canvas, fpsHistory, '#00ff00', 60);
-      drawChart(memCanvas, memHistory, '#67e8f9', null);
-      drawChart(domCanvas, domHistory, '#fbbf24', null);
+      drawChart(canvas, fpsHistory, themeColor('--text-success', '#00ff00'), 60);
+      drawChart(memCanvas, memHistory, themeColor('--accent', '#67e8f9'), null);
+      drawChart(domCanvas, domHistory, themeColor('--text-warning', '#fbbf24'), null);
       renderLongTaskLog();
     }, { signal: ac.signal });
 
-    exportBtn.addEventListener('click', () => {
+    exportBtn.addEventListener('click', async () => {
       const payload = {
         exportedAt: new Date().toISOString(),
         current: {
@@ -701,16 +709,16 @@ registerApp({
         perWindowDomNodes: (typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [])
           .map(w => ({ appId: w.appId, id: w.id, domNodes: w.content ? w.content.querySelectorAll('*').length : null })),
       };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = createEl('a', { href: url, download: 'nbosp-perf-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // Same delayed-revoke reasoning as console.js's export: some browsers
-      // cancel the download if the blob URL is revoked before the click's
-      // download actually starts.
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      try {
+        await SystemDialogs.saveContent({
+          title: _t('apps.perf.export'),
+          suggestedName: 'nbosp-perf-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json',
+          accept: '.json',
+        }, JSON.stringify(payload, null, 2));
+      } catch (error) {
+        console.error('[Perf] Export failed:', error);
+        Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error', appName: 'Performance Monitor' });
+      }
     }, { signal: ac.signal });
 
     renderPerWindow();

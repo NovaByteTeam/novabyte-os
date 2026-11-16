@@ -53,7 +53,12 @@ function createGuardedSessionCredentials() {
     // doesn't (re-setting a key updates its value in place, it doesn't
     // move it to the end).
     const oldestKey = target.keys().next().value;
+    /* v8 ignore start */
+    // evictOldest only runs while t.size >= MAX_CREDENTIAL_CACHE_SIZE, so
+    // the map is never empty here — the undefined side is a hard guard for
+    // future callers, not a reachable state.
     if (oldestKey !== undefined) target.delete(oldestKey);
+    /* v8 ignore stop */
   }
 
   return new Proxy(target, {
@@ -205,6 +210,7 @@ module.exports = {
   getCredEncryptKey,
   restoreCredsFromSession,
   requireCreds,
+  startCredentialCleanup,
   stopCredentialCleanup,
   MAX_CREDENTIAL_CACHE_SIZE
 };

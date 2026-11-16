@@ -239,6 +239,31 @@
       console.warn('[SessionManager] Appearance re-apply failed:', err);
     }
 
+    // 4b. Re-apply the account's runtime flags that are only read once at
+    //     boot elsewhere: DND lives per-user in HKNU but OS.dnd is a
+    //     boot-time read (a user switch used to leave the previous
+    //     account's DND active); the tray restores the saved volume; the
+    //     dev-mode surface follows the account's own hive.
+    try { OS.dnd = OS.settings.get('doNotDisturb') === true; } catch (_) { }
+    try {
+      if (window.TrayService && typeof window.TrayService.applySavedVolume === 'function') {
+        window.TrayService.applySavedVolume();
+      }
+    } catch (_) { }
+    try {
+      const devMode = OS.settings.get('devMode') === true;
+      if (window.DebugOverlay) {
+        if (devMode) {
+          if (OS.settings.get('debugOverlayVisible') !== false) window.DebugOverlay.enable();
+        } else {
+          // hide(), not disable(): a dev-mode-less account must not durably
+          // flip the PREVIOUS account's debugOverlayVisible preference off —
+          // that account re-arms its own surface when it logs back in.
+          if (window.DebugOverlay.hide) window.DebugOverlay.hide(); else window.DebugOverlay.disable();
+        }
+      }
+    } catch (_) { }
+
     // 5. User-data localStorage keys: seed from this account's files.
     if (!isGuest) seedLocalStorageFromUser();
 
@@ -370,7 +395,9 @@
     state.status = 'active';
     await mountUserScope(finish.json.data.user);
     emit('session:changed', { uid: state.uid, role: state.role, via: 'webauthn' });
-    return { ok: true, user: finish.json.data.user };
+    // mustChangePin rides along so the lock screen can route a must-change
+    // account onto the forced new-PIN card (same contract as login/unlock).
+    return { ok: true, user: finish.json.data.user, mustChangePin: state.mustChangePin };
   }
 
   /** First-boot setup: creates the owner account and enters the session. */
@@ -447,7 +474,15 @@
     // Guests now mount their own volatile tree/hives/app roots through the
     // same sequence every other session uses.
     await mountUserScope({ uid: 'guest', username: '', role: 'guest' }, { volatile: true });
-    emit('session:changed', { uid: null, role: 'guest', via: 'guest' });
+    // BUG (2026-11-15 audit, finding M10): this event carries uid:null and
+    // no phase, and the lock screen's listener treats exactly that shape as
+    // "user signed out" — so the login picker re-appeared over every guest
+    // session (the listener resumes after its await listAccounts(), by which
+    // time unlockFromLockScreen() has already torn the gate down, and it
+    // re-appends the picker + re-activates the lock screen over the live
+    // guest desktop; every retry re-runs the full mountUserScope). The
+    // phase discriminator keeps the picker down for guest sign-in.
+    emit('session:changed', { uid: null, role: 'guest', via: 'guest', phase: 'guest' });
     return { ok: true, guest: true };
   }
 
@@ -514,6 +549,11 @@
     discardGuestApps();
     flushLocalStorageToUser();
     teardownDesktop();
+    // The departing account's dev HUD comes down with its session (the
+    // lock gate hides it too); the next account's mountUserScope re-applies
+    // its own dev surface. OS.dnd/OS.volume need no reset — the next mount
+    // re-applies them.
+    try { if (window.DebugOverlay?.hide) window.DebugOverlay.hide(); else window.DebugOverlay?.disable?.(); } catch (_) { }
     if (typeof NovaUserScope !== 'undefined') {
       NovaUserScope.clearActive();
       NovaUserScope.setActiveRole(null);

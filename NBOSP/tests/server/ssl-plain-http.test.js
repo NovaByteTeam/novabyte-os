@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
@@ -9,7 +9,12 @@ import https from 'node:https';
 // Real configureSSL (ssl.test.js mocks it for the bootstrap tests) + real
 // certs from the shared X.509 seeder, so the plaintext-into-TLS-port
 // behavior is exercised against an actual https.Server, not a mock.
-import { configureSSL, isPlainHttpRequestToTlsPort, respondPlainHttpOverRawSocket } from '../../server/core/ssl.js';
+// Real configureSSL through CJS require — the same instance style the
+// ssl.test.js / index.test.js bootstrap chains load (vi.mock cannot
+// intercept their internal requires). One loading style per module across
+// all workers keeps the v8 coverage merge honest.
+import { createRequire } from 'node:module';
+const { configureSSL, isPlainHttpRequestToTlsPort, respondPlainHttpOverRawSocket } = createRequire(import.meta.url)('../../server/core/ssl.js');
 import { seedCerts } from './helpers/seed-certs.js';
 
 describe('server/core/ssl.js — plain HTTP request on the HTTPS port', () => {
@@ -133,6 +138,8 @@ describe('server/core/ssl.js — responder helpers (unit)', () => {
     expect(declared).toBe(Buffer.byteLength(body));
     // The error listener must be attached before the write (client may RST).
     expect(socket.listeners.error).toBeDefined();
+    // and firing that listener (a mid-flush client reset) is a silent no-op
+    expect(() => socket.emitError(new Error('read ECONNRESET'))).not.toThrow();
   });
 
   it('respondPlainHttpOverRawSocket refuses destroyed or non-writable sockets', () => {
@@ -147,5 +154,117 @@ describe('server/core/ssl.js — responder helpers (unit)', () => {
     expect(notWritable.ended).toBe(false);
 
     expect(respondPlainHttpOverRawSocket(null)).toBe(false);
+  });
+
+  it('the 1s destroy backstop fires if the client never closes its side', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = fakeSocket();
+      expect(respondPlainHttpOverRawSocket(socket)).toBe(true);
+      expect(socket.destroyCalls).toBe(0); // end() flushed, no destroy yet
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(socket.destroyCalls).toBe(1); // backstop destroyed the socket
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('tolerates timer handles that carry no unref method', () => {
+    // some embedder runtimes hand back a bare number from setTimeout
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockReturnValue(12345);
+    try {
+      const socket = fakeSocket();
+      expect(respondPlainHttpOverRawSocket(socket)).toBe(true);
+      expect(socket.ended).toBe(true);
+      expect(socket.writes).toHaveLength(1);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+});
+
+describe('server/core/ssl.js — configureSSL guards', () => {
+  const savedDataDir = process.env.NBOSP_DATA_DIR;
+
+  afterEach(() => {
+    if (savedDataDir === undefined) delete process.env.NBOSP_DATA_DIR;
+    else process.env.NBOSP_DATA_DIR = savedDataDir;
+  });
+
+  it('refuses to start when the TLS material is missing from the data dir', async () => {
+    const empty = await fs.mkdtemp(path.join(os.tmpdir(), 'nbosp-ssl-nocerts-'));
+    try {
+      process.env.NBOSP_DATA_DIR = empty;
+      expect(() => configureSSL((req, res) => res.end('x'))).toThrow(
+        /Cannot start server without TLS/,
+      );
+    } finally {
+      await fs.rm(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the package dir above the script when NBOSP_DATA_DIR is unset', async () => {
+    delete process.env.NBOSP_DATA_DIR;
+    // No cert.key/cert.crt ship inside the repo — the fallback path resolves
+    // against NBOSP/ and still refuses to boot without TLS material.
+    expect(() => configureSSL((req, res) => res.end('x'))).toThrow(
+      /Cannot start server without TLS/,
+    );
+  });
+
+  it('tlsClientError: non-plaintext failures return early; a missing raw socket destroys the TLS socket', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nbosp-ssl-emit-'));
+    await seedCerts(dataDir);
+    process.env.NBOSP_DATA_DIR = dataDir;
+    try {
+      const { server } = configureSSL((req, res) => res.end('x'));
+      // a non-plaintext TLS error: our handler returns before touching the
+      // raw socket (node's own tls internals may still destroy the wrapper —
+      // that is its documented default and fine)
+      const parentWrites = [];
+      const stray = {
+        _parent: {
+          destroyed: false,
+          writable: true,
+          end: (d) => parentWrites.push(d),
+          on: () => {},
+          destroy: () => {},
+        },
+        destroy: vi.fn(),
+      };
+      server.emit('tlsClientError', { code: 'ERR_SSL_WRONG_VERSION_NUMBER' }, stray);
+      expect(parentWrites).toEqual([]); // no plaintext 400 for non-plaintext failures
+
+      // plaintext error but the raw socket is gone → the TLS socket is
+      // destroyed (node's tls internals also destroy it — its own default)
+      const tlsSocket = { _parent: null, destroy: vi.fn() };
+      server.emit('tlsClientError', { code: 'ERR_SSL_HTTP_REQUEST' }, tlsSocket);
+      expect(tlsSocket.destroy).toHaveBeenCalled();
+
+      // a throwing destroy is swallowed by our handler's try/catch. node's
+      // own tls listener was registered first and calls destroy BEFORE ours,
+      // so only the SECOND call (ours) explodes — proving our catch held
+      let destroyCalls = 0;
+      const exploding = {
+        _parent: null,
+        destroy: () => { destroyCalls += 1; if (destroyCalls === 2) throw new Error('boom'); },
+      };
+      expect(() => server.emit('tlsClientError', { code: 'ERR_SSL_HTTP_REQUEST' }, exploding)).not.toThrow();
+      expect(destroyCalls).toBeGreaterThanOrEqual(2);
+
+      // a tlsSocket without any destroy method: our handler's guard skips the
+      // destroy call entirely. Called DIRECTLY off the listener list — a
+      // bare emit would die in node's own (first-registered) tls listener,
+      // which calls conn.destroy unguarded.
+      const handlers = server.listeners('tlsClientError');
+      const ourHandler = handlers[handlers.length - 1]; // configureSSL registers last
+      expect(() => ourHandler({ code: 'ERR_SSL_HTTP_REQUEST' }, { _parent: null })).not.toThrow();
+      // and a destroyed raw socket falls into the same guarded branch
+      expect(() => ourHandler({ code: 'ERR_SSL_HTTP_REQUEST' }, { _parent: { destroyed: true } })).not.toThrow();
+
+      await new Promise((r) => server.close(r));
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
   });
 });

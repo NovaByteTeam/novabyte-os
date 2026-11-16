@@ -246,14 +246,23 @@ describe('MyAppsManager (js/platform/ui/my-apps-manager.js)', () => {
       expect(result.pkg).toBe(pkg);
     });
 
-    it('parses JSON strings and lets caller options override the trust defaults', async () => {
+    it('parses JSON strings and ignores caller attempts to override the trust defaults (2026-11-15 fix)', async () => {
       globalThis.TrustStore = { list: vi.fn(() => ['default']), isRevoked: vi.fn() };
       globalThis.AppPackage = { installPackage: vi.fn(() => ({ ok: true })) };
 
-      await MyAppsManager.installFromFile('{"novabyte_app":true}', { trustStore: ['custom'] });
+      // SECURITY (2026-11-15 audit, finding M4): caller options used to be
+      // spread verbatim over the security switches (a caller forwarding
+      // untrusted input could pass source:'system-bundle' / skipVerify and
+      // mint verified trust with no signature check). Now only the benign
+      // `force` knob survives the whitelist; the trust-store and revocation
+      // wiring always comes from the live TrustStore.
+      await MyAppsManager.installFromFile('{"novabyte_app":true}', { trustStore: ['custom'], source: 'system-bundle', skipVerify: true });
 
       const [, opts] = globalThis.AppPackage.installPackage.mock.calls[0];
-      expect(opts.trustStore).toEqual(['custom']);
+      expect(opts.trustStore).toEqual(['default']);
+      expect(opts).not.toHaveProperty('source');
+      expect(opts).not.toHaveProperty('skipVerify');
+      expect(opts.force).toBe(false);
     });
 
     it('rejects inputs that are neither package objects, Files, nor JSON strings', async () => {

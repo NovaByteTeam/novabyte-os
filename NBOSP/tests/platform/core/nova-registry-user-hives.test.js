@@ -158,3 +158,33 @@ describe('NovaRegistry — mounted per-user hives (multi-user)', () => {
     expect(storage._map.has('user:u1:HKNU.corrupt')).toBe(true);
   });
 });
+
+describe('NovaRegistry.peekUserValue (read another account without mounting it)', () => {
+  it('reads a stored account value while a different account stays mounted', () => {
+    NovaRegistry.mountUserHives('ada');
+    NovaRegistry.set('HKNU/shell/wallpaper', 'stock-red', { source: 'test' });
+    NovaRegistry.mountUserHives('sam');
+    NovaRegistry.set('HKNU/shell/wallpaper', 'stock-green', { source: 'test' });
+
+    expect(NovaRegistry.peekUserValue('ada', 'HKNU/shell/wallpaper')).toBe('stock-red');
+    // peeking must not remount or alter the live hive
+    expect(NovaRegistry.mountedUserUid()).toBe('sam');
+    expect(NovaRegistry.get('HKNU/shell/wallpaper')).toBe('stock-green');
+  });
+
+  it('works while sealed at the picker, and returns undefined for unknown accounts or values', () => {
+    NovaRegistry.mountUserHives('ada');
+    NovaRegistry.set('HKNU/shell/wallpaper', 'stock-red', { source: 'test' });
+    NovaRegistry.unmountUserHives();
+
+    expect(NovaRegistry.peekUserValue('ada', 'HKNU/shell/wallpaper')).toBe('stock-red');
+    expect(NovaRegistry.peekUserValue('ada', 'HKNU/shell/nothing')).toBeUndefined();
+    expect(NovaRegistry.peekUserValue('ghost', 'HKNU/shell/wallpaper')).toBeUndefined();
+  });
+
+  it('only exposes per-account hives, never the machine hive or malformed segments', () => {
+    NovaRegistry.set('HKNS/shell/wallpaper', 'stock-teal', { source: 'test' });
+    expect(NovaRegistry.peekUserValue('ada', 'HKNS/shell/wallpaper')).toBeUndefined();
+    expect(NovaRegistry.peekUserValue('../etc', 'HKNU/shell/wallpaper')).toBeUndefined();
+  });
+});

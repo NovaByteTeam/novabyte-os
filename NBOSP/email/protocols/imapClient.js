@@ -129,13 +129,14 @@ async function imapMessages(creds, folder, page, limit, msgShape) {
       uid: true, flags: true, envelope: true
     })) {
       const env = msg.envelope || {};
+      const firstFrom = env.from?.[0];
       messages.push({
         uid: msg.uid,
         seq: msg.seq,
         seen: msg.flags?.has('\\Seen') || false,
         subject: decodeEntities(env.subject || '(no subject)'),
-        from: env.from?.[0]
-          ? [env.from[0].name, `<${env.from[0].address}>`].filter(Boolean).join(' ').trim()
+        from: firstFrom
+          ? [firstFrom.name, `<${firstFrom.address}>`].filter(Boolean).join(' ').trim()
           : '',
         to: (env.to || []).map(a => a.address).filter(Boolean).join(', '),
         date: env.date ? new Date(env.date).toISOString() : null
@@ -150,7 +151,9 @@ async function imapMessages(creds, folder, page, limit, msgShape) {
 async function imapMessage(creds, folder, uid, msgShape) {
   if (!PostalMime) throw missingDep('postal-mime');
   const numericUid = parseInt(uid, 10);
-  if (!numericUid || isNaN(numericUid)) {
+  if (numericUid) {
+    // valid uid — fall through to the connection below
+  } else {
     throw new Error('Invalid message UID');
   }
 
@@ -173,7 +176,11 @@ async function imapMessage(creds, folder, uid, msgShape) {
 
 async function imapBatch(creds, op, uids, folder, dest) {
   if (!ImapFlow) throw missingDep('imapflow');
-  if (!Array.isArray(uids) || uids.length === 0) return;
+  if (Array.isArray(uids) && uids.length > 0) {
+    // non-empty batch — continue below
+  } else {
+    return;
+  }
 
   const client = await imapConnect(creds);
   try {
@@ -204,10 +211,11 @@ async function imapSearch(creds, query, folder) {
       const recentUids = uids.slice(-40).reverse();
       for await (const msg of client.fetch(recentUids, { envelope: true, flags: true }, { uid: true })) {
         const env = msg.envelope || {};
+        const fromAddress = env.from?.[0]?.address;
         messages.push({
           uid: msg.uid,
           subject: decodeEntities(env.subject || '(no subject)'),
-          from: env.from?.[0]?.address || '',
+          from: fromAddress || '',
           date: env.date ? new Date(env.date).toISOString() : null,
           seen: msg.flags?.has('\\Seen') || false
         });

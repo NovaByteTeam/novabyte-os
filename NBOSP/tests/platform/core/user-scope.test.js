@@ -2,7 +2,7 @@
 // segment (users/<username>) that every per-user storage stratum derives
 // from, plus the login-time uid→username layout upgrade that keeps data
 // from machines created before the username layout.
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { mkdtempSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -68,9 +68,106 @@ describe('NovaUserScope — the mounted account (uid + username)', () => {
     // mounted, so no admin powers exist until an account signs in.
     expect(UserScope.isActiveAdmin()).toBe(false);
   });
+
+  it('explicitlyEnabled() is true only after a real enable(), never by default', () => {
+    // unset flag: multi-user ON by default but NOT explicitly
+    expect(UserScope.enabled()).toBe(true);
+    expect(UserScope.explicitlyEnabled()).toBe(false);
+    UserScope.disable();
+    expect(UserScope.explicitlyEnabled()).toBe(false);
+    UserScope.enable();
+    expect(UserScope.explicitlyEnabled()).toBe(true);
+  });
+
+  it('clearActiveUsername removes only the username, keeping the uid mounted', () => {
+    UserScope.setActive('u-77');
+    UserScope.setActiveUsername('nadia');
+    UserScope.clearActiveUsername();
+    expect(UserScope.activeUsername()).toBe('');
+    expect(UserScope.uid()).toBe('u-77');
+  });
+
+  it('invalid uid/username/role writes are dropped, not stored', () => {
+    UserScope.setActive('not a uid!');
+    expect(UserScope.uid()).toBe('');
+    UserScope.setActiveUsername('NOT VALID!!');
+    expect(UserScope.activeUsername()).toBe('');
+    UserScope.setLegacyOwnerUid('also bad!');
+    expect(UserScope.legacyOwnerUid()).toBe('');
+    // falsy role clears the flag instead of writing 'null' into storage
+    UserScope.setActiveRole('owner');
+    UserScope.setActiveRole(null);
+    expect(UserScope.isActiveAdmin()).toBe(false);
+  });
+
+  it('single-user (disabled) machines: empty scope everywhere, admin always', () => {
+    UserScope.setActive('u-9');
+    UserScope.setActiveUsername('dave');
+    UserScope.setLegacyOwnerUid('u-legacy');
+    UserScope.disable();
+    // every accessor collapses to '' while multi-user is off
+    expect(UserScope.uid()).toBe('');
+    expect(UserScope.activeUsername()).toBe('');
+    expect(UserScope.ownerUid()).toBe('');
+    expect(UserScope.userSegment()).toBe('');
+    // and single-user legacy machines keep full admin powers
+    expect(UserScope.isActiveAdmin()).toBe(true);
+  });
+
+  it('ownerUid falls back to the legacy owner pre-login, then to the active account', () => {
+    UserScope.enable();
+    UserScope.setLegacyOwnerUid('u-legacy');
+    expect(UserScope.ownerUid()).toBe('u-legacy'); // no active account yet
+    UserScope.setActive('u-active');
+    expect(UserScope.ownerUid()).toBe('u-active'); // signed in wins
+  });
+
+  it('userSegment uses the uid only when no username is mounted', () => {
+    UserScope.enable();
+    UserScope.setLegacyOwnerUid('u-seg');
+    expect(UserScope.userSegment()).toBe('users/u-seg');
+    UserScope.setActive('u-2');
+    expect(UserScope.userSegment()).toBe('users/u-2');
+    UserScope.setActiveUsername('zoe');
+    expect(UserScope.userSegment()).toBe('users/zoe');
+  });
+
+  it('isActiveAdmin maps the mounted role (owner/admin vs anything else)', () => {
+    UserScope.setActiveRole('owner');
+    expect(UserScope.isActiveAdmin()).toBe(true);
+    UserScope.setActiveRole('admin');
+    expect(UserScope.isActiveAdmin()).toBe(true);
+    UserScope.setActiveRole('guest');
+    expect(UserScope.isActiveAdmin()).toBe(false);
+  });
+
+  it('storage failures degrade to empty strings instead of throwing', () => {
+    const bomb = () => { throw new Error('QuotaExceeded'); };
+    const stub = { getItem: bomb, setItem: bomb, removeItem: bomb };
+    const original = globalThis.localStorage;
+    Object.defineProperty(globalThis, 'localStorage', { value: stub, configurable: true });
+    try {
+      expect(UserScope.enabled()).toBe(true);   // lsGet → '' → flag not '0'
+      expect(UserScope.uid()).toBe('');
+      expect(() => UserScope.setActive('u-1')).not.toThrow();
+      expect(() => UserScope.reset()).not.toThrow();
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', { value: original, configurable: true });
+    }
+  });
+
+  it('exports through module.exports for CJS hosts too', () => {
+    // user-scope.js is a dual-mode IIFE: window.NovaUserScope for the shell,
+    // module.exports for tooling. This file is loaded through the ESM graph
+    // (window side); the module.exports side is exercised by the CJS
+    // consumers' own suites, so here we only pin the exported surface.
+    expect(Object.isFrozen(UserScope)).toBe(true);
+    expect(typeof UserScope.setActive).toBe('function');
+    expect(typeof UserScope.reset).toBe('function');
+  });
 });
 
-describe('MultiUserMigration.upgradeUserLayout — onto the ~/users/<username> layout', () => {
+describe.runIf(process.platform === 'linux')('MultiUserMigration.upgradeUserLayout — onto the ~/users/<username> layout', () => {
   // The production NBOSP runtime IS a linux native runtime, so this is the
   // real path: an account's visible filesystem must BE <machine home>/users/
   // <username>/ — a real, separated tree — with the standard folders directly

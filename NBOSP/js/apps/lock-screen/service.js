@@ -84,6 +84,19 @@ function handleLockScreenKeydown(e) {
     return;
   }
   if (surface === 'setup') return; // the wizard owns its own keyboard handling
+  if (surface === 'forced-pin') {
+    // The forced-PIN card owns the keyboard while it is up: digit keys must
+    // never fall through into the hidden sheet's enterPinDigit →
+    // verifySheetSecret → manager.unlock attempts. The card's own inputs
+    // take the keystrokes; Enter submits only from inside those inputs.
+    const card = document.getElementById('lock-forced-pin');
+    const activeId = document.activeElement?.id;
+    if (card && e.key === 'Enter' && (activeId === 'fp-pin' || activeId === 'fp-pin2')) {
+      e.preventDefault();
+      card.querySelector('.fw-submit')?.click();
+    }
+    return;
+  }
   if (sheetMode === 'passphrase') {
     if (e.key === 'Enter') { e.preventDefault(); verifySheetSecret(); }
     return; // the field handles its own input
@@ -100,6 +113,43 @@ function submitSheetIfComplete() {
 }
 
 // ── Shared sheet rendering (numpad + dots are reused components) ─────
+
+const STOCK_WALLPAPER_ID = 'stock-blue';
+
+/**
+ * The login picker always shows stock blue; an account's own wallpaper only
+ * appears once that account is the one being unlocked. The account's hive is
+ * peeked read-only because nobody has authenticated yet, so it can't be mounted.
+ * customWallpaper is machine-wide (too big for a hive value), so an account
+ * flagged as custom shows whichever image is currently stored.
+ */
+function wallpaperFor(account) {
+  if (!account) return { id: STOCK_WALLPAPER_ID, custom: null };
+  // Hive documents are keyed by uid (user:<uid>:HKNU), not by the username.
+  const segment = account.uid;
+  const peek = (path) => {
+    try { return NovaRegistry?.peekUserValue?.(segment, path); } catch (_) { return undefined; }
+  };
+  const id = peek('HKNU/shell/wallpaper');
+  const hasCustom = !!peek('HKNU/settings/customWallpaperName');
+  return {
+    id: typeof id === 'string' ? id : STOCK_WALLPAPER_ID,
+    custom: hasCustom ? (OS.settings?.get?.('customWallpaper') || null) : null,
+  };
+}
+
+function setLockWallpaper(account) {
+  const lockScreenEl = document.getElementById('lock-screen');
+  const service = window.WallpaperService;
+  if (!lockScreenEl || typeof service?.styleFor !== 'function') return;
+  let layer = lockScreenEl.querySelector(':scope > .lock-wallpaper');
+  if (!layer) {
+    layer = createEl('div', { className: 'lock-wallpaper', 'aria-hidden': 'true' });
+    lockScreenEl.prepend(layer);
+  }
+  const { id, custom } = wallpaperFor(account);
+  Object.assign(layer.style, service.styleFor(id, custom));
+}
 
 function renderLockScreen() {
   const usernameEl = document.getElementById('lock-username');
@@ -410,7 +460,12 @@ async function attemptBiometricUnlock(statusEl) {
       const result = await manager.webauthnLogin({ uid: sheetAccount.uid });
       if (result.ok) {
         unlockFromLockScreen();
-        if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
+        if (result.mustChangePin) {
+          // A must-change account must land on the forced new-PIN card —
+          // biometric login skips the sheet, so route it here exactly the
+          // way verifySheetSecret does for PIN/passphrase logins.
+          showForcedPinChange();
+        } else if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
           Notify.show({ title: _t('shell.lock.welcomeBack'), body: _t('shell.lock.authenticatedViaBiometrics'), type: 'success', appName: 'System' });
         }
       } else {
@@ -473,8 +528,19 @@ function hideAllSurfaces() {
   document.getElementById('lock-passphrase-back')?.remove();
   document.getElementById('lock-switch-user')?.remove();
   document.getElementById('lock-passphrase-toggle')?.remove();
+  document.getElementById('lock-picker-back')?.remove();
+  document.getElementById('lock-forced-pin')?.remove();
   document.removeEventListener('keydown', handleLockScreenKeydown);
   surface = 'hidden';
+}
+
+/** Dev HUD comes down with every gate surface (see lockScreen/showLoginPicker). */
+function hideDebugOverlayAtGate() {
+  // The login/lock gate must never leak dev HUD info (memory, URLs, window
+  // geometry) to whoever is standing at the screen. mountUserScope() applies
+  // the signed-in account's own dev surface once the gate is past. hide()
+  // (not disable()) so the user's debugOverlayVisible preference survives.
+  try { if (window.DebugOverlay?.hide) window.DebugOverlay.hide(); else window.DebugOverlay?.disable?.(); } catch (_) { }
 }
 
 // ── Lock (the active session) ────────────────────────────────────────
@@ -489,6 +555,7 @@ async function lockScreen() {
     }
     OS.isLocked = true;
     surface = 'locked';
+    hideDebugOverlayAtGate();
     sheetAccount = {
       uid: manager.state().uid,
       displayName: manager.state().displayName || manager.state().uname,
@@ -503,6 +570,7 @@ async function lockScreen() {
         if (match) sheetAccount = match;
       }
     } catch (_) { }
+    setLockWallpaper(sheetAccount);
     document.getElementById('lock-screen')?.classList.add('active');
     showPinPadForAccount();
     await manager.lock?.();
@@ -512,6 +580,7 @@ async function lockScreen() {
 
   if (!OS.lockPin) { WM.minimizeAll(); return; }
   OS.isLocked = true;
+  hideDebugOverlayAtGate();
   document.getElementById('lock-screen')?.classList.add('active');
   renderLockScreen();
   EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'Screen locked' });
@@ -529,18 +598,52 @@ async function lockForUser(uid) {
   } catch (_) { }
   OS.isLocked = true;
   surface = 'locked';
+  hideDebugOverlayAtGate();
   document.getElementById('lock-screen')?.classList.add('active');
   showPinPadForAccount();
 }
 
 // ── Login picker ─────────────────────────────────────────────────────
 
+/**
+ * Canonical user-switch entry point for shell surfaces (the Settings app's
+ * admin lock panel and the Users app's expired-session banner): suspend the
+ * current session first, then show the login picker. Calling
+ * showLoginPicker() directly from those buttons did nothing — it bails while
+ * a session is locally active/guest (the M10 re-activation guard), so the
+ * suspend must happen first, exactly like the lock screen's own
+ * "Switch user" button does.
+ */
+async function switchUser() {
+  const manager = sessionManager();
+  if (manager?.suspendForSwitch) {
+    try {
+      await manager.suspendForSwitch();
+    } catch (_) {
+      // authFetch never throws, but if anything above failed mid-teardown
+      // the picker is still the right next surface.
+    }
+  }
+  await showLoginPicker();
+}
+
 async function showLoginPicker() {
   if (!multiUserEnabled()) { await lockScreen(); return; }
   const manager = sessionManager();
   if (!manager) return;
 
+  // BUG (2026-11-15 audit, finding M10): a guest (or active) session must
+  // never have the picker re-activated over it. showLoginPicker() is async
+  // and suspends on listAccounts(); when it resumes it used to rebuild the
+  // gate unconditionally, even when the session it was invoked for had
+  // already been replaced by a successful sign-in. Bail here instead.
+  try {
+    const st = manager.state?.();
+    if (st && (st.status === 'guest' || st.status === 'active')) return;
+  } catch (_) { /* state() unavailable in tests — keep legacy behaviour */ }
+
   surface = 'picker';
+  hideDebugOverlayAtGate();
   sheetAccount = null;
   sheetResumable = false;
   sheetMode = 'pin';
@@ -563,11 +666,12 @@ async function showLoginPicker() {
   }
 
   // Hide the sheet chrome while the picker is up.
-  for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad', 'lock-passphrase', 'lock-passphrase-back', 'lock-switch-user', 'lock-passphrase-toggle']) {
+  for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad', 'lock-passphrase', 'lock-passphrase-back', 'lock-switch-user', 'lock-passphrase-toggle', 'lock-picker-back']) {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   }
   lockScreenEl.querySelector('.lock-picker')?.remove();
+  setLockWallpaper(null);
 
   const picker = createEl('div', { className: 'lock-picker', role: 'group', 'aria-label': _t('shell.lock.accountPickerAria') });
 
@@ -726,6 +830,7 @@ function selectAccountForAuth(user, { resumable = false } = {}) {
   const lockScreenEl = document.getElementById('lock-screen');
   const pickerEl = lockScreenEl?.querySelector('.lock-picker');
   if (pickerEl) pickerEl.style.display = 'none';
+  setLockWallpaper(user);
 
   for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad']) {
     const el = document.getElementById(id);
@@ -879,6 +984,17 @@ function showForcedPinChange() {
   const existing = document.getElementById('lock-forced-pin');
   existing?.remove();
 
+  // Hide the base sheet chrome while the forced-PIN card is up — the same
+  // element set showLoginPicker hides for the picker — so the card is the
+  // only visible surface (avatar/name/numpad underneath used to bleed
+  // through behind the card).
+  for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad', 'lock-passphrase', 'lock-passphrase-back', 'lock-switch-user', 'lock-passphrase-toggle', 'lock-picker-back']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+  lockScreenEl.querySelector('.biometric-btn')?.remove(); // sibling of the numpad, not hidden by the loop
+  lockScreenEl.querySelector('.lock-picker')?.remove();
+
   const card = createEl('div', { id: 'lock-forced-pin', className: 'lock-forced-pin', role: 'form', 'aria-label': _t('shell.lock.setNewPinAria') });
   card.appendChild(createEl('div', { className: 'lock-picker-title', textContent: _t('shell.lock.chooseNewPin'), role: 'heading', 'aria-level': 2 }));
   card.appendChild(createEl('div', { className: 'lock-wizard-sub', textContent: _t('shell.lock.pinResetNotice') }));
@@ -905,7 +1021,18 @@ function showForcedPinChange() {
     if (!/^\d{4,6}$/.test(pin.value)) { status.textContent = _t('shell.lock.pinDigits'); return; }
     if (pin.value !== pin2.value) { status.textContent = _t('shell.lock.pinsNoMatch'); return; }
     const result = await manager.changePin(null, pin.value);
-    if (result.ok) card.remove();
+    if (result.ok) {
+      // Restore the sheet chrome's default visibility first — a later
+      // lockScreen() must not inherit the hidden state — then run the same
+      // teardown unlockFromLockScreen() performs, so the overlay cannot
+      // stick over the live desktop with a dead 'forced-pin' surface.
+      for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad']) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+      }
+      unlockFromLockScreen();
+      EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'New PIN saved (forced change)' });
+    }
     else status.textContent = result.message || _t('shell.lock.couldNotSavePin');
   });
   card.appendChild(submit);
@@ -996,7 +1123,13 @@ try {
       if (surface !== 'forced-pin') unlockFromLockScreen();
       setupRapidCloses = 0;
     }
-    if (event?.name === 'session:loggedout' || (event?.name === 'session:changed' && event.uid === null && event.phase !== 'picker' && event.phase !== 'setup')) {
+    if (event?.name === 'session:loggedout' || (event?.name === 'session:changed' && event.uid === null && event.phase !== 'picker' && event.phase !== 'setup' && event.phase !== 'guest')) {
+      // BUG (2026-11-15 audit, finding M10): guestLogin()'s session:changed
+      // (uid:null, no phase) used to match this "signed out" condition, so
+      // the picker re-appeared over every live guest session. The emit now
+      // carries phase:'guest' (excluded above) — and showLoginPicker()
+      // itself re-checks the session state, so any future event-shape
+      // regression cannot resurrect the gate over an active/guest desktop.
       showLoginPicker().catch(() => { });
     }
   });
@@ -1107,4 +1240,4 @@ try {
   typeof OS !== 'undefined' && OS.events?.on?.('languageChanged', handleLockScreenLanguageChanged);
 } catch (_) { /* event bus unavailable (service unit tests) */ }
 
-window.LockScreenService = Object.freeze({ lockScreen, showLoginPicker, lockForUser, state: () => surface });
+window.LockScreenService = Object.freeze({ lockScreen, showLoginPicker, switchUser, lockForUser, state: () => surface });

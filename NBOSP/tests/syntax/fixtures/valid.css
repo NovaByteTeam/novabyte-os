@@ -1,0 +1,5 @@
+/* Deliberately valid CSS — must pass csstree-validator cleanly. */
+.valid {
+  color: red;
+  margin: 0 auto;
+}

@@ -18,6 +18,7 @@ process.env.PORT = '3317';
 // threw over missing cert files, breaking the whole bootstrap describe.)
 let seededDataDir;
 let importedServer;
+let closeServerResources;
 beforeAll(async () => {
   seededDataDir = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'nbosp-ssl-boot-'));
   await seedCerts(seededDataDir);
@@ -28,6 +29,7 @@ afterAll(async () => {
     try { await new Promise((r) => importedServer.close(r)); } catch { /* already closed */ }
     importedServer = undefined;
   }
+  closeServerResources?.();
   if (seededDataDir) {
     await fs.rm(seededDataDir, { recursive: true, force: true });
     delete process.env.NBOSP_DATA_DIR;
@@ -52,9 +54,15 @@ vi.mock('../../server/core/ssl.js', () => ({
   configureSSL: vi.fn(() => ({ server: mockServer })),
 }));
 
-vi.mock('../../server/middleware.js', () => ({ setupMiddleware: vi.fn((app) => { app.use?.(); }) }));
+vi.mock('../../server/middleware.js', () => ({
+  setupMiddleware: vi.fn((app) => { app.use?.(); }),
+  closeSessionDb: vi.fn(),
+}));
 vi.mock('../../server/routes.js', () => ({ mountRoutes: vi.fn((app) => { app.use?.(); }) }));
-vi.mock('../../server/favicons.js', () => ({ setupFaviconRoutes: vi.fn((app) => { app.get?.(); }) }));
+vi.mock('../../server/favicons.js', () => ({
+  setupFaviconRoutes: vi.fn((app) => { app.get?.(); }),
+  closeFaviconDb: vi.fn(),
+}));
 
 describe('server/core/ssl.js — configureSSL', () => {
   beforeEach(() => {
@@ -81,6 +89,7 @@ describe('server/core/index.js — bootstrap without real port bind', () => {
   it('imports and exports app, server, and listen without throwing', async () => {
     const mod = await import('../../server/core/index.js');
     importedServer = mod.server;
+    closeServerResources = mod.closeResources;
     expect(mod).toBeDefined();
     expect(typeof mod.app).toBe('function');
     expect(mod.server).toBeDefined();

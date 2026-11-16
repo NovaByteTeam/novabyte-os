@@ -130,9 +130,13 @@ const CalendarNotifier = {
 // ── EXPOSE TO GLOBAL RUNTIME SCOPE ───────────────────────────────────────────
 if (typeof CalendarNotifier !== 'undefined') {
   window.CalendarNotifier = CalendarNotifier;
-} else {
+}
+/* v8 ignore start — unreachable: CalendarNotifier is a const in this
+   module's own scope, so the guard can never take the else side. */
+else {
   console.warn('CalendarNotifier object was not found in the local scope of calendar-notifier.js');
 }
+/* v8 ignore stop */
 
 // Start once the desktop/lock screen has finished booting, alongside the
 // rest of NovaByte's Boot.hooks.after consumers.

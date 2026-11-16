@@ -114,15 +114,21 @@ const NovaRegistry = (() => {
   // multi-megabyte data URL would blow the per-value size quota, so it keeps
   // riding the legacy persistence channel.
   const SETTINGS_KEY_TO_PATH = Object.freeze({
-    // mapped shell & desktop keys
-    theme: 'HKNS/shell/theme',
-    accentColor: 'HKNS/shell/accentColor',
-    wallpaperId: 'HKNS/shell/wallpaper',
+    // mapped shell & desktop keys. 2026-11-15 redesign: theme, accent and
+    // wallpaper are personal preferences — they ride the mounted HKNU hive
+    // so each account configures its own look (legacy HKNS values are
+    // migrated once by the settings shim on load).
+    theme: 'HKNU/shell/theme',
+    accentColor: 'HKNU/shell/accentColor',
+    wallpaperId: 'HKNU/shell/wallpaper',
     pinnedApps: 'HKNU/desktop/pins',
     defaultApps: 'HKNU/shell/defaultApps',
     // system (machine-scoped) keys
     osVersion: 'HKNS/system/osVersion',
-    devMode: 'HKNS/system/devMode',
+    // 2026-11-15 redesign: Developer Mode is a per-user opt-in — each
+    // account enables its own developer surface; the legacy machine-wide
+    // HKNS/system location is migrated away by the settings shim.
+    devMode: 'HKNU/settings/devMode',
     // security keys — the multi-user account redesign removed the client-side
     // credential keys from the settings map: lockPin, pinSalt and
     // biometricCredentialId now live in the server's users.db (scrypt rows
@@ -132,7 +138,10 @@ const NovaRegistry = (() => {
     // import time, and machines that never enable multi-user keep the
     // single-user behaviour byte-for-byte through the generic-area scan.
     bootPassword: 'HKNS/security/bootPassword',
-    rootAccessEnabled: 'HKNS/security/rootAccessEnabled',
+    // 2026-11-15 redesign: root access is enabled per account (the root
+    // broker still requires an admin session for actual privileged
+    // operations, so this stays safe). Migrated from HKNS once.
+    rootAccessEnabled: 'HKNU/security/rootAccessEnabled',
     prohibitWallpaperChange: 'HKNS/security/policy/prohibitWallpaperChange',
     // per-user preferences
     clockFormat: 'HKNU/settings/clockFormat',
@@ -149,7 +158,13 @@ const NovaRegistry = (() => {
     region: 'HKNU/settings/region',
     language: 'HKNU/settings/language',
     keyboardLayout: 'HKNU/settings/keyboardLayout',
-    timezone: 'HKNU/settings/timezone',
+    // 2026-11-15 redesign: the timezone is deliberately MACHINE-scoped —
+    // one wall-clock for the whole machine (per-user legacy values are
+    // adopted into the system key once, by the first account to log in
+    // after the upgrade, then removed from the user hive).
+    timezone: 'HKNS/system/timezone',
+    // 2026-11-15: system-wide audio volume is a per-user preference.
+    volume: 'HKNU/settings/volume',
     highContrast: 'HKNU/settings/highContrast',
     removeTransparency: 'HKNU/settings/removeTransparency',
     reduceMotion: 'HKNU/settings/reduceMotion',
@@ -389,6 +404,19 @@ const NovaRegistry = (() => {
       const seg = parts[i].trim();
       if (!seg) return { error: 'INVALID_ARGS', message: 'path contains an empty segment' };
       if (seg === '.' || seg === '..') return { error: 'INVALID_ARGS', message: "path segments may not be '.' or '..'" };
+      // SECURITY (2026-11-15 audit, finding M2): '__proto__' as a segment
+      // resolves node.keys['__proto__'] to Object.prototype (truthy), landing
+      // the walker on Object.prototype and crashing every later access with
+      // a TypeError; as a VALUE name it invokes the __proto__ setter on
+      // node.values and silently drops the entry (own-props-only JSON
+      // persistence never sees it). 'constructor'/'prototype' similarly
+      // collide with inherited properties or pollute builtins. All three
+      // are rejected as segments — which covers key names AND value names,
+      // since get/set/stat/delete/rename derive the value name from the
+      // final path segment.
+      if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') {
+        return { error: 'INVALID_ARGS', message: `path segment '${seg}' is reserved` };
+      }
       if (seg.length > LIMITS.MAX_SEG_LENGTH) {
         return { error: 'INVALID_ARGS', message: `path segment exceeds ${LIMITS.MAX_SEG_LENGTH} characters` };
       }
@@ -420,7 +448,10 @@ const NovaRegistry = (() => {
   function walk(hives, hive, segments, create) {
     let node = ensureHive(hives, hive);
     for (const seg of segments) {
-      if (!node.keys[seg]) {
+      // Object.hasOwn guard (2026-11-15 fix, M2): a plain {} inherits
+      // __proto__/constructor from Object.prototype, so the old truthiness
+      // probe treated them as existing child keys.
+      if (!Object.hasOwn(node.keys, seg)) {
         if (!create) return undefined;
         node.keys[seg] = emptyNode();
       }
@@ -447,7 +478,7 @@ const NovaRegistry = (() => {
     let lastLink = null;
     const visited = new Set([curHive]);
     for (let i = 0; i < segs.length; i++) {
-      if (!node.keys[segs[i]]) {
+      if (!Object.hasOwn(node.keys, segs[i])) {
         if (!create) return null;
         node.keys[segs[i]] = emptyNode();
       }
@@ -1077,13 +1108,25 @@ const NovaRegistry = (() => {
         throw regError('INVALID_VALUE', 'a link node must be empty');
       }
     }
+    // SECURITY (2026-11-15 audit, finding M2): names arriving from imported
+    // JSON are own-property keys (JSON.parse uses CreateDataProperty, so an
+    // own '__proto__' survives) — applying them through plain assignment
+    // invokes the __proto__ setter and swaps the target node's prototype,
+    // with the entry then silently dropped on persist. Reject the dangerous
+    // names for both values and child keys.
+    const UNSAFE_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
     const values = node.values && typeof node.values === 'object' ? node.values : {};
     const keys = node.keys && typeof node.keys === 'object' ? node.keys : {};
-    for (const [name, entry] of Object.entries(values)) {
+    for (const name of Object.keys(values)) {
+      if (UNSAFE_NAMES.has(name)) throw regError('INVALID_VALUE', `value name '${name}' is reserved`);
+      const entry = values[name];
       if (name.length > LIMITS.MAX_NAME_LENGTH) throw regError('INVALID_VALUE', `value name too long: ${name}`);
       if (!entry || typeof entry !== 'object') throw regError('INVALID_VALUE', `value '${name}' is malformed`);
       const type = entry.type && TYPE_SET.has(entry.type) ? entry.type : detectType(entry.data);
       coerceValue(type, entry.data);
+    }
+    for (const name of Object.keys(keys)) {
+      if (UNSAFE_NAMES.has(name)) throw regError('INVALID_VALUE', `key name '${name}' is reserved`);
     }
     for (const child of Object.values(keys)) validateSubtreeNode(child, depth + 1);
   }
@@ -1511,6 +1554,31 @@ const NovaRegistry = (() => {
     return api;
   }
 
+  /**
+   * Read one value out of ANOTHER account's stored hive without mounting it.
+   * The login picker uses this to show an account's wallpaper before anyone
+   * has authenticated; nothing in the live state is touched, and only the
+   * per-account hives are readable this way. Resolves to undefined when the
+   * account, hive or value does not exist.
+   */
+  function peekUserValue(segment, path) {
+    ensureReady();
+    try {
+      if (typeof segment !== 'string' || !USER_DOC_RE.exec(`user:${segment}:HKNU`)) return undefined;
+      const parsed = parsePath(path);
+      if (parsed.error || !USER_HIVES.includes(parsed.hive)) return undefined;
+      if (!state.storage || typeof state.storage.read !== 'function') return undefined;
+      const raw = state.storage.read(`user:${segment}:${parsed.hive}`);
+      if (raw === null || raw === undefined) return undefined;
+      const decoded = decodeHive(parsed.hive, raw, () => { /* a read-only peek never quarantines */ });
+      if (!decoded) return undefined;
+      const { node, name } = resolveValueTarget({ [parsed.hive]: decoded }, parsed.hive, parsed.segments, false, { boundedTo: parsed.hive });
+      return node && node.values[name] ? node.values[name].data : undefined;
+    } catch (_) {
+      return undefined;
+    }
+  }
+
   const api = {
     HIVES,
     HIVE_ALIASES,
@@ -1553,6 +1621,7 @@ const NovaRegistry = (() => {
     hiveSnapshot,
     // Mounted per-account hives (multi-user): SessionManager-only surface.
     mountUserHives,
+    peekUserValue,
     unmountUserHives,
     flushUserHives,
     mountedUserUid,

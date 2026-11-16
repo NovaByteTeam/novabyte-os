@@ -113,6 +113,9 @@ describe('Files app (js/apps/files)', () => {
         extra: {
           process: { platform: 'linux' },
           FS: { rootId: userHome },
+          SystemDialogs: {
+            getMountedVolumes: () => [{ label: 'Data Drive', path: '/mnt/data', icon: 'hard-drive' }],
+          },
           require: (name) => {
             if (name === 'fs') return { promises: fsPromises, constants: {} };
             if (name === 'path') return linuxPath;
@@ -129,11 +132,74 @@ describe('Files app (js/apps/files)', () => {
 
     const pathInput = content.querySelector('[aria-label="Linux filesystem path"]');
     expect(pathInput.value).toBe(userHome);
+    const mounted = content.querySelector('.system-file-dialog-side-item[aria-label="Data Drive"]');
+    expect(mounted).toBeTruthy();
+    expect(mounted.querySelector('.system-file-dialog-side-icon').innerHTML).not.toBe('');
+    mounted.click();
+    await settle();
+    expect(state._linuxPath).toBe('/mnt/data');
     content.querySelector('[aria-label="Open home folder"]').click();
     await settle();
     expect(state._linuxPath).toBe(userHome);
     expect(fsPromises.stat).toHaveBeenCalledWith(userHome);
     state.cleanups.forEach(cleanup => cleanup());
+  });
+
+  it('installing a .novaapp survives getter-only File#path and hands App Manager a usable File', async () => {
+    // Regression for "Cannot install package / Cannot set property path of
+    // #<File> which has only a getter": NW.js ≥0.120 defines File#path as a
+    // getter-only accessor, so the old plain assignment threw and the whole
+    // install died before reaching App Manager.
+    const notifyCalls = [];
+    const handedOff = [];
+    const managerWindow = {
+      appId: 'com.nbosp.appmanager',
+      content: { _novaAppProcessFile: async (file) => { handedOff.push(file); return { ok: true }; } },
+    };
+    const fsPromises = {
+      readdir: vi.fn(async () => []),
+      lstat: vi.fn(),
+      stat: vi.fn(async () => ({ isFile: () => true, isDirectory: () => false, size: 2048 })),
+      readFile: vi.fn(async () => new Uint8Array([1, 2, 3, 4])),
+    };
+    const loaded = await loadWindowApp('files', {
+      stubs: {
+        extra: {
+          process: { platform: 'linux' },
+          FS: { rootId: '/home/nbosp' },
+          Notify: { show: (n) => notifyCalls.push(n) },
+          OS: { windows: new Map() },
+          WM: { createWindow: () => managerWindow },
+          require: (name) => {
+            if (name === 'fs') return { promises: fsPromises, constants: {} };
+            if (name === 'path') return linuxPath;
+            if (name === 'os') return { homedir: () => '/home/nbosp' };
+            if (name === 'child_process') return {};
+            throw new Error(`Unexpected module: ${name}`);
+          },
+        },
+      },
+    });
+    // Emulate NW.js ≥0.120: File#path becomes a getter-only prototype accessor.
+    Object.defineProperty(loaded.window.File.prototype, 'path', {
+      get() { return ''; },
+      configurable: true,
+    });
+
+    const content = initApp(loaded.app, { window: loaded.window, state: { cleanups: [] } });
+    await settle();
+
+    const linuxApp = content._linuxFilesApp;
+    expect(linuxApp).toBeTruthy();
+    await linuxApp.installPackage('/home/nbosp/Downloads/MyApp.NovaApp');
+
+    // no failure notification — the old code died with the TypeError here
+    expect(notifyCalls.filter((n) => n.title === 'Cannot install package')).toEqual([]);
+    // and App Manager received a synthetic File with a usable path + name
+    expect(handedOff).toHaveLength(1);
+    expect(handedOff[0].name).toBe('MyApp.novaapp');
+    expect(handedOff[0].path).toBe('/home/nbosp/Downloads/MyApp.NovaApp');
+    expect(handedOff[0] instanceof loaded.window.File).toBe(true);
   });
 
   it('renders the toolbar, default system folders and seeded files in the grid', async () => {
@@ -160,6 +226,86 @@ describe('Files app (js/apps/files)', () => {
     // Status bar counts everything
     expect(content.querySelector('.vault-statusbar').textContent).toBe('11 items');
     expect(content.querySelector('#file-browser-path-input').value).toBe('/');
+  });
+
+  it('renders the sysdialog-style quick-access sidebar and navigates/highlights from it', async () => {
+    const fs = makeFS();
+    await fs.createFolder(fs.rootId, 'Documents');
+    await fs.createFolder(fs.rootId, 'Downloads');
+    const { content } = await loadFiles({ fs });
+    await settle();
+
+    const sidebar = content.querySelector('.system-file-dialog-sidebar');
+    expect(sidebar).toBeTruthy();
+    expect(sidebar.getAttribute('aria-label')).toBe('Quick access');
+    expect(content.querySelector('.system-file-dialog-side-header').textContent).toBe('Quick access');
+
+    const sideItems = [...content.querySelectorAll('.system-file-dialog-side-item')];
+    const labels = sideItems.map((el) => el.getAttribute('aria-label'));
+    // Home + every special folder the FS exposes (the fake registers only
+    // desktop; plain folders are not quick-access entries).
+    expect(labels).toEqual(['Home', 'desktop']);
+
+    // Home is the active location at startup
+    const homeBtn = sideItems.find((el) => el.getAttribute('aria-label') === 'Home');
+    expect(homeBtn.getAttribute('aria-current')).toBe('true');
+    expect(homeBtn.className).toContain('active');
+
+    // clicking a sidebar entry navigates and moves the highlight
+    const desktopPath = fs.getPath(fs.specialFolders.desktop);
+    sideItems.find((el) => el.getAttribute('aria-label') === 'desktop').click();
+    await settle();
+    expect(content.querySelector('#file-browser-path-input').value).toBe(desktopPath);
+    expect(homeBtn.getAttribute('aria-current')).toBe('false');
+    const desktopBtn = [...content.querySelectorAll('.system-file-dialog-side-item')]
+      .find((el) => el.getAttribute('aria-label') === 'desktop');
+    expect(desktopBtn.getAttribute('aria-current')).toBe('true');
+    expect(desktopBtn.className).toContain('active');
+  });
+
+  it('Linux backend renders the quick-access sidebar with Home and existing common folders', async () => {
+    const userHome = '/home/nbosp/users/sam';
+    const existing = new Set(['/home/nbosp/users/sam/Desktop', '/home/nbosp/users/sam/Documents']);
+    const fsStub = {
+      promises: {
+        readdir: vi.fn(async () => []),
+        lstat: vi.fn(),
+        stat: vi.fn(async () => ({ isDirectory: () => true })),
+      },
+      constants: {},
+      statSync: vi.fn((p) => {
+        if (!existing.has(p)) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
+        return { isDirectory: () => true };
+      }),
+    };
+    const loaded = await loadWindowApp('files', {
+      stubs: {
+        extra: {
+          process: { platform: 'linux' },
+          FS: { rootId: userHome },
+          require: (name) => {
+            if (name === 'fs') return fsStub;
+            if (name === 'path') return linuxPath;
+            if (name === 'os') return { homedir: () => '/home/nbosp' };
+            if (name === 'child_process') return {};
+            throw new Error(`Unexpected module: ${name}`);
+          },
+        },
+      },
+    });
+    const content = initApp(loaded.app, { window: loaded.window, state: { cleanups: [] } });
+    await settle();
+
+    const sidebar = content.querySelector('.system-file-dialog-sidebar');
+    expect(sidebar).toBeTruthy();
+    expect(sidebar.getAttribute('aria-label')).toBe('Quick access');
+    const labels = [...content.querySelectorAll('.system-file-dialog-side-item')]
+      .map((el) => el.getAttribute('aria-label'));
+    // Home + the folders that exist under the account root; Downloads etc.
+    // are hidden because statSync reports them missing.
+    expect(labels).toEqual(['Home', 'Desktop', 'Documents']);
+    const homeBtn = content.querySelector('.system-file-dialog-side-item');
+    expect(homeBtn.getAttribute('aria-current')).toBe('true');
   });
 
   it('navigates into folders by double-click, then Back/Up return to the root', async () => {
@@ -418,6 +564,35 @@ describe('Files app (js/apps/files)', () => {
     inst.persistViewState();
     expect(store.get('HKNU/shell/bags/files')).toEqual({ viewMode: 'icon', sortBy: 'size', sortAsc: true });
     expect(window.localStorage.getItem('nova_files_view')).toBeNull(); // no legacy shadow was ever created
+  });
+
+  it('pins folders to quick access and can unpin them from the sidebar context menu', async () => {
+    const fs = makeFS();
+    const folder = await fs.createFolder(fs.rootId, 'Pinned Folder');
+    const store = new Map();
+    const registry = {
+      get: (p) => (store.has(p) ? JSON.parse(JSON.stringify(store.get(p))) : undefined),
+      set: (p, v) => { store.set(p, JSON.parse(JSON.stringify(v))); return true; },
+    };
+    const { content, window, ContextMenu } = await loadFiles({ fs, registry });
+    const folderItem = fileItems(content).find(item => item.textContent.includes('Pinned Folder'));
+    folderItem.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+    const pin = ContextMenu.show.mock.calls.at(-1)[2]
+      .find(item => item.label === 'Pin to Quick access');
+    expect(pin).toBeTruthy();
+    pin.action();
+    expect(store.get('HKNU/shell/bags/files').pinnedFolderIds).toEqual([folder.id]);
+    expect(content.querySelector('.system-file-dialog-sidebar [aria-label="Pinned Folder"]')).toBeTruthy();
+
+    content.querySelector('.system-file-dialog-sidebar [aria-label="Pinned Folder"]')
+      .dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const unpin = ContextMenu.show.mock.calls.at(-1)[2]
+      .find(item => item.label === 'Unpin from Quick access');
+    expect(unpin).toBeTruthy();
+    unpin.action();
+    expect(store.get('HKNU/shell/bags/files').pinnedFolderIds).toEqual([]);
+    expect(content.querySelector('.system-file-dialog-sidebar [aria-label="Pinned Folder"]')).toBeNull();
   });
 
   it('falls back to defaults when the view bag is absent or malformed', async () => {

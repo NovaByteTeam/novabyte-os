@@ -25,9 +25,8 @@
   <meta name="description" content="NovaByte — open source browser-based operating system.">
   <meta name="robots" content="noindex,nofollow">
   <meta name="theme-color" content="#07090f">
-  <!-- dark-only shell: every surface in style.css is authored against the
-       dark palette above, so advertising light support here would just make
-       browsers guess wrong on native form controls and scrollbars -->
+  <!-- The shell starts dark and applyTheme() keeps this in sync with the
+       selected theme so native controls and embedded content follow it. -->
   <meta name="color-scheme" content="dark">
   <link rel="canonical" href="/">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.svg">
@@ -69,7 +68,7 @@
   </div>
   <!-- Lock Screen -->
   <div id="lock-screen" role="dialog" aria-modal="true" aria-label="Lock screen" data-i18n-aria="shell.lock.screenAria">
-    <div class="lock-avatar" aria-hidden="true">U</div>
+    <div class="lock-avatar" id="lock-avatar" aria-hidden="true">U</div>
     <div class="lock-username" id="lock-username">user</div>
     <div class="lock-pin-input" id="lock-pin-dots"></div>
     <div class="lock-status" id="lock-status" aria-live="assertive"></div>
@@ -305,6 +304,19 @@
   <script src="/js/platform/security/app-permissions-bootstrap.js" defer></script>
   <script src="/js/platform/security/app-scheduler.js" defer></script>
   <script src="js/core/core/boot.js" defer></script>
+  <!-- Runtime hot-reload of physically replaced system .novaapp bundles
+       (verify → close → reinstall → evict → background relaunch). Loaded
+       after boot.js so it can register on Boot.hooks.after at eval time;
+       all its package-pipeline dependencies are resolved at start() time. -->
+  <script src="js/platform/core/nova-package-watcher.js" defer></script>
+  <!-- Shell popup coordinator: one-flyout-at-a-time registry shared by the
+       tray flyouts (volume/wifi/calendar/power), the notification panel and
+       the taskbar window preview. Deliberately NOT part of the
+       com.nbosp.shell-ui service package (which SystemServiceLoader injects
+       below): loading it as a plain tag guarantees
+       window.ShellPopupCoordinator exists before any service script that
+       registers with it is evaluated. -->
+  <script src="js/apps/shell-ui/popup-coordinator.js" defer></script>
   <script src="js/core/services/system-service-loader.js" defer></script>
 </body>
 </html>

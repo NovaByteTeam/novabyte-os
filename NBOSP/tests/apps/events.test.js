@@ -99,8 +99,11 @@ describe('Events app (js/apps/events)', () => {
 
   it('renders the toolbar and lists entries with severity, app and category', async () => {
     const log = makeEventLog([
-      evt({ message: 'first message', severity: 'error', app: 'Email', category: 'console' }),
-      evt({ message: 'second message', severity: 'info', app: 'Clock' }),
+      // Explicit timestamps: 'second message' is the newer entry. Date.now()
+      // defaults made this test flaky — when the two calls straddled a
+      // millisecond boundary the newest-first order flipped the expectation.
+      evt({ message: 'first message', severity: 'error', app: 'Email', category: 'console', timestamp: 1000 }),
+      evt({ message: 'second message', severity: 'info', app: 'Clock', timestamp: 2000 }),
     ]);
     const { content } = await loadEvents({ withEventLog: log });
     expect(content.querySelector('input[placeholder^="Filter by message"]').placeholder)
@@ -112,7 +115,7 @@ describe('Events app (js/apps/events)', () => {
     // Count line + rows (newest first)
     expect(content.textContent).toContain('2 events');
     const rows = [...content.querySelectorAll('span')].filter((d) => d.textContent === 'ERROR' || d.textContent === 'INFO');
-    expect(rows.map((r) => r.textContent)).toEqual(['ERROR', 'INFO']); // newest first
+    expect(rows.map((r) => r.textContent)).toEqual(['INFO', 'ERROR']); // newest first: t=2000 info, then t=1000 error
     expect(content.textContent).toContain('[Email]');
     expect(content.textContent).toContain('[Clock]');
     expect(content.textContent).toContain('first message');
