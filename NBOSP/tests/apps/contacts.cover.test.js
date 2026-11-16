@@ -38,7 +38,7 @@ function makeEventBus() {
   };
 }
 
-async function mount({ stubs = {}, state, os, seed, init = true } = {}) {
+async function mount({ stubs = {}, state, os, seed, raw, init = true } = {}) {
   // OS is mirrored onto globalThis for the Node-realm app; without this the
   // previous test's OS stub would leak into "no OS" mounts.
   if (!os) { delete globalThis.OS; delete globalThis.window?.OS; }
@@ -50,9 +50,30 @@ async function mount({ stubs = {}, state, os, seed, init = true } = {}) {
   for (const key of ['svgIcon', 'lsSave']) {
     if (ctx.window[key]) globalThis[key] = ctx.window[key];
   }
+  // `seed` writes a parsed contact array; `raw` writes the exact blob the
+  // app must read (empty, non-array, corrupt JSON). Both go into THIS load's
+  // JSDOM storage before init, so the app sees exactly what the test staged.
   if (seed) localStorage.setItem(SK, JSON.stringify(seed));
+  if (raw !== undefined) localStorage.setItem(SK, raw);
   const content = init ? initCoveredApp(ctx.app, { state: state ?? {} }) : null;
   return { ...ctx, content };
+}
+
+// Swap the cover realm's localStorage for one whose setItem always throws.
+// The app resolves bare `localStorage` through globalThis at call time, so
+// this is how a user's Save hits a full disk. jsdom's Storage is a Proxy that
+// swallows property assignment, so vi.spyOn(localStorage, 'setItem') cannot
+// intercept it — a whole-object swap is the reliable seam.
+function failingStorage(message) {
+  const real = globalThis.localStorage;
+  return {
+    getItem: real.getItem.bind(real),
+    setItem: () => { throw new Error(message); },
+    removeItem: real.removeItem.bind(real),
+    clear: real.clear.bind(real),
+    key: real.key.bind(real),
+    get length() { return real.length; },
+  };
 }
 
 const btn = (content, label) =>
@@ -204,18 +225,15 @@ describe('Contacts app (js/apps/contacts/app.js) — e2e coverage', () => {
     expect(content.textContent).not.toContain('Missing id');
 
     // empty-string blob → falsy raw → empty list
-    localStorage.setItem(SK, '');
-    const empty = await mount({});
+    const empty = await mount({ raw: '' });
     expect(empty.content.textContent).toContain('No contacts yet');
 
     // non-array JSON → ignored
-    localStorage.setItem(SK, '{"not":"an array"}');
-    const nonArray = await mount({});
+    const nonArray = await mount({ raw: '{"not":"an array"}' });
     expect(nonArray.content.textContent).toContain('No contacts yet');
 
     // corrupt JSON → caught, warned, empty
-    localStorage.setItem(SK, '{not json');
-    const corrupt = await mount({});
+    const corrupt = await mount({ raw: '{not json' });
     expect(corrupt.content.textContent).toContain('No contacts yet');
     expect(warn).toHaveBeenCalledWith('[Contacts] Ignoring unreadable contact data:', expect.anything());
   });
@@ -456,8 +474,10 @@ describe('Contacts app (js/apps/contacts/app.js) — e2e coverage', () => {
     const { content } = await mount({ stubs: { extra: { Notify } } });
     btn(content, 'New Contact').click();
     content.querySelector('input[id$="-name"]').value = 'Grace Hopper';
-    vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('disk full'); });
+    const realStorage = globalThis.localStorage;
+    globalThis.localStorage = failingStorage('disk full');
     btn(content, 'Save').click();
+    globalThis.localStorage = realStorage;
     expect(Notify.show).toHaveBeenCalledWith({
       title: 'Contacts save failed', body: 'disk full', type: 'error', appName: 'Contacts',
     });
@@ -476,8 +496,10 @@ describe('Contacts app (js/apps/contacts/app.js) — e2e coverage', () => {
       seed: [contact({ id: 'c-a', name: 'Ada Lovelace' })],
     });
     rowByName(content, 'Ada Lovelace').click();
-    vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('readonly') });
+    const realStorage = globalThis.localStorage;
+    globalThis.localStorage = failingStorage('readonly');
     btn(content, 'Delete').click();
+    globalThis.localStorage = realStorage;
     expect(Notify.show).toHaveBeenCalledWith({
       title: 'Contacts save failed', body: 'readonly', type: 'error', appName: 'Contacts',
     });
