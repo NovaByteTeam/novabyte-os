@@ -40,8 +40,8 @@
    * same shape check the account database enforces: lowercase letters,
    * digits, dots, dashes, 3–32 chars, leading alphanumeric. */
   function safeUsername(uname) {
-    return /^[a-z0-9][a-z0-9._-]{2,31}$/.test(String(uname || '').toLowerCase())
-      ? String(uname || '').toLowerCase() : '';
+    const value = String(uname || '').toLowerCase();
+    return /^[a-z0-9][a-z0-9._-]{2,31}$/.test(value) ? value : '';
   }
 
   const UserScope = {
@@ -156,10 +156,17 @@
     },
   };
 
+  /* v8 ignore start */
+  // Load-shape guards: in the shipped shell this file always evaluates with
+  // a window present (window.NovaUserScope attach) and the tooling loads it
+  // through CJS (module.exports attach). The "other" side of each guard only
+  // exists in the load environment that is not the current one, so it cannot
+  // be exercised within a single module instance.
   if (typeof window !== 'undefined' && window) {
     window.NovaUserScope = Object.freeze(UserScope);
   }
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = UserScope;
   }
+  /* v8 ignore stop */
 })();
