@@ -135,12 +135,9 @@ async function imapMessages(creds, folder, page, limit, msgShape) {
         seq: msg.seq,
         seen: msg.flags?.has('\\Seen') || false,
         subject: decodeEntities(env.subject || '(no subject)'),
-        /* v8 ignore start */
-        // both arms driven by the imapMessages suite; adapter mis-attribution
         from: firstFrom
           ? [firstFrom.name, `<${firstFrom.address}>`].filter(Boolean).join(' ').trim()
           : '',
-        /* v8 ignore stop */
         to: (env.to || []).map(a => a.address).filter(Boolean).join(', '),
         date: env.date ? new Date(env.date).toISOString() : null
       });
@@ -154,15 +151,11 @@ async function imapMessages(creds, folder, page, limit, msgShape) {
 async function imapMessage(creds, folder, uid, msgShape) {
   if (!PostalMime) throw missingDep('postal-mime');
   const numericUid = parseInt(uid, 10);
-  /* v8 ignore start */
-  // Guard is exercised by the 'not-a-number' suite test (the rejection is
-  // asserted there), but this vitest/v8 adapter cannot attribute the range.
   if (numericUid) {
     // valid uid — fall through to the connection below
   } else {
     throw new Error('Invalid message UID');
   }
-  /* v8 ignore stop */
 
   const client = await imapConnect(creds);
   try {
@@ -183,15 +176,11 @@ async function imapMessage(creds, folder, uid, msgShape) {
 
 async function imapBatch(creds, op, uids, folder, dest) {
   if (!ImapFlow) throw missingDep('imapflow');
-  /* v8 ignore start */
-  // Both sides are driven by the batch suite (empty list and non-array);
-  // the adapter mis-attributes the range, so it is excluded from the report.
   if (Array.isArray(uids) && uids.length > 0) {
     // non-empty batch — continue below
   } else {
     return;
   }
-  /* v8 ignore stop */
 
   const client = await imapConnect(creds);
   try {
@@ -226,10 +215,7 @@ async function imapSearch(creds, query, folder) {
         messages.push({
           uid: msg.uid,
           subject: decodeEntities(env.subject || '(no subject)'),
-          /* v8 ignore start */
-          // both arms driven by the imapSearch suite; adapter mis-attribution
           from: fromAddress || '',
-          /* v8 ignore stop */
           date: env.date ? new Date(env.date).toISOString() : null,
           seen: msg.flags?.has('\\Seen') || false
         });

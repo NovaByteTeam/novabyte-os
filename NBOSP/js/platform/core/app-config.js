@@ -55,7 +55,8 @@
       throw new TypeError('NovaAppConfig: relPath must be a non-empty string');
     }
     const parts = relPath.split('/').filter(Boolean);
-    if (!parts.length || parts.some((p) => p === '.' || p === '..')) {
+    const isDotSegment = (p) => p === '.' || p === '..';
+    if (!parts.length || parts.some(isDotSegment)) {
       throw new TypeError(`NovaAppConfig: invalid relPath "${relPath}"`);
     }
     return parts.join('/');
@@ -70,7 +71,9 @@
   }
 
   function lsSet(key, value) {
-    try { localStorage.setItem(key, value); } catch (_) { /* quota / private mode */ }
+    try {
+      localStorage.setItem(key, value);
+    } catch (_) { /* quota / private mode */ }
   }
 
   function adoptedMap(registry) {
@@ -140,7 +143,9 @@
       const raw = lsGet(legacyKey);
       if (raw !== null && raw !== undefined) {
         const coerced = coerceLegacy(raw, type);
-        if (coerced !== undefined) return coerced;
+        if (coerced !== undefined) {
+          return coerced;
+        }
       }
     }
     return fallback;
@@ -163,7 +168,9 @@
         return true;
       } catch (_) { /* fall through to legacy */ }
     }
-    if (legacyKey) lsSet(legacyKey, legacyRaw !== undefined ? legacyRaw : JSON.stringify(value));
+    if (legacyKey) {
+      lsSet(legacyKey, legacyRaw !== undefined ? legacyRaw : JSON.stringify(value));
+    }
     return false;
   }
 
@@ -198,6 +205,11 @@
     },
   };
 
+  /* v8 ignore start */
+  // Load-shape guards: the shell evaluates this file with a window (the
+  // window.NovaAppConfig attach) and tooling loads it through CJS; the
+  // "other" side of each guard only exists in the other load environment.
   if (typeof window !== 'undefined' && window) window.NovaAppConfig = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  /* v8 ignore stop */
 })();

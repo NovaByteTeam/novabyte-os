@@ -297,4 +297,28 @@ describe('email/protocols/imapClient.js — decodeEntities', () => {
     await expect(imapClient.imapSearch(CREDS, 'q', 'INBOX')).rejects.toThrow('Missing dependency');
     imapClient.setDependencies({ ImapFlow: FakeImapFlow, PostalMime: FakePostalMime });
   });
+
+  it('imapMessage without postal-mime injected fails cleanly', async () => {
+    imapClient.setDependencies({ ImapFlow: FakeImapFlow });
+    await expect(imapClient.imapMessage(CREDS, 'INBOX', 7)).rejects.toThrow('Missing dependency');
+    imapClient.setDependencies({ ImapFlow: FakeImapFlow, PostalMime: FakePostalMime });
+  });
+
+  it('imapBatch without imapflow injected fails cleanly before touching the list', async () => {
+    imapClient.setDependencies({ PostalMime: FakePostalMime });
+    await expect(imapClient.imapBatch(CREDS, 'delete', [1], 'INBOX')).rejects.toThrow('Missing dependency');
+    imapClient.setDependencies({ ImapFlow: FakeImapFlow, PostalMime: FakePostalMime });
+  });
+
+  it('envelopes without a subject collapse to "(no subject)"', async () => {
+    FakeImapFlow.exists = 1;
+    FakeImapFlow.fetchResult = [{ uid: 11, seq: 1, flags: new Set(), envelope: {} }];
+    const page = await imapClient.imapMessages(CREDS, 'INBOX', 1, 20, (p) => p);
+    expect(page.messages[0].subject).toBe('(no subject)');
+
+    FakeImapFlow.searchResult = [12];
+    FakeImapFlow.fetchResult = [{ uid: 12, envelope: {}, flags: new Set() }];
+    const hits = await imapClient.imapSearch(CREDS, 'needle', 'INBOX');
+    expect(hits[0].subject).toBe('(no subject)');
+  });
 });
