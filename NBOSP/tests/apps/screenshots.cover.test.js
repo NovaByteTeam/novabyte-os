@@ -144,6 +144,22 @@ describe('ScreenshotService (js/apps/screenshots/service.js) — e2e coverage', 
     expect(EventLog.log.mock.calls[0][0].message).toContain('denied');
   });
 
+  it('still releases the stream when the video pipeline throws mid-capture', async () => {
+    const stream = makeStream();
+    globalThis.navigator.mediaDevices.getDisplayMedia = vi.fn(() => Promise.resolve(stream));
+    const fs = shotsFS();
+    const { window, Notify } = await mount({ fs });
+    // play() rejects AFTER the stream was granted → the finally clause must
+    // stop the tracks so no capture indicator is left dangling
+    window.HTMLMediaElement.prototype.play = function () {
+      return Promise.reject(new Error('autoplay blocked'));
+    };
+    await expect(window.ScreenshotService.capture('desktop')).resolves.toBeUndefined();
+    expect(stream._stops).toHaveBeenCalledTimes(1); // released by finally
+    expect(Notify.show.mock.calls[0][0].type).toBe('error');
+    expect(fs.calls.createFile).toHaveLength(0); // nothing persisted
+  });
+
   it('region mode: drags a selection, crops and persists it', async () => {
     const stream = makeStream();
     globalThis.navigator.mediaDevices.getDisplayMedia = vi.fn(() => Promise.resolve(stream));

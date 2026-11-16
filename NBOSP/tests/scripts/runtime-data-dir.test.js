@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { ensureEnv } from '../../scripts/env.js';
 import { ensureCerts } from '../../scripts/certs.js';
 import { seedCerts } from '../server/helpers/seed-certs.js';
+import { getRuntimeDataDir } from '../../scripts/runtime-data-dir.js';
 
 describe('Linux runtime data directory', () => {
   let tempDir;
@@ -62,5 +64,33 @@ describe('Linux runtime data directory', () => {
 
     await expect(ensureCerts(appDir, () => true)).resolves.toBe(true);
     await expect(fs.access(path.join(appDir, 'cert.key'))).rejects.toThrow();
+  });
+});
+
+describe('getRuntimeDataDir — precedence chain', () => {
+  const originalEnv = { ...process.env };
+  // NBOSP/scripts/.. == the NBOSP package root
+  const NBOSP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('falls back to the packaged app dir above the script when nothing is given', () => {
+    delete process.env.NBOSP_DATA_DIR;
+    expect(getRuntimeDataDir(null)).toBe(NBOSP_ROOT);
+    expect(getRuntimeDataDir(undefined)).toBe(NBOSP_ROOT);
+    expect(getRuntimeDataDir('')).toBe(NBOSP_ROOT);
+  });
+
+  it('prefers an explicit app dir over the script location', () => {
+    delete process.env.NBOSP_DATA_DIR;
+    expect(getRuntimeDataDir('/opt/nbosp/package.nw')).toBe('/opt/nbosp/package.nw');
+  });
+
+  it('lets NBOSP_DATA_DIR win over both the app dir and the fallback', () => {
+    process.env.NBOSP_DATA_DIR = '/var/lib/novabyte';
+    expect(getRuntimeDataDir('/opt/nbosp/package.nw')).toBe('/var/lib/novabyte');
+    expect(getRuntimeDataDir(null)).toBe('/var/lib/novabyte');
   });
 });

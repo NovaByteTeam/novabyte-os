@@ -255,7 +255,12 @@
     try {
       return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
     } catch (_e) {
+      /* v8 ignore start */
+      // Unreachable in practice: TextDecoder only throws with fatal:true, and
+      // this decoder is constructed non-fatal above. Kept as a hard guard for
+      // host runtimes with a non-conforming TextDecoder polyfill.
       return '';
+      /* v8 ignore stop */
     }
   }
 

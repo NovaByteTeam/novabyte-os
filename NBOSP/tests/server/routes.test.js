@@ -74,4 +74,42 @@ describe('server/routes.js — mountRoutes', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('type, host, user and pass are required');
   });
+
+  it('skips mounting a router family whose module failed to load (null guards)', () => {
+    const routesPath = require.resolve('../../server/routes.js');
+    const modulePaths = {
+      security: require.resolve('../../security/routes'),
+      auth: require.resolve('../../server/security/auth-routes'),
+      email: require.resolve('../../email/index'),
+    };
+    const savedExports = {};
+    for (const [name, p] of Object.entries(modulePaths)) {
+      savedExports[name] = require.cache[p].exports;
+    }
+    try {
+      // every family "failed to require" → mountRoutes must skip all three
+      for (const p of Object.values(modulePaths)) {
+        require.cache[p].exports = null;
+      }
+      delete require.cache[routesPath];
+      const { mountRoutes: mountRoutesWithoutRouters } = require(routesPath);
+      const useCalls = [];
+      const fakeApp = {
+        use: (...args) => { useCalls.push(args[0]); },
+      };
+      expect(() => mountRoutesWithoutRouters(fakeApp)).not.toThrow();
+      expect(useCalls).not.toContain('/api/security');
+      expect(useCalls).not.toContain('/api/auth');
+      expect(useCalls).not.toContain('/api/email');
+      // the events/push setups still ran against the app object
+      expect(useCalls).toEqual(expect.arrayContaining(['/api/events', '/api/push']));
+    } finally {
+      for (const [name, p] of Object.entries(modulePaths)) {
+        require.cache[p].exports = savedExports[name];
+      }
+      delete require.cache[routesPath]; // drop the tampered instance; the
+      // original instance is re-created on next require with real exports
+      require(routesPath);
+    }
+  });
 });
