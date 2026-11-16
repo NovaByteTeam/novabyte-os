@@ -991,3 +991,24 @@ describe('security/middleware.js — createSecurityMiddleware', () => {
     expect(res.body.maxSize).toBe('1kb');
   });
 });
+
+describe('security/middleware.js — remaining real-gap arms', () => {
+  it('inputSanitization skips the query arm when the request carries no query object', () => {
+    const req = { path: '/sanitise', body: { a: '<i>x</i>' }, headers: {} };
+    const next = vi.fn();
+    mw.inputSanitization(req, { status: () => ({ json: () => {} }) }, next);
+    expect(req.body.a).toBe('&lt;i&gt;x&lt;/i&gt;'); // body object went through
+    expect(req.query).toBeUndefined();              // absent query skipped the arm
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('validateRequest accepts a rule without a type key (pure range validation)', async () => {
+    const app = echoApp(mw.validateRequest({ body: { payload: { required: true, min: 1 } } }));
+    const ok = await request(app).post('/anything').send({ payload: 5 });
+    expect(ok.status).toBe(200);
+    expect(ok.body.body.payload).toBe(5);
+    // value below min on the same no-type rule still 400s
+    const low = await request(app).post('/anything').send({ payload: 0 });
+    expect(low.status).toBe(400);
+  });
+});

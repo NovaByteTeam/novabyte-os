@@ -637,6 +637,19 @@ describe.skipIf(!E2E_UPSTREAMS)('proxies.js — e2e: frame-check proxy (GET /api
       expect(res.body).toEqual({ embeddable: true });
       expect(up.hits).toHaveLength(1); // no GET fallback: no security header seen
     });
+
+    it('skips non-frame-ancestors directives before a matching one', async () => {
+      // the default-src directive takes the continue arm at the top of the scan
+      const up = await cspHead("default-src 'self'; img-src *; frame-ancestors 'self'");
+      expect((await frameCheck(up.origin + '/')).body).toEqual({ embeddable: true });
+    });
+
+    it('skips a source that cannot match the host grammar (regex miss arm)', async () => {
+      // '/nopath' never matches ^([\w-]+://)?([^/]+) → the !m continue arm;
+      // nothing else matches either, so the directive still blocks.
+      const up = await cspHead("frame-ancestors 'none' /nopath");
+      expect((await frameCheck(up.origin + '/')).body).toEqual({ embeddable: false });
+    });
   });
 
   describe('GET fallback when HEAD is unusable', () => {
@@ -1009,6 +1022,27 @@ describe.skipIf(!E2E_UPSTREAMS)('proxies.js — e2e: app network proxy (POST /ap
       const res = await proxyPost({ url: `http://${PUBLIC_IP}:1/`, body: { not: 'a string' } });
       expect(res.status).toBe(400);
       expect(res.body).toEqual({ error: 'body must be a string' });
+    });
+
+    it('treats a request without any body as an empty one (req.body ?? {} arm)', async () => {
+      const res = await request(app).post('/api/proxy').set(signed());
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'url is required' });
+    });
+
+    it('reports code:null for network errors carrying neither code nor cause (502)', async () => {
+      // proxies.js reads undici through property access at call time, so a
+      // direct swap is visible to it (same technique as the pinning suite).
+      const undici = require('undici');
+      const realFetch = undici.fetch;
+      undici.fetch = async () => { throw new Error('plain failure'); };
+      try {
+        const res = await proxyPost({ url: `http://${PUBLIC_IP}:1/`, body: 'x' });
+        expect(res.status).toBe(502);
+        expect(res.body).toEqual({ error: 'Network error: plain failure', code: null });
+      } finally {
+        undici.fetch = realFetch;
+      }
     });
 
     it('rejects invalid base64 bodies (400)', async () => {
@@ -1447,6 +1481,17 @@ describe.skipIf(!E2E_UPSTREAMS)('proxies.js — e2e: email image proxy (GET /api
         res.end('<html><body>not an image</body></html>');
       });
       const res = await emailImage(up.origin + '/page');
+      expect(res.status).toBe(200);
+      expect(res.body.equals(FALLBACK_PNG)).toBe(true);
+    });
+
+    it('serves the fallback when the upstream sends no content-type at all', async () => {
+      const up = await startUpstream((req, res) => {
+        req.resume();
+        res.writeHead(200); // no content-type header
+        res.end('raw-bytes');
+      });
+      const res = await emailImage(up.origin + '/mystery');
       expect(res.status).toBe(200);
       expect(res.body.equals(FALLBACK_PNG)).toBe(true);
     });

@@ -175,5 +175,30 @@ describe('proxies.js — multi-candidate SSRF resolution and pinned fetch', () =
         expect(result).toEqual([{ address: '104.26.11.35', family: 4 }]);
       });
     });
+
+    it('reports family 6 for IPv6 candidates (family ternary arm)', async () => {
+      lookupMock.mockResolvedValueOnce([{ address: '2606:4700::6810:84e5', family: 6 }]);
+      const d = await _dnsResolvePrivate('v6.example');
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
+      await _pinnedFetch('https://v6.example/', {}, d);
+      const agent = fetchMock.mock.calls[0][1].dispatcher;
+      agent.opts.connect.lookup('v6.example', {}, (err, result) => {
+        expect(err).toBeNull();
+        expect(result).toEqual([{ address: '2606:4700::6810:84e5', family: 6 }]);
+      });
+    });
+
+    it('accepts the single-address dnsResult form (dnsResult.address arm)', async () => {
+      // a resolver result shaped {address, family} instead of {addresses: []}
+      const d = { private: false, address: '104.26.11.35', family: 4 };
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, marker: 'single' });
+      const resp = await _pinnedFetch('https://single.example/', {}, d);
+      expect(resp.marker).toBe('single');
+      const agent = fetchMock.mock.calls[0][1].dispatcher;
+      agent.opts.connect.lookup('single.example', {}, (err, result) => {
+        expect(err).toBeNull();
+        expect(result).toEqual([{ address: '104.26.11.35', family: 4 }]);
+      });
+    });
   });
 });

@@ -232,3 +232,102 @@ describe('email/helpers.js — sanitizeEmailHtml: text handling', () => {
     expect(sanitizeEmailHtml('a<hr>b')).toBe('a<hr>b');
   });
 });
+
+describe('email/helpers.js — msgShape address/subject/body edge arms', () => {
+  it('accepts a bare string address (typeof arm)', () => {
+    expect(msgShape({ from: 'plain@x.example' }).from).toBe('plain@x.example');
+  });
+
+  it('decodes double-encoded bodies and keeps non-markup decodes undecoded', () => {
+    // double-encoded: needs the second onePass pass
+    expect(msgShape({ html: '&lt; b &amp;lt;span&amp;gt;' }).html).toBe('< b <span>');
+    // decodes to plain text (no markup) → the ORIGINAL string is kept
+    expect(msgShape({ html: '1 &lt; 2' }).html).toBe('1 &lt; 2');
+  });
+
+  it('passes a non-string subject through decodeSubject untouched', () => {
+    // a numeric subject (some parsers emit numbers) survives the shape as-is
+    expect(msgShape({ subject: 42, from: 'a@x' }).subject).toBe(42);
+  });
+});
+
+describe('email/helpers.js — sanitizer parser edge arms', () => {
+  it('drops the trailing text arm while a drop region is open (310/335)', () => {
+    // no further '<' at all → trailing text skipped inside the open drop
+    expect(sanitizeEmailHtml('<script>never')).toBe('');
+    // an unclosed trailing tag while dropping
+    expect(sanitizeEmailHtml('<script>body<p')).toBe('');
+  });
+
+  it('consumes an unclosed comment to the end of input (329)', () => {
+    expect(sanitizeEmailHtml('<p>a</p><!-- trailing')).toBe('<p>a</p>');
+  });
+
+  it('skips a malformed tag that does not start with a letter (360)', () => {
+    expect(sanitizeEmailHtml('a<1foo>b')).toBe('ab');
+  });
+
+  it('handles unclosed <style> with and without an open drop region (366/371)', () => {
+    // unclosed style, no drop → the rest is consumed as style content
+    expect(sanitizeEmailHtml('<p>a</p><style>body{color:red}')).toBe('<p>a</p>');
+    // <style> opened INSIDE an open drop region: closed variant
+    expect(sanitizeEmailHtml('<script><style>x</style>tail')).toBe('');
+    // ...and unclosed variant
+    expect(sanitizeEmailHtml('<script><style>never')).toBe('');
+  });
+
+  it('a self-closing drop tag does not open a drop region (377)', () => {
+    expect(sanitizeEmailHtml('<script/>after')).toBe('after');
+  });
+
+  it('closes an unknown-tag substitution while a drop region is open (351 else)', () => {
+    // the </mytag> close arrives while <script> is still open: no </span> out
+    expect(sanitizeEmailHtml('<mytag style="color:red"><script>y</mytag>z</script>w')).toBe('<span style="color: red">w');
+  });
+
+  it('caps the input at 2 MiB before parsing (300)', () => {
+    const big = 'x'.repeat(2 * 1024 * 1024 + 10);
+    const out = sanitizeEmailHtml(big);
+    expect(out.length).toBe(2 * 1024 * 1024);
+  });
+});
+
+describe('email/helpers.js — attribute and style edge arms', () => {
+  it('attribute values in single quotes and unquoted (210 fallbacks)', () => {
+    const out = sanitizeEmailHtml(`<b title='sq'>x</b><i title=uq>y</i>`);
+    expect(out).toContain('<b title="sq">');
+    expect(out).toContain('<i title="uq">');
+  });
+
+  it('drops dangerous attr values on ordinary tags (220)', () => {
+    const out = sanitizeEmailHtml('<b title="javascript:alert(1)">x</b>');
+    expect(out).toBe('<b>x</b>');
+  });
+
+  it('routes <source src> through the proxy like <img> (237 source arm)', () => {
+    const out = sanitizeEmailHtml('<picture><source src="https://cdn.example/p.jpg"></picture>');
+    expect(out).toContain('src="/api/email-image?url=');
+  });
+
+  it('drops src with an unrecognized protocol (249 else arm)', () => {
+    const out = sanitizeEmailHtml('<img src="cid:part1">x</img>');
+    expect(out).toBe('<img>x</img>');
+  });
+
+  it('drops dangerous href on SVG reference elements (266)', () => {
+    const out = sanitizeEmailHtml('<svg><image href="javascript:alert(1)"></svg>');
+    expect(out).not.toContain('href');
+    expect(out).toContain('<image');
+  });
+
+  it('nulls dangerous CSS values and empty/broken declarations (155/161/173/177)', () => {
+    // dangerous expression() value → declaration dropped
+    expect(sanitizeEmailHtml('<b style="width: expression(alert(1))">x</b>')).toBe('<b>x</b>');
+    // empty style attr → no declarations
+    expect(sanitizeEmailHtml('<b style="">x</b>')).toBe('<b>x</b>');
+    // declaration with an empty value and one with an empty property
+    expect(sanitizeEmailHtml('<b style="color:;:red">x</b>')).toBe('<b>x</b>');
+    // position:absolute on a tag outside the fixed-position allowance
+    expect(sanitizeEmailHtml('<b style="position:absolute">x</b>')).toBe('<b>x</b>');
+  });
+});

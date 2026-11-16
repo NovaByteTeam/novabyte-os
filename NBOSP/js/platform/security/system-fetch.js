@@ -34,7 +34,12 @@
 
   function computeTrustHeaders() {
     try {
+      /* v8 ignore start */
+      // Browser-only guard: in the CJS cover harness `require` is the module
+      // wrapper's parameter (always a function), so the null arm cannot run
+      // there — it exists for the real NW.js page where require is absent.
       if (typeof require !== 'function' || typeof process === 'undefined') return null;
+      /* v8 ignore stop */
       var secret = process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET;
       if (!secret) return null;
       var timestamp = String(Date.now());
@@ -62,8 +67,12 @@
   }
 
   var originalFetch = window.fetch;
+  /* v8 ignore start */
+  // The load-time guard at the top already proved window.fetch is a
+  // function; this second fallback is unreachable defensive symmetry.
   var boundOriginalFetch = typeof originalFetch === 'function' ? originalFetch.bind(window) : null;
   if (!boundOriginalFetch) return;
+  /* v8 ignore stop */
 
   window.fetch = function (input, init) {
     try {

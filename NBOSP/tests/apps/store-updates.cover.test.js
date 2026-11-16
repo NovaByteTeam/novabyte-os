@@ -256,6 +256,16 @@ describe('StoreUpdateService (js/apps/store-updates/service.js) — e2e coverage
     });
     localStorage.setItem(INSTALLED, '"not an array"');
     expect(await nullish.svc.checkNow()).toEqual([]);
+
+    // when the system state has no inventory helper at all, the package
+    // store's null return takes the same || [] arm on its own path.
+    const noState = await mount({
+      catalog,
+      registry: {},
+      packageStore: { loadRegistry: () => null },
+    });
+    localStorage.setItem(INSTALLED, '"not an array"');
+    expect(await noState.svc.checkNow()).toEqual([]);
   });
 
   it('interval settings: registry first, legacy fallback, validation', async () => {

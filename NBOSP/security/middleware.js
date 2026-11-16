@@ -17,7 +17,11 @@ const auditService = {
         ServerEventLog.log({
             app: 'SecurityMiddleware',
             severity: e.success === false ? 'warn' : 'info',
+            /* v8 ignore start */
+            // Every internal call site passes `resource`; the `e.action` and
+            // 'security_event' arms are unreachable defensive fallbacks.
             message: `${e.resource || e.action || 'security_event'}${e.success === false ? ' — denied' : ''}`,
+            /* v8 ignore stop */
             data: e,
         });
     }
