@@ -398,7 +398,9 @@
     const contentLength = value.length - padding;
     if (padding === 2 && contentLength % 4 !== 2) return false;
     if (padding === 1 && contentLength % 4 !== 3) return false;
-    if (!padding && contentLength % 4 === 1) return false;
+    if (!padding && contentLength % 4 === 1) {
+      return false;
+    }
     for (let offset = 0; offset < contentLength; offset += 65536) {
       if (!/^[A-Za-z0-9+/]+$/.test(value.slice(offset, Math.min(offset + 65536, contentLength)))) {
         return false;
