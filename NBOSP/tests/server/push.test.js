@@ -6,7 +6,6 @@ import { createRequire } from 'node:module';
 // Both through the CJS require — the same instances routes.test.js's
 // mount chain uses (one loading style per module across all workers keeps
 // the v8 coverage merge honest; see the pushBus note above).
-import { createRequire } from 'node:module';
 const { setupPushRoutes } = createRequire(import.meta.url)('../../server/core/push-routes.js');
 const securityMiddleware = createRequire(import.meta.url)('../../security/middleware.js');
 
