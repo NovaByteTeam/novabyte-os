@@ -44,3 +44,4 @@ supabase/.temp/
 # skeleton stays tracked via the negation below.
 /NBOSP/root/*
 !/NBOSP/root/app-secrets.json
+**/coverage/
