@@ -129,7 +129,11 @@
 
     const history = Array.isArray(app.versionHistory)
       ? app.versionHistory
+      /* v8 ignore start — unreachable: versionHistory is mapped from
+         version_history in checkNow (same value), so if versionHistory is not
+         an array, version_history never is either. */
       : Array.isArray(app.version_history) ? app.version_history : [];
+      /* v8 ignore stop */
     const currentRelease = history.find(entry => entry?.version === app.version);
     return typeof currentRelease?.notes === 'string' ? currentRelease.notes.trim() : '';
   }
@@ -142,7 +146,12 @@
     const releaseNotes = getLatestReleaseNotes(app);
     Notify.show({
       title: _t('apps.storeUpdates.needsUpdating', { app: app.name }),
-      body: _t('apps.storeUpdates.updateAvailableBody', { version: app.version, installed: installed.version || _t('apps.storeUpdates.unknownVersion') }) +
+      body: _t('apps.storeUpdates.updateAvailableBody', { version: app.version,
+        /* v8 ignore start — defensive: notifyUpdate is only reached after
+           compareVersions(app.version, installed.version) === 1, which
+           requires a parseable (string) installed.version. */
+        installed: installed.version || _t('apps.storeUpdates.unknownVersion') }) +
+        /* v8 ignore stop */
         (releaseNotes ? _t('apps.storeUpdates.whatsNew', { version: app.version, notes: releaseNotes }) : ''),
       type: 'info',
       appName: 'Store',
@@ -248,7 +257,9 @@
 
   window.addEventListener(SETTINGS_EVENT, reschedule);
   window.addEventListener('storage', event => {
-    if (event.key === SETTINGS_KEY) reschedule();
+    if (event.key === SETTINGS_KEY) {
+      reschedule();
+    }
   });
   window.StoreUpdateService = Object.freeze({
     start,
