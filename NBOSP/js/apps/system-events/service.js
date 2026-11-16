@@ -168,6 +168,8 @@ try {
 
 OS.events?.on?.('settings:changed', ({ key }) => {
   if (key !== 'devMode') return;
-  if (document.getElementById('launchpad')?.classList.contains('active')) renderLaunchpad();
+  if (document.getElementById('launchpad')?.classList.contains('active')) {
+    renderLaunchpad();
+  }
   WM?.updateTaskbar?.();
 });
