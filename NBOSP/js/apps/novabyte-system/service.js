@@ -58,7 +58,9 @@
       }
     }],
     ['region', value => {
-      if (typeof value !== 'string' || value.length > 64) return false;
+      if (typeof value !== 'string' || value.length > 64) {
+        return false;
+      }
       try {
         return Intl.getCanonicalLocales(value).length === 1;
       } catch {
@@ -238,7 +240,9 @@
     try {
       return fs.readFileSync(filePath, 'utf8').trim();
     } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        return null;
+      }
       throw error;
     }
   }
@@ -247,7 +251,9 @@
     try {
       return fs.readdirSync(directory);
     } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return [];
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        return [];
+      }
       throw error;
     }
   }
@@ -256,7 +262,9 @@
     try {
       return pathBasename(fs.realpathSync(`${devicePath}/driver`));
     } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        return null;
+      }
       throw error;
     }
   }
@@ -306,7 +314,9 @@
   }
 
   function getVmwareToolsStatus(isVmware) {
-    if (!isVmware) return { installed: false, running: false, displayResize: false };
+    if (!isVmware) {
+      return { installed: false, running: false, displayResize: false };
+    }
     const installed = fs.existsSync('/usr/bin/vmtoolsd') &&
       fs.existsSync('/usr/bin/vmware-checkvm');
     const pid = readOptionalFile('/run/vmtoolsd.pid');
@@ -363,7 +373,9 @@
 
   function getConnectivityBackend() {
     const backend = window.NovaConnectivity;
-    if (!backend) throw new Error('Network and Bluetooth hardware backend is unavailable');
+    if (!backend) {
+      throw new Error('Network and Bluetooth hardware backend is unavailable');
+    }
     return backend;
   }
 
@@ -380,9 +392,12 @@
   }])));
 
   async function runPowerAction(action) {
+    /* v8 ignore start — unreachable from the frozen api: the power object
+       only ever passes 'restart' or 'poweroff'. */
     if (action !== 'restart' && action !== 'poweroff') {
       throw new TypeError('Unsupported system power action');
     }
+    /* v8 ignore stop */
     if (typeof process === 'undefined' || process.platform !== 'linux') {
       throw new Error('System power actions are available only in the NBOSP Linux guest');
     }
@@ -396,8 +411,9 @@
             const detail = String(stderr || stdout || error.message).trim();
             reject(new Error(detail || `System ${action} failed`, { cause: error }));
             return;
+          } else {
+            resolve(true);
           }
-          resolve(true);
         }
       );
     });
