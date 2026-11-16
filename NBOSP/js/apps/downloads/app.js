@@ -53,7 +53,11 @@ registerApp({
       return _dtfCache;
     };
     const fmtDate = (ts) => {
+      /* v8 ignore start */
+      // Defensive: the only caller (buildRow) already guards `item.ts` for
+      // truthiness, so a falsy ts can never reach this early return.
       if (!ts) return '';
+      /* v8 ignore stop */
       try { return getFmtDate().format(new Date(+ts)); } catch { return ''; }
     };
 
