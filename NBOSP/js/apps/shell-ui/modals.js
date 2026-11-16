@@ -86,7 +86,11 @@ const ModalService = {
               const dot = el.querySelector('[data-modal-radio-dot]');
               if (dot) {
                 dot.style.opacity = on ? '1' : '0';
+                /* v8 ignore start — defensive: an in-tree element always has a
+                   parentElement (null only when the parent is the Document,
+                   which radio dots never are); guarded for stripped contexts. */
                 if (dot.parentElement) dot.parentElement.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+                /* v8 ignore stop */
               }
             }
           }
@@ -195,9 +199,12 @@ const ModalService = {
   }
 };
 
-// Global backward compatibility layer mapping directly to our optimized architecture
-function showModal(title, body, actions, inputType) {
-  return ModalService.show(title, body, actions, inputType);
+// Global backward compatibility layer mapping directly to our optimized architecture.
+// Forwards every argument: window callers can pass defaultInputValue and the
+// options bag (variant, collect) exactly like the in-realm ModalService.show
+// call below — dropping them here made those paths unreachable from the shell.
+function showModal(title, body, actions, inputType, ...rest) {
+  return ModalService.show(title, body, actions, inputType, ...rest);
 }
 
 function showPrompt(title, defaultValue) {

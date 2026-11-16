@@ -93,7 +93,12 @@ function mirrorStubs(w, extraKeys = []) {
 
 /** Mirror i18n globals exposed by the prelude onto globalThis. */
 function mirrorI18nGlobals(w) {
-  for (const key of ['NovaI18n', '_t', 'RegistryPrefs', 'generateId', 'sanitiseHTML', 'escapeText', 'escapeHtml', 'safeEvaluateArithmetic', 'ArithmeticError', 'detectBrowser', 'formatBytes', 'createEl']) {
+  for (const key of [
+    'NovaI18n', '_t', 'RegistryPrefs', 'generateId', 'sanitiseHTML', 'escapeText', 'escapeHtml',
+    'safeEvaluateArithmetic', 'ArithmeticError', 'detectBrowser', 'formatBytes', 'createEl',
+    // base-utils window API that app sources resolve as bare globals.
+    'svgIcon', 'lsSave', 'formatBytes',
+  ]) {
     if (key in w) globalThis[key] = w[key];
   }
 }
@@ -122,7 +127,7 @@ export function requireFresh(spec) {
  * { dom, window, document, registered, app }.
  */
 export async function coverLoadWindowApp(appName, opts = {}) {
-  const { scripts = ['app.js'], html = 'index.html', stubs = {}, withBaseUtils = true } = opts;
+  const { scripts = ['app.js'], html = 'index.html', stubs = {}, withBaseUtils = true, i18n = true } = opts;
   const appBase = new URL(`${appName}/`, APPS_BASE);
   const dom = new JSDOM(await readFile(new URL(html, appBase), 'utf8'), {
     runScripts: 'outside-only',
@@ -139,9 +144,13 @@ export async function coverLoadWindowApp(appName, opts = {}) {
   // Prelude — required in the Node realm so these get coverage too.
   if (withBaseUtils) requireFresh(BASE_UTILS_PATH);
   requireFresh(REGISTRY_PREFS_PATH);
-  requireFresh(I18N_CORE_PATH);
+  // i18n:false loads the context WITHOUT the translation engine — for
+  // sources whose "engine absent" fallback branch must run (a fresh JSDOM
+  // window has no _t, so their `typeof window._t === 'function'` guard
+  // takes the identity-fallback path).
+  if (i18n) requireFresh(I18N_CORE_PATH);
   mirrorI18nGlobals(dom.window);
-  if (dom.window.NovaI18n) {
+  if (i18n && dom.window.NovaI18n) {
     dom.window.NovaI18n.registerResources({ en: await enCatalogue() });
   }
 
@@ -160,7 +169,7 @@ export async function coverLoadWindowApp(appName, opts = {}) {
  * Same contract as app-harness.loadServiceApp().
  */
 export async function coverLoadServiceApp(appName, opts = {}) {
-  const { scripts = ['service.js'], stubs = {}, withBaseUtils = false } = opts;
+  const { scripts = ['service.js'], stubs = {}, withBaseUtils = false, i18n = true } = opts;
   const appBase = new URL(`${appName}/`, APPS_BASE);
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     runScripts: 'outside-only',
@@ -176,9 +185,9 @@ export async function coverLoadServiceApp(appName, opts = {}) {
 
   if (withBaseUtils) requireFresh(BASE_UTILS_PATH);
   requireFresh(REGISTRY_PREFS_PATH);
-  requireFresh(I18N_CORE_PATH);
+  if (i18n) requireFresh(I18N_CORE_PATH);
   mirrorI18nGlobals(dom.window);
-  if (dom.window.NovaI18n) {
+  if (i18n && dom.window.NovaI18n) {
     dom.window.NovaI18n.registerResources({ en: await enCatalogue() });
   }
 

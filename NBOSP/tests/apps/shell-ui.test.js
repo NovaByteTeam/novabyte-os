@@ -1312,7 +1312,7 @@ describe('Modal service (js/apps/shell-ui/modals.js)', () => {
     await expect(p2).resolves.toBeNull();
   });
 
-  it('supports custom DOM bodies; the developer-warning variant is dropped by the compat wrapper', async () => {
+  it('supports custom DOM bodies; the compat wrapper forwards the full argument list', async () => {
     const w = await bootModals();
     const node = w.document.createElement('div');
     node.textContent = 'custom content';
@@ -1320,11 +1320,9 @@ describe('Modal service (js/apps/shell-ui/modals.js)', () => {
       variant: 'developer-warning',
     });
     const dialog = w.document.querySelector('.modal-dialog');
-    // SOURCE BUG: window.showModal(title, body, actions, inputType) forwards
-    // only four arguments — ModalService's defaultInputValue and options
-    // (variants, collect callbacks) are silently dropped by the compat
-    // wrapper. showPrompt() calls ModalService.show directly and works.
-    expect(dialog.dataset.modalVariant).toBeUndefined();
+    // The compat wrapper forwards every argument (fixed): the variant now
+    // reaches ModalService.show and tags the dialog like an in-realm call.
+    expect(dialog.dataset.modalVariant).toBe('developer-warning');
     // the HTMLElement body branch still renders the custom node
     expect(dialog.querySelector('.modal-body').textContent).toContain('custom content');
     [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'OK').click();
