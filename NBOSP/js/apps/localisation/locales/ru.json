@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "Системные приложения не могут быть заменены установкой пакетов.",
       "alreadyInstalledTitle": "Приложение уже установлено",
       "alreadyInstalledBody": "\"{{name}}\" уже установлен (v{{current}}). Заменить на v{{next}}?",
-      "replaceLabel": "Заменять",
+      "updateLabel": "Обновлять",
       "appInstalledTitle": "Приложение установлено",
       "appInstalledBody": "{{app}} в{{version}} установлен успешно.",
       "installFailedTitle": "Установка не удалась",

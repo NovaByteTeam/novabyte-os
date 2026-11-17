@@ -542,6 +542,39 @@ describe('SystemDialogs service (js/apps/system-dialogs)', () => {
     await expect(p).resolves.toBe(null);
   });
 
+  it('uses the same quick-access icons as Files', async () => {
+    const quickRoot = await fsPromises.mkdtemp(nodePath.join(nodeOs.tmpdir(), 'nbosp-quick-access-'));
+    try {
+      for (const folder of ['Desktop', 'Documents', 'Downloads', 'Pictures', 'Music']) {
+        await fsPromises.mkdir(nodePath.join(quickRoot, folder));
+      }
+      const { window, document } = await loadDialogs([], { id: 'quick-access-root', path: quickRoot });
+      window.svgIcon = (name, size) => `<svg data-icon="${name}" width="${size}"></svg>`;
+      const dialog = window.SystemDialogs.open({ startPath: quickRoot });
+      await settle(80);
+
+      const expected = [
+        ['Home', 'folder-open'],
+        ['Desktop', 'monitor'],
+        ['Documents', 'file-text'],
+        ['Downloads', 'download'],
+        ['Pictures', 'image'],
+        ['Music', 'music'],
+      ];
+      for (const [label, iconName] of expected) {
+        const button = [...document.querySelectorAll('.system-file-dialog-side-item')]
+          .find(item => item.getAttribute('aria-label') === label);
+        expect(button?.querySelector('.system-file-dialog-side-icon svg')?.getAttribute('data-icon'))
+          .toBe(iconName);
+      }
+
+      cancelBtn(document).click();
+      await expect(dialog).resolves.toBe(null);
+    } finally {
+      await fsPromises.rm(quickRoot, { recursive: true, force: true });
+    }
+  });
+
   it('breadcrumbs navigate by segment; the edit affordance swaps to the path input', async () => {
     await fsPromises.mkdir(nodePath.join(tmpRoot, 'sub', 'sub2'), { recursive: true });
     const start = nodePath.join(tmpRoot, 'sub', 'sub2');

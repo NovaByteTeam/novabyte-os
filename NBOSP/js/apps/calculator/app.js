@@ -13,7 +13,7 @@
     return element;
   }
 
-  function init(content) {
+  function mountCalculator(content) {
     let isEvaluated = false;
     let expr = '';
 
@@ -293,14 +293,38 @@
     return () => ac.abort();
   }
 
-  const root = document.getElementById('calculator-root');
-  if (!root) throw new Error('Calculator root element is missing');
-  const cleanup = init(root);
-  // init() always returns its abort closure; the non-function arm is
-  // unreachable defensive code.
-  /* v8 ignore start */
-  if (typeof cleanup === 'function') {
-    window.addEventListener('pagehide', cleanup, { once: true });
+  if (window.__novaUnrestrictedPackage?.id === 'com.nbosp.calculator' &&
+      typeof registerApp === 'function') {
+    registerApp({
+      id: 'com.nbosp.calculator',
+      name: 'Calculator',
+      version: '3.0.2',
+      icon: 'calculator',
+      category: 'utilities',
+      permissions: [],
+      defaultSize: [320, 440],
+      minSize: [280, 380],
+      resizable: true,
+      init(content, state) {
+        const root = document.createElement('main');
+        root.id = 'calculator-root';
+        root.setAttribute('aria-label', 'Calculator');
+        root.style.cssText = 'width:100%;height:100%;';
+        content.appendChild(root);
+        const cleanup = mountCalculator(root);
+        state?.cleanups?.push(cleanup);
+      },
+    });
+  } else {
+    const root = document.getElementById('calculator-root');
+    if (!root) throw new Error('Calculator root element is missing');
+    const cleanup = mountCalculator(root);
+    // mountCalculator() always returns its abort closure; the non-function arm is
+    // unreachable defensive code.
+    /* v8 ignore start */
+    if (typeof cleanup === 'function') {
+      window.addEventListener('pagehide', cleanup, { once: true });
+    }
+    /* v8 ignore stop */
   }
-  /* v8 ignore stop */
 })();

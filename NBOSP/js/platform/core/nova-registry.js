@@ -121,6 +121,7 @@ const NovaRegistry = (() => {
     theme: 'HKNU/shell/theme',
     accentColor: 'HKNU/shell/accentColor',
     wallpaperId: 'HKNU/shell/wallpaper',
+    lockWallpaperId: 'HKNU/shell/lockWallpaper',
     pinnedApps: 'HKNU/desktop/pins',
     defaultApps: 'HKNU/shell/defaultApps',
     // system (machine-scoped) keys

@@ -8,7 +8,7 @@ const TRAY_MARKUP = `
   <span id="tray-wifi"></span>
   <button id="tray-volume"></button>
   <div id="volume-popup"></div>
-  <input id="volume-slider" />
+  <input id="volume-slider" type="range" min="0" max="100" value="80" />
   <span id="volume-value"></span>
   <span id="tray-clock"></span>
   <div id="calendar-popup">
@@ -86,6 +86,7 @@ describe('TrayService service (js/apps/tray)', () => {
     slider.dispatchEvent(new window.Event('input', { bubbles: true }));
 
     expect(os.volume).toBe(37);
+    expect(slider.style.getPropertyValue('--volume-level')).toBe('37%');
     expect(document.getElementById('volume-value').textContent).toBe('37%');
     expect(emitted).toEqual([['os:volumeChanged', { volume: 37 }]]);
     expect(webview.calls).toHaveLength(1);
@@ -123,6 +124,7 @@ describe('TrayService service (js/apps/tray)', () => {
     });
     expect(os.volume).toBe(42);
     expect(document.getElementById('volume-slider').value).toBe('42');
+    expect(document.getElementById('volume-slider').style.getPropertyValue('--volume-level')).toBe('42%');
     expect(document.getElementById('volume-value').textContent).toBe('42%');
   });
 
@@ -158,6 +160,7 @@ describe('TrayService service (js/apps/tray)', () => {
     expect(applied).toBe(100); // clamped to 0-100
     expect(os.volume).toBe(100);
     expect(document.getElementById('volume-slider').value).toBe('100');
+    expect(document.getElementById('volume-slider').style.getPropertyValue('--volume-level')).toBe('100%');
     expect(document.getElementById('volume-value').textContent).toBe('100%');
     expect(webview.calls.at(-1)).toContain('var v=1;');
     expect(emitted.at(-1)).toEqual(['os:volumeChanged', { volume: 100 }]);
@@ -182,6 +185,7 @@ describe('TrayService service (js/apps/tray)', () => {
     listeners[0]({ key: 'volume', value: 25 });
     expect(os.volume).toBe(25);
     expect(slider.value).toBe('25');
+    expect(slider.style.getPropertyValue('--volume-level')).toBe('25%');
     expect(document.getElementById('volume-value').textContent).toBe('25%');
     expect(emitted.at(-1)).toEqual(['os:volumeChanged', { volume: 25 }]);
 

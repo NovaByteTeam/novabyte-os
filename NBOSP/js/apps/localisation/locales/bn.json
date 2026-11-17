@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "প্যাকেজ ইনস্টলের মাধ্যমে সিস্টেম অ্যাপ প্রতিস্থাপন করা যাবে না।",
       "alreadyInstalledTitle": "অ্যাপটি ইতিমধ্যেই ইনস্টল করা আছে",
       "alreadyInstalledBody": "\"{{name}}\" ইতিমধ্যেই ইনস্টল করা আছে (v{{current}})। v{{next}} দিয়ে প্রতিস্থাপন করবেন?",
-      "replaceLabel": "প্রতিস্থাপন করুন",
+      "updateLabel": "আপডেট",
       "appInstalledTitle": "অ্যাপ ইনস্টল করা হয়েছে",
       "appInstalledBody": "{{app}} v{{version}} সফলভাবে ইনস্টল করা হয়েছে।",
       "installFailedTitle": "ইনস্টল ব্যর্থ হয়েছে",

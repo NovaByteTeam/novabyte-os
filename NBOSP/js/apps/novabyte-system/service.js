@@ -26,7 +26,7 @@
     'highContrast', 'keyboardLayout', 'language', 'osVersion', 'prohibitWallpaperChange',
     'reduceMotion', 'region', 'removeTransparency', 'rootAccessEnabled',
     'showTaskbarClock', 'taskbarSize', 'theme', 'timezone', 'username',
-    'wallpaperId', 'customWallpaper', 'customWallpaperName', 'doNotDisturb', 'volume',
+    'wallpaperId', 'lockWallpaperId', 'customWallpaper', 'customWallpaperName', 'doNotDisturb', 'volume',
   ]);
   const protectedImportKeys = new Set([
     'devMode', 'rootAccessEnabled', 'lockPin', 'pinSalt',
@@ -70,6 +70,7 @@
     ['keyboardLayout', value => typeof value === 'string' && keyboardLayouts.has(value)],
     ['language', value => typeof value === 'string' && languages.has(value)],
     ['wallpaperId', value => value === null || (typeof value === 'string' && wallpaperIds.has(value))],
+    ['lockWallpaperId', value => typeof value === 'string' && wallpaperIds.has(value)],
     ['customWallpaper', value => value === null ||
       (typeof value === 'string' && value.length <= 5_500_000 &&
         /^data:image\/(?:png|jpe?g|webp|gif|bmp|x-ms-bmp|svg\+xml);base64,[a-z\d+/]+=*$/i.test(value))],

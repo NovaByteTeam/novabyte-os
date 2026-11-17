@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "برنامه های سیستمی را نمی توان با نصب بسته جایگزین کرد.",
       "alreadyInstalledTitle": "برنامه قبلاً نصب شده است",
       "alreadyInstalledBody": "\"{{name}}\" قبلاً نصب شده است (v{{current}}). با v جایگزین کنید{{next}}?",
-      "replaceLabel": "جایگزین کنید",
+      "updateLabel": "به روز رسانی",
       "appInstalledTitle": "برنامه نصب شد",
       "appInstalledBody": "{{app}} v{{version}} با موفقیت نصب شد",
       "installFailedTitle": "نصب ناموفق بود",

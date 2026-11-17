@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "システム アプリをパッケージ インストールで置き換えることはできません。",
       "alreadyInstalledTitle": "アプリはすでにインストールされています",
       "alreadyInstalledBody": "」{{name}}\" はすでにインストールされています (v{{current}}）。 v に置き換えます{{next}}?",
-      "replaceLabel": "交換する",
+      "updateLabel": "アップデート",
       "appInstalledTitle": "アプリがインストールされました",
       "appInstalledBody": "{{app}} v{{version}} 正常にインストールされました。",
       "installFailedTitle": "インストールに失敗しました",

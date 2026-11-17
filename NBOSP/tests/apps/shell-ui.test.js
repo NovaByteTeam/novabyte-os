@@ -1419,8 +1419,11 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
     expect(events).toEqual(['nova-light', 'nord']);
     expect(colorSchemeMeta.content).toBe('dark');
     expect(window.document.documentElement.style.getPropertyValue('--bg-base')).toBe('#2e3440');
+    expect(window.document.documentElement.style.getPropertyValue('--launchpad-bg')).toBe('var(--window-bg)');
+    window.applyTheme('nova-dark');
+    expect(window.document.documentElement.style.getPropertyValue('--launchpad-bg')).toBe('var(--bg-overlay)');
     expect(() => window.applyTheme('not-a-theme')).not.toThrow(); // falls back to nova-dark
-    expect(events).toEqual(['nova-light', 'nord', 'not-a-theme']);
+    expect(events).toEqual(['nova-light', 'nord', 'nova-dark', 'not-a-theme']);
   });
 
   it('keeps semantic text colors readable in every built-in theme', async () => {

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 const initSource = readFileSync(new URL('../../../js/core/core/init.js', import.meta.url), 'utf8');
 const prefsSource = readFileSync(new URL('../../../js/platform/core/registry-prefs.js', import.meta.url), 'utf8');
 const recoverySource = readFileSync(new URL('../../../os/board/nbosp/nbosp-recovery', import.meta.url), 'utf8');
+const bootServiceSource = readFileSync(new URL('../../../os/board/nbosp/S99nbosp', import.meta.url), 'utf8');
 
 const REQUEST_FILE = '/home/nbosp/.config/novabyte/recovery-request';
 
@@ -61,9 +62,15 @@ describe('Linux recovery request', () => {
     expect(recoverySource).not.toContain('start-stop-daemon --start --background --exec /bin/sh');
   });
 
+  it('consumes the desktop request file before normal kiosk startup', () => {
+    expect(bootServiceSource).toContain(`RECOVERY_REQUEST=${REQUEST_FILE}`);
+    expect(bootServiceSource).toContain('if nbosp_recovery_requested; then');
+    expect(bootServiceSource).toContain('/usr/sbin/nbosp-recovery');
+  });
+
   it('writes the one-shot request file and restarts through nbosp-power', () => {
     const { context, writes, execs } = load();
-    context.NovaRecovery.request('manual');
+    expect(context.NovaRecovery.request('manual')).toBe(true);
     expect(writes).toEqual([[REQUEST_FILE, 'manual\n']]);
     expect(execs).toEqual([['/usr/bin/nbosp-power', ['restart']]]);
   });
@@ -77,12 +84,13 @@ describe('Linux recovery request', () => {
 
   it('acts on the Settings "Boot to Recovery" flag at startup and clears boot flags', () => {
     const { store, writes, execs } = load({
-      store: { nova_manual_recovery: '1', nova_boot_attempts: '[{}]' },
+      store: { nova_manual_recovery: '1', nova_boot_attempts: '[{}]', nova_safe_mode: '1' },
     });
     expect(writes).toEqual([[REQUEST_FILE, 'manual\n']]);
     expect(execs).toHaveLength(1);
     expect(store.nova_manual_recovery).toBeUndefined();
     expect(store.nova_boot_attempts).toBeUndefined();
+    expect(store.nova_safe_mode).toBeUndefined();
   });
 
   it('acts on a forced-recovery flag left by a failed boot', () => {
@@ -107,7 +115,7 @@ describe('Linux recovery request', () => {
 describe('recovery off NBOSP Linux', () => {
   it('shows the failure instead of restarting or looping', () => {
     const { context, writes, execs, bootScreen } = load({ platform: 'darwin' });
-    context.NovaRecovery.request('boot_timeout');
+    expect(context.NovaRecovery.request('boot_timeout')).toBe(false);
     expect(writes).toHaveLength(0);
     expect(execs).toHaveLength(0);
     expect(bootScreen.replaceChildren).toHaveBeenCalledTimes(1);

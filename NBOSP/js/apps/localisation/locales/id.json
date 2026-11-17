@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "Aplikasi sistem tidak dapat digantikan oleh pemasangan paket.",
       "alreadyInstalledTitle": "Aplikasi Sudah Terinstal",
       "alreadyInstalledBody": "\"{{name}}\" sudah terpasang (ay{{current}}). Ganti dengan v{{next}}?",
-      "replaceLabel": "Mengganti",
+      "updateLabel": "Memperbarui",
       "appInstalledTitle": "Aplikasi Terpasang",
       "appInstalledBody": "{{app}} ay{{version}} berhasil diinstal.",
       "installFailedTitle": "Pemasangan Gagal",

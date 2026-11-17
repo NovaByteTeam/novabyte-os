@@ -608,6 +608,13 @@ registerApp({
     const sidebarBtns = new Map();
 
     function buildSidebar() {
+      const brand = createEl('div', { className: 'nook-sidebar-brand' });
+      brand.innerHTML = svgIcon('settings', 18);
+      brand.appendChild(createEl('span', {
+        textContent: OS.apps?.['com.nbosp.settings']?.name || 'Settings'
+      }));
+      sidebar.appendChild(brand);
+
       const frag = document.createDocumentFragment();
       for (const s of SECTIONS) {
         const btn = createEl('button', {
@@ -962,21 +969,17 @@ registerApp({
         );
         if (!isAlive()) return;
         if (confirmed !== 'confirm') return;
-        // Set the manual recovery flag so init.js knows this is intentional.
-        // Registry-backed (HKNS/system/boot/manualRecovery via BootState —
-        // the legacy key is kept in step as the pre-boot handoff shadow).
-        // init.js's manual-recovery branch clears boot attempts itself,
-        // so we don't write fake boot-attempt entries here.
-        try {
-          if (typeof RegistryBootState !== 'undefined') {
-            RegistryBootState.setFlag('manualRecovery', true);
-            RegistryBootState.clearFlag('safeMode');
-          } else {
-            localStorage.setItem('nova_manual_recovery', '1');
-            localStorage.removeItem('nova_safe_mode');
-          }
-        } catch (e) { console.warn('[Settings] could not stage recovery flag:', e); }
-        location.reload();
+        const recovery = window.NovaRecovery;
+        if (typeof recovery?.request !== 'function') {
+          Notify.show({
+            title: _t('settings.system.recovery'),
+            body: _t('settings.system.bootToRecoveryBody'),
+            type: 'error',
+            appName: 'Settings',
+          });
+          return;
+        }
+        recovery.request('manual');
       }, { signal: lifecycle.signal });
       recoveryRow.appendChild(recoveryBtn);
 
@@ -1925,6 +1928,70 @@ registerApp({
       wallpaperGroup.appendChild(wallpaperRow);
       mainContent.appendChild(wallpaperGroup);
 
+      const lockWallpaperGroup = createEl('div', { className: 'nook-group', style: { marginTop: '16px' } });
+      lockWallpaperGroup.appendChild(createEl('div', {
+        className: 'nook-group-title',
+        textContent: `${_t('settings.desktop.wallpaper')} - Lock screen`,
+      }));
+      const lockPresetRow = createEl('div', { className: 'nook-row' });
+      lockPresetRow.appendChild(createEl('span', {
+        className: 'nook-row-label',
+        textContent: _t('settings.desktop.presetWallpapers'),
+      }));
+      const lockPresetContainer = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;' });
+      const lockWallpaperCards = [];
+      const storedLockWallpaperId = systemSettings.get('lockWallpaperId');
+      let selectedLockWallpaperId = PRESET_WALLPAPERS.some(wp => wp.id === storedLockWallpaperId)
+        ? storedLockWallpaperId
+        : 'stock-blue';
+
+      PRESET_WALLPAPERS.forEach((wp) => {
+        const isActive = selectedLockWallpaperId === wp.id;
+        const card = createEl('div', {
+          role: 'button',
+          tabindex: '0',
+          'aria-label': `${_t('settings.desktop.wallpaperAria', { name: wp.name })} (Lock screen)`,
+          'aria-pressed': String(isActive),
+          title: wp.name,
+          style: 'width:64px;height:48px;border-radius:6px;cursor:pointer;border:2px solid ' +
+            (isActive ? 'var(--accent)' : 'transparent') + ';background:' + wp.gradient +
+            ';transition:all 0.15s;' + (isActive ? 'box-shadow:0 0 0 2px var(--window-bg), 0 0 8px var(--accent);' : 'opacity:0.7;'),
+        });
+
+        const chooseLockWallpaper = () => {
+          if (systemSettings.set('lockWallpaperId', wp.id) === false) {
+            Notify.show({
+              title: _t('settings.desktop.wallpaperNotChanged'),
+              body: _t('settings.desktop.wallpaperPolicyBody'),
+              type: 'error',
+              appName: 'Settings',
+            });
+            return;
+          }
+          selectedLockWallpaperId = wp.id;
+          for (const [index, lockCard] of lockWallpaperCards.entries()) {
+            const active = PRESET_WALLPAPERS[index].id === selectedLockWallpaperId;
+            lockCard.style.borderColor = active ? 'var(--accent)' : 'transparent';
+            lockCard.style.boxShadow = active ? '0 0 0 2px var(--window-bg), 0 0 8px var(--accent)' : 'none';
+            lockCard.style.opacity = active ? '1' : '0.7';
+            lockCard.setAttribute('aria-pressed', String(active));
+          }
+        };
+        card.addEventListener('click', chooseLockWallpaper, { signal: lifecycle.signal });
+        card.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            chooseLockWallpaper();
+          }
+        }, { signal: lifecycle.signal });
+        lockWallpaperCards.push(card);
+        lockPresetContainer.appendChild(card);
+      });
+
+      lockPresetRow.appendChild(lockPresetContainer);
+      lockWallpaperGroup.appendChild(lockPresetRow);
+      mainContent.appendChild(lockWallpaperGroup);
+
       // Taskbar
       const clockGroup = createEl('div', { className: 'nook-group' });
       clockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.desktop.taskbar') }));
@@ -2645,7 +2712,10 @@ registerApp({
         }
         refreshCurrent();
 
-        changeBtn.addEventListener('click', () => openPicker(categoryId, category, refreshCurrent), { signal: lifecycle.signal });
+        changeBtn.addEventListener('click', () => openPicker(categoryId, category, (choice) => {
+          if (categoryId === 'home' && choice === 'once') window.location.reload();
+          else refreshCurrent();
+        }), { signal: lifecycle.signal });
 
         return row;
       }
@@ -2706,14 +2776,53 @@ registerApp({
           }
           optRow.appendChild(radio);
 
-          const choose = () => {
+          const choose = async () => {
+            let chosenHomeOption = null;
             try {
-              if (!DefaultApps.setDefault(categoryId, app.id)) {
+              if (categoryId === 'home') {
+                const currentHomeId = DefaultApps.getDefault('home') || 'com.nbosp.launcher';
+                const currentHome = candidates.find(candidate => candidate.id === currentHomeId)
+                  || (typeof OS !== 'undefined' ? OS.apps?.[currentHomeId] : null);
+                const choice = await showModal(
+                  'Do you want to switch launcher?',
+                  `Default launcher: ${currentHome?.name || 'System default'}\nThis app: ${app.name}`,
+                  [
+                    { label: 'Just once', value: 'once' },
+                    { label: 'Always', value: 'always' },
+                  ],
+                );
+                if (choice !== 'once' && choice !== 'always') return;
+
+                if (!DefaultApps.getAppsForCategory('home').some(candidate => candidate.id === app.id)) {
+                  Notify.show({ title: _t('settings.defaultApps.notChanged'), body: _t('settings.defaultApps.noLongerAvailable'), type: 'error', appName: 'Nook' });
+                  return;
+                }
+
+                if (choice === 'once') {
+                  const sessionUid = typeof SessionManager !== 'undefined'
+                    ? SessionManager?.state?.()?.uid
+                    : undefined;
+                  const scopeUid = typeof NovaUserScope !== 'undefined'
+                    ? NovaUserScope?.uid?.()
+                    : undefined;
+                  const uid = typeof sessionUid === 'string'
+                    ? sessionUid
+                    : (typeof scopeUid === 'string' ? scopeUid : '');
+                  sessionStorage.setItem('novabyte:home-launch-override:v1', JSON.stringify({ uid, appId: app.id }));
+                } else {
+                  sessionStorage.removeItem('novabyte:home-launch-override:v1');
+                  if (!DefaultApps.setDefault(categoryId, app.id)) {
+                    Notify.show({ title: _t('settings.defaultApps.notChanged'), body: _t('settings.defaultApps.noLongerAvailable'), type: 'error', appName: 'Nook' });
+                    return;
+                  }
+                }
+                chosenHomeOption = choice;
+              } else if (!DefaultApps.setDefault(categoryId, app.id)) {
                 Notify.show({ title: _t('settings.defaultApps.notChanged'), body: _t('settings.defaultApps.noLongerAvailable'), type: 'error', appName: 'Nook' });
                 return;
               }
               dismissOverlay(overlay);
-              onChosen();
+              onChosen(chosenHomeOption);
             } catch (err) {
               Notify.show({ title: _t('settings.defaultApps.notChanged'), body: err?.message || _t('settings.defaultApps.couldNotSave'), type: 'error', appName: 'Nook' });
             }

@@ -315,3 +315,194 @@
   background: var(--accent);
   transition: width 0.2s ease;
 }
+
+/* Settings surfaces — shared tokens keep every section aligned with the
+   active theme while the cards and navigation share one visual language. */
+.nook-container {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  background: var(--bg-base);
+}
+.nook-sidebar {
+  width: 218px;
+  padding: 14px 10px;
+  background: var(--bg-sidebar, var(--bg-sunken));
+  border-right-color: var(--border-default);
+}
+.nook-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  margin: 0 4px 14px;
+  padding: 0 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.nook-sidebar-brand svg {
+  color: var(--accent);
+}
+.nook-section-btn {
+  position: relative;
+  gap: 11px;
+  min-height: 40px;
+  margin: 2px 0;
+  padding: 8px 11px;
+  border-radius: var(--r-md, 10px);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.nook-section-btn > span:first-child {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  opacity: 0.82;
+}
+.nook-section-btn.active {
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-weight: 650;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.nook-section-btn.active > span:first-child {
+  opacity: 1;
+}
+.nook-content {
+  min-width: 0;
+  padding: 26px clamp(18px, 4vw, 40px);
+  background: var(--bg-base);
+  scrollbar-gutter: stable;
+}
+.nook-content > h2 {
+  margin: 0 0 22px !important;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+}
+.nook-group,
+.nook-privacy-section {
+  margin-bottom: 16px;
+  padding: 17px 19px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg, 14px);
+  background: var(--bg-elevated);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+}
+.nook-group-title {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.075em;
+}
+.nook-row,
+.nook-toggle-row {
+  min-height: 44px;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom-color: var(--border-subtle);
+}
+.nook-row:last-child,
+.nook-toggle-row:last-child {
+  border-bottom: 0;
+}
+.nook-row-label,
+.nook-toggle-label {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 550;
+}
+.nook-row-desc,
+.nook-toggle-desc {
+  max-width: 620px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.nook-content .btn {
+  min-height: 32px;
+  border-radius: var(--r-sm, 8px);
+  font-weight: 600;
+  transition: background-color var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+}
+.nook-content .btn:active {
+  transform: translateY(1px);
+}
+.nook-content input:not([type="checkbox"]):not([type="radio"]),
+.nook-content select,
+.nook-auto-lock-select {
+  min-height: 36px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-sm, 8px);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+.nook-content input:focus-visible,
+.nook-content select:focus-visible,
+.nook-content button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.nook-content input[type="checkbox"],
+.nook-content input[type="radio"] {
+  accent-color: var(--accent);
+}
+.nook-accessibility-preview,
+.nook-high-contrast-preview {
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-sunken);
+}
+.nook-shortcuts-table th {
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+}
+.nook-shortcuts-table td {
+  border-bottom-color: var(--border-subtle);
+}
+.nook-shortcut-key {
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+.nook-about-header,
+.nook-feature-item {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md, 10px);
+  background: var(--bg-elevated);
+}
+.nook-about-header {
+  padding: 20px;
+}
+.nook-feature-item {
+  min-height: 56px;
+}
+.nook-system-row {
+  min-height: 38px;
+}
+
+@media (max-width: 680px) {
+  .nook-sidebar {
+    width: 176px;
+    padding-inline: 7px;
+  }
+  .nook-content {
+    padding: 18px 14px;
+  }
+  .nook-group,
+  .nook-privacy-section {
+    padding: 14px;
+  }
+  .nook-feature-grid {
+    grid-template-columns: 1fr;
+  }
+}

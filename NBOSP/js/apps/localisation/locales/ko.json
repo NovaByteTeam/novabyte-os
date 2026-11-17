@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "시스템 앱은 패키지 설치로 대체될 수 없습니다.",
       "alreadyInstalledTitle": "앱이 이미 설치되어 있습니다",
       "alreadyInstalledBody": "\"{{name}}\"이(가) 이미 설치되어 있습니다(v{{current}}). v로 교체{{next}}?",
-      "replaceLabel": "바꾸다",
+      "updateLabel": "업데이트",
       "appInstalledTitle": "앱이 설치됨",
       "appInstalledBody": "{{app}} 다섯{{version}} 성공적으로 설치되었습니다.",
       "installFailedTitle": "설치 실패",

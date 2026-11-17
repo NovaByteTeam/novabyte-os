@@ -66,6 +66,24 @@
     return require('path').join(require('os').homedir(), '.config', 'novabyte', 'settings.json');
   }
 
+  const CUSTOM_WALLPAPER_STORAGE_PREFIX = '__customWallpaper:';
+  const LEGACY_CUSTOM_WALLPAPER_KEY = `${CUSTOM_WALLPAPER_STORAGE_PREFIX}legacy`;
+
+  function isMultiUserMode() {
+    return typeof NovaUserScope !== 'undefined' && !!NovaUserScope
+      && typeof NovaUserScope.enabled === 'function'
+      && NovaUserScope.enabled() === true;
+  }
+
+  function legacyStorageKey(key) {
+    if (key !== 'customWallpaper' || !isMultiUserMode()) return key;
+    if (typeof NovaUserScope.uid !== 'function') return null;
+    const uid = NovaUserScope.uid();
+    return typeof uid === 'string' && uid
+      ? `${CUSTOM_WALLPAPER_STORAGE_PREFIX}user:${uid}`
+      : null;
+  }
+
   function readLegacyStore(OS) {
     if (isLinuxRuntime()) {
       const fs = require('fs');
@@ -203,16 +221,19 @@
           this.get('prohibitWallpaperChange') === true) {
         return false;
       }
-      this._cache[key] = value;
       if (this.volatile === true) {
+        this._cache[key] = value;
         // Safe Mode: session-only, documented "never persists" semantics.
         bus.emit('settings:changed', { key, value });
         return true;
       }
       const path = reg.settingsPathFor(key);
+      const storageKey = path ? key : legacyStorageKey(key);
+      if (!path && !storageKey) return false;
+      this._cache[key] = value;
       if (!path) {
         // Excluded (oversized) key — legacy channel permanently.
-        writeLegacyStore(OS, this._cache, logger, (cache) => ({ [key]: cache[key] }));
+        writeLegacyStore(OS, this._cache, logger, (cache) => ({ [storageKey]: cache[key] }));
         bus.emit('settings:changed', { key, value });
         return true;
       }
@@ -220,7 +241,7 @@
         reg.set(path, value, { source: SOURCE, actor: 'shell' });
       } catch (err) {
         logger.error(`Failed to commit setting "${key}" to ${path} — using legacy store`, err);
-        writeLegacyStore(OS, this._cache, logger, (cache) => ({ [key]: cache[key] }));
+        writeLegacyStore(OS, this._cache, logger, (cache) => ({ [storageKey]: cache[key] }));
       }
       bus.emit('settings:changed', { key, value });
       return true;
@@ -232,7 +253,13 @@
       try { raw = await readLegacyStore(OS); } catch (_) { raw = {}; }
       try {
         if (raw && typeof raw === 'object') {
-          const keys = Object.keys(raw);
+          if (isMultiUserMode() && raw.customWallpaper !== undefined
+              && raw[LEGACY_CUSTOM_WALLPAPER_KEY] === undefined) {
+            writeLegacyStore(OS, raw, logger, () => ({
+              [LEGACY_CUSTOM_WALLPAPER_KEY]: raw.customWallpaper,
+            }));
+          }
+          const keys = Object.keys(raw).filter((key) => !key.startsWith(CUSTOM_WALLPAPER_STORAGE_PREFIX));
           if (keys.length) {
             const adopted = reg.adoptLegacySettings((key) => raw[key], keys);
             if (adopted > 0) logger.info(`[SettingsShim] Adopted ${adopted} legacy setting(s) into the registry`);
@@ -247,7 +274,8 @@
         // Excluded keys never enter the hive — serve them from the legacy
         // store on every boot.
         for (const key of reg.SETTINGS_EXCLUDED_KEYS) {
-          if (raw && raw[key] !== undefined) this._cache[key] = raw[key];
+          const storageKey = legacyStorageKey(key);
+          if (storageKey && raw && raw[storageKey] !== undefined) this._cache[key] = raw[storageKey];
         }
         return;
       } catch (err) {

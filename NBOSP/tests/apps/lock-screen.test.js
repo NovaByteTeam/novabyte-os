@@ -324,12 +324,12 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
 
   it('shows stock blue on the picker and only switches to an account\'s wallpaper on its PIN screen', async () => {
     // keyed by uid, like the registry's user:<uid>:HKNU documents (the usernames differ)
-    const stored = { 'u-ada-001': { id: 'stock-red' }, 'u-sam-002': { id: 'stock-green' } };
+    const stored = { 'u-ada-001': { lockId: 'stock-red' }, 'u-sam-002': { lockId: 'stock-green' } };
     const { window, document } = await loadMultiUser({
       extraStubs: {
         // the machine's desktop is still wearing whoever logged off last
         WallpaperService: { styleFor: (id) => ({ backgroundImage: `url("${id}.png")` }) },
-        NovaRegistry: { peekUserValue: (segment, path) => (path === 'HKNU/shell/wallpaper' ? stored[segment]?.id : undefined) },
+        NovaRegistry: { peekUserValue: (segment, path) => (path === 'HKNU/shell/lockWallpaper' ? stored[segment]?.lockId : undefined) },
       },
     });
     const layerImage = () => document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage;

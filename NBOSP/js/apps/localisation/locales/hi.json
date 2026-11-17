@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "सिस्टम ऐप्स को पैकेज इंस्टॉल द्वारा प्रतिस्थापित नहीं किया जा सकता है।",
       "alreadyInstalledTitle": "ऐप पहले से इंस्टॉल है",
       "alreadyInstalledBody": "\"{{name}}\"पहले से ही स्थापित है (v{{current}}). v से बदलें{{next}}?",
-      "replaceLabel": "प्रतिस्थापित करें",
+      "updateLabel": "अद्यतन",
       "appInstalledTitle": "ऐप इंस्टॉल किया गया",
       "appInstalledBody": "{{app}} वी{{version}} सफलतापूर्वक स्थापित किया गया.",
       "installFailedTitle": "इंस्टॉल विफल",

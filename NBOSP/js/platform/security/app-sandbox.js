@@ -5142,20 +5142,10 @@ const AppSandbox = (() => {
 
   async function handleSystemBootRecovery({ requestId, webview }) {
     try {
-      // Registry-backed (HKNS/system/boot/manualRecovery via BootState — the
-      // legacy key stays in step as the pre-boot handoff shadow to init.js).
-      if (typeof RegistryBootState !== 'undefined') {
-        RegistryBootState.setFlag('manualRecovery', true);
-        RegistryBootState.clearFlag('safeMode');
-      } else {
-        localStorage.setItem('nova_manual_recovery', '1');
-        localStorage.removeItem('nova_safe_mode');
+      const recovery = window.NovaRecovery;
+      if (typeof recovery?.request !== 'function' || recovery.request('manual') !== true) {
+        return respondError(webview, 'nova:system:boot-recovery', requestId, 'UNAVAILABLE', 'Could not start the recovery handoff');
       }
-      // Reload the HOST window, not the sandbox guest frame. The next boot
-      // sees manualRecovery, writes the recovery request and restarts into the Linux recovery environment.
-      setTimeout(() => {
-        try { location.reload(); } catch (e) { console.error('[Settings] recovery reload failed:', e); }
-      }, 120);
       return respond(webview, 'nova:system:boot-recovery', requestId, { success: true });
     } catch (e) {
       return respondError(webview, 'nova:system:boot-recovery', requestId, 'ERROR', e?.message || 'Failed to reboot to recovery');

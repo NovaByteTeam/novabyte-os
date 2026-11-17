@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "系统应用程序无法通过软件包安装来替换。",
       "alreadyInstalledTitle": "应用程序已安装",
       "alreadyInstalledBody": "”{{name}}“已经安装（v{{current}}）。替换为 v{{next}}？",
-      "replaceLabel": "代替",
+      "updateLabel": "更新",
       "appInstalledTitle": "应用程序已安装",
       "appInstalledBody": "{{app}} v{{version}} 安装成功。",
       "installFailedTitle": "安装失败",

@@ -10,6 +10,84 @@ describe('Boot (js/core/core/boot.js)', () => {
     vi.clearAllMocks();
   });
 
+  it('consumes a one-session Home choice without changing the saved default', async () => {
+    if (!window.Boot) return;
+    const root = document.createElement('div');
+    root.id = 'launcher-root';
+    document.body.appendChild(root);
+
+    const os = window.OS;
+    const defaults = window.DefaultApps;
+    const sandbox = window.AppSandbox;
+    const bootState = window.BootState;
+    if (!os || !defaults || !sandbox || !bootState) {
+      throw new Error('Boot Home test dependencies are unavailable');
+    }
+
+    const homeApp = { id: 'com.test.one-session-home', permissions: [] };
+    const savedId = 'com.test.saved-home';
+    const savedApp = { id: savedId, permissions: [] };
+    const original = {
+      apps: os.apps,
+      eventsOn: os.events.on,
+      getDefault: defaults.getDefault,
+      getAppsForCategory: defaults.getAppsForCategory,
+      setDefault: defaults.setDefault,
+      launchHome: sandbox.launchHome,
+      homeLaunchPending: bootState.homeLaunchPending,
+      clearHomeLaunchPending: bootState.clearHomeLaunchPending,
+      setHomeLaunchPending: bootState.setHomeLaunchPending,
+      sessionManager: window.SessionManager,
+      activeHome: window.__NOVA_ACTIVE_HOME_APP_ID__,
+    };
+
+    os.apps = { ...os.apps, [homeApp.id]: homeApp, [savedId]: savedApp };
+    os.events.on = vi.fn();
+    defaults.getDefault = vi.fn(() => savedId);
+    defaults.getAppsForCategory = vi.fn(() => [homeApp, savedApp]);
+    defaults.setDefault = vi.fn(() => true);
+    sandbox.launchHome = vi.fn(async () => ({ id: homeApp.id }));
+    bootState.homeLaunchPending = vi.fn(() => null);
+    bootState.clearHomeLaunchPending = vi.fn();
+    bootState.setHomeLaunchPending = vi.fn();
+    window.SessionManager = { state: () => ({ uid: 'user-a' }) };
+    sessionStorage.setItem('novabyte:home-launch-override:v1', JSON.stringify({
+      uid: 'user-a',
+      appId: homeApp.id,
+    }));
+
+    try {
+      await window.Boot.startConfiguredHomeApp();
+      expect(sandbox.launchHome).toHaveBeenCalledWith(homeApp, root);
+      expect(sessionStorage.getItem('novabyte:home-launch-override:v1')).toBeNull();
+      expect(defaults.setDefault).not.toHaveBeenCalled();
+      expect(defaults.getDefault).toHaveBeenCalledWith('home');
+
+      sessionStorage.setItem('novabyte:home-launch-override:v1', JSON.stringify({
+        uid: 'user-b',
+        appId: homeApp.id,
+      }));
+      await window.Boot.startConfiguredHomeApp();
+      expect(sandbox.launchHome).toHaveBeenLastCalledWith(savedApp, root);
+      expect(sessionStorage.getItem('novabyte:home-launch-override:v1')).toBeNull();
+    } finally {
+      os.apps = original.apps;
+      os.events.on = original.eventsOn;
+      defaults.getDefault = original.getDefault;
+      defaults.getAppsForCategory = original.getAppsForCategory;
+      defaults.setDefault = original.setDefault;
+      sandbox.launchHome = original.launchHome;
+      bootState.homeLaunchPending = original.homeLaunchPending;
+      bootState.clearHomeLaunchPending = original.clearHomeLaunchPending;
+      bootState.setHomeLaunchPending = original.setHomeLaunchPending;
+      if (original.sessionManager === undefined) delete window.SessionManager;
+      else window.SessionManager = original.sessionManager;
+      if (original.activeHome === undefined) delete window.__NOVA_ACTIVE_HOME_APP_ID__;
+      else window.__NOVA_ACTIVE_HOME_APP_ID__ = original.activeHome;
+      root.remove();
+    }
+  });
+
   it('caches DOM references and populates Boot._dom', () => {
     if (!window.Boot) {
       expect(true).toBe(true);

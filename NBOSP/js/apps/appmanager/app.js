@@ -1542,12 +1542,10 @@ registerApp({
     let selectedPkgId = null;
 
     // ── Root layout ────────────────────────────────────────────────
-    content.style.cssText = 'display:flex;flex-direction:column;overflow:hidden;height:100%;';
+    content.classList.add('app-manager-root');
 
     // ── Tab bar ────────────────────────────────────────────────────
-    const tabBar = createEl('div', {
-      style: 'display:flex;align-items:center;gap:2px;padding:10px 14px 0;border-bottom:1px solid var(--border-subtle);background:var(--bg-sunken);flex-shrink:0;'
-    });
+    const tabBar = createEl('div', { className: 'app-manager-tabs' });
 
     const TABS = [
       { id: 'packages', label: _t('apps.appmanager.tabApps'), icon: 'package' },
@@ -1557,7 +1555,7 @@ registerApp({
 
     TABS.forEach(t => {
       const btn = createEl('button', {
-        style: 'display:flex;align-items:center;gap:6px;padding:7px 14px;border:none;border-radius:10px 10px 0 0;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.12s;background:none;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-1px;'
+        className: 'app-manager-tab'
       });
       btn.innerHTML = svgIcon(t.icon, 13) + ' ' + t.label;
       btn.dataset.tab = t.id;
@@ -1570,13 +1568,11 @@ registerApp({
     function refreshTabStyles() {
       for (const btn of Object.values(tabBtns)) {
         const active = btn.dataset.tab === activeTab;
-        btn.style.color = active ? 'var(--text-primary)' : 'var(--text-muted)';
-        btn.style.background = active ? 'var(--bg-elevated)' : 'none';
-        btn.style.borderBottomColor = active ? 'var(--accent)' : 'transparent';
+        btn.classList.toggle('active', active);
       }
     }
 
-    const body = createEl('div', { style: 'flex:1;display:flex;overflow:hidden;' });
+    const body = createEl('div', { className: 'app-manager-body' });
     content.appendChild(body);
 
     function switchTab(id) {
@@ -1591,32 +1587,30 @@ registerApp({
     // PACKAGES PANEL
     // ══════════════════════════════════════════════════════════════
     function renderPackagesPanel() {
-      const root = createEl('div', { style: 'display:flex;width:100%;height:100%;overflow:hidden;font-size:13px;' });
+      const root = createEl('div', { className: 'app-manager-panel app-manager-panel--packages' });
 
       // ── Sidebar ────────────────────────────────────────────────
-      const sidebar = createEl('div', {
-        style: 'width:300px;min-width:260px;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--bg-sunken);flex-shrink:0;'
-      });
+      const sidebar = createEl('div', { className: 'app-manager-sidebar' });
 
       // Toolbar: search + install
-      const toolbar = createEl('div', { style: 'padding:10px;display:flex;gap:6px;border-bottom:1px solid var(--border-subtle);' });
+      const toolbar = createEl('div', { className: 'app-manager-toolbar' });
       const searchEl = createEl('input', {
         type: 'text', id: 'app-installer-search-input', name: 'app-installer-search',
         placeholder: _t('apps.appmanager.searchPlaceholder'),
-        style: 'flex:1;padding:5px 9px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;'
+        className: 'app-manager-search'
       });
       const installBtn = createEl('button', {
-        style: 'padding:5px 10px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;'
+        className: 'app-manager-primary-action'
       });
       installBtn.innerHTML = svgIcon('plus', 12) + ' ' + _t('apps.appmanager.installBtnLabel');
       toolbar.append(searchEl, installBtn);
       sidebar.appendChild(toolbar);
 
-      const listEl = createEl('div', { style: 'flex:1;overflow-y:auto;padding:6px;' });
+      const listEl = createEl('div', { className: 'app-manager-list' });
       sidebar.appendChild(listEl);
 
       // ── Detail panel ───────────────────────────────────────────
-      const detail = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
+      const detail = createEl('div', { className: 'app-manager-detail' });
 
       // Pick paths only, then read one package at a time in processFile. Returning
       // full file contents here duplicates large package buffers in the UI.
@@ -1644,7 +1638,7 @@ registerApp({
       });
       const showHiddenLbl = createEl('label', {
         'for': 'app-manager-show-hidden',
-        style: 'font-size:11px;color:var(--text-secondary);cursor:pointer;white-space:nowrap;',
+        className: 'app-manager-show-hidden-label',
         textContent: _t('apps.appmanager.showHiddenApps')
       });
       showHiddenChk.checked = showHiddenApps;
@@ -1653,9 +1647,7 @@ registerApp({
         try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setShowHiddenApps) RegistryPrefs.setShowHiddenApps(showHiddenApps); } catch {}
         renderList();
       }, listenerOpts);
-      const showHiddenWrap = createEl('div', {
-        style: 'display:flex;align-items:center;gap:5px;padding:0 10px 8px;border-bottom:1px solid var(--border-subtle);'
-      });
+      const showHiddenWrap = createEl('div', { className: 'app-manager-show-hidden' });
       showHiddenWrap.append(showHiddenChk, showHiddenLbl);
       sidebar.appendChild(showHiddenWrap);
       // ── Verification badge ──────────────────────────────────────────────
@@ -1757,10 +1749,10 @@ registerApp({
           const isSel = app.id === selectedPkgId;
           const isDis = disabledSet.has(app.id);
           const item = createEl('div', {
-            style: `display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:10px;cursor:pointer;transition:background 0.1s;${isSel ? 'background:var(--accent-muted);' : ''}`
+            className: `app-manager-package-item${isSel ? ' selected' : ''}`
           });
           const iconWrap = createEl('div', {
-            style: `width:34px;height:34px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:${isDis ? 'var(--text-muted)' : 'var(--accent)'};opacity:${isDis ? 0.5 : 1};`
+            className: `app-manager-package-icon${isDis ? ' is-disabled' : ''}`
           });
           const iconSrc = resolveIcon(app);
           if (iconSrc) {
@@ -1770,9 +1762,9 @@ registerApp({
           } else {
             iconWrap.innerHTML = svgIcon(app.icon || '/assets/no_app_icon.svg', 17);
           }
-          const meta = createEl('div', { style: 'flex:1;min-width:0;' });
+          const meta = createEl('div', { className: `app-manager-package-meta${isDis ? ' is-disabled' : ''}` });
           // SECURITY: Use escapeHtml for user-controlled app.name
-          meta.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${isDis ? 'var(--text-muted)' : 'var(--text-primary)'};">${escapeHtml(app.name)}</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;display:flex;align-items:center;gap:5px;">v${escapeHtml(app.version || '1.0.0')}${isDis ? _t('apps.appmanager.disabledTag') : ''} ${verifyBadgeHtml(app, { compact: true })}</div>`;
+          meta.innerHTML = `<div class="app-manager-package-name">${escapeHtml(app.name)}</div><div class="app-manager-package-subtitle">v${escapeHtml(app.version || '1.0.0')}${isDis ? _t('apps.appmanager.disabledTag') : ''} ${verifyBadgeHtml(app, { compact: true })}</div>`;
           item.append(iconWrap, meta);
 
           item.addEventListener('mouseenter', () => { if (!isSel) item.style.background = 'var(--bg-elevated)'; }, listenerOpts);
@@ -1785,13 +1777,64 @@ registerApp({
         listEl.appendChild(fragment);
       }
 
+      async function confirmPackageUpdate(pkg, currentVersion) {
+        const manifest = pkg.manifest;
+        const appName = manifest.name || manifest.id;
+        const nextVersion = manifest.version || '1.0.0';
+        const body = createEl('div', { className: 'app-manager-update-body' });
+        const icon = createEl('div', { className: 'app-manager-update-icon' });
+        const iconSrc = resolveIcon({ ...manifest, files: pkg.files });
+        if (iconSrc) {
+          const image = createEl('img', {
+            src: iconSrc,
+            alt: '',
+            draggable: 'false',
+          });
+          image.onerror = () => { icon.innerHTML = svgIcon('package', 28); };
+          icon.appendChild(image);
+        } else {
+          icon.innerHTML = svgIcon(manifest.icon || 'package', 28);
+        }
+
+        const versions = createEl('div', {
+          className: 'app-manager-update-versions',
+          'aria-label': `v${currentVersion || '1.0.0'} to v${nextVersion}`,
+        });
+        versions.append(
+          createEl('span', {
+            className: 'app-manager-update-version app-manager-update-version--current',
+            textContent: `v${currentVersion || '1.0.0'}`,
+          })
+        );
+        const arrow = createEl('span', { className: 'app-manager-update-arrow', 'aria-hidden': 'true' });
+        arrow.innerHTML = svgIcon('arrow-right', 16);
+        versions.append(arrow, createEl('span', {
+          className: 'app-manager-update-version app-manager-update-version--next',
+          textContent: `v${nextVersion}`,
+        }));
+        body.append(icon, versions);
+
+        const result = await showModal(
+          `${_t('apps.appmanager.updateLabel')} ${appName}`,
+          body,
+          [
+            { label: _t('common.cancel'), value: null },
+            { label: _t('apps.appmanager.updateLabel'), value: 'confirm', primary: true },
+          ],
+          null,
+          '',
+          { variant: 'app-update' }
+        );
+        return result === 'confirm';
+      }
+
       function renderDetail() {
         detail.innerHTML = '';
         const app = installedApps.find(a => a.id === selectedPkgId);
 
         if (!app) {
-          const drop = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--text-muted);padding:40px;' });
-          const dropBox = createEl('div', { style: 'width:110px;height:110px;border:2px dashed var(--border-default);border-radius:24px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;' });
+          const drop = createEl('div', { className: 'app-manager-drop-zone' });
+          const dropBox = createEl('div', { className: 'app-manager-drop-icon' });
           dropBox.innerHTML = svgIcon('package', 44);
           const dropLabel = createEl('div', { style: 'text-align:center;line-height:1.9;' });
           dropLabel.innerHTML = '<div style="font-size:16px;font-weight:600;color:var(--text-secondary);">' + _t('apps.appmanager.dropZoneTitle') + '</div><div style="font-size:12px;margin-top:4px;">' + _t('apps.appmanager.dropZoneBody') + '</div>';
@@ -1849,11 +1892,9 @@ registerApp({
           (app.optionalPermissions || []).includes('system:autostart');
 
         // ── Header ─────────────────────────────────────────────
-        const header = createEl('div', {
-          style: 'padding:16px 20px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:14px;flex-shrink:0;'
-        });
+        const header = createEl('div', { className: 'app-manager-detail-header' });
         const hIcon = createEl('div', {
-          style: `width:56px;height:56px;background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:${isDis ? 'var(--text-muted)' : 'var(--accent)'};opacity:${isDis ? 0.5 : 1};`
+          className: `app-manager-detail-icon${isDis ? ' is-disabled' : ''}`
         });
         const iconSrc = resolveIcon(app);
         if (iconSrc) {
@@ -1863,19 +1904,18 @@ registerApp({
         } else {
           hIcon.innerHTML = svgIcon(app.icon || '/assets/no_app_icon.svg', 28);
         }
-        const hMeta = createEl('div', { style: 'flex:1;min-width:0;' });
+        const hMeta = createEl('div', { className: 'app-manager-detail-meta' });
         // SECURITY: escapeHtml for app.name and app.author (user-controlled)
         hMeta.innerHTML = `<div style="font-size:18px;font-weight:700;color:var(--text-primary);">${escapeHtml(app.name)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;align-items:center;gap:7px;">v${escapeHtml(app.version || '1.0.0')} \u00B7 ${escapeHtml(app.author || _t('apps.appmanager.unknownAuthor'))} ${verifyBadgeHtml(app)}</div>`;
         header.append(hIcon, hMeta);
         detail.appendChild(header);
 
         // ── Actions ─────────────────────────────────────────────
-        const actionBar = createEl('div', {
-          style: 'padding:10px 20px;border-bottom:1px solid var(--border-subtle);display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;background:var(--bg-sunken);'
-        });
+        const actionBar = createEl('div', { className: 'app-manager-detail-actions' });
 
         function makeActionBtn(label, iconName, style, onClick) {
           const btn = createEl('button', {
+            className: 'app-manager-detail-action',
             style: `display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;transition:all 0.12s;${style}`
           });
           btn.innerHTML = svgIcon(iconName, 12) + ' ' + label;
@@ -2600,12 +2640,8 @@ registerApp({
               if (!firstParty || typeof watcher?.replaceBundle !== 'function') {
                 throw new Error(_t('apps.appmanager.errorCannotReplaceSystem'));
               }
-              const confirmSystem = await showModal(
-                _t('apps.appmanager.alreadyInstalledTitle'),
-                _t('apps.appmanager.alreadyInstalledBody', { name: pkg.manifest.name, current: previousInstall.version, next: pkg.manifest.version }),
-                [{ label: _t('common.cancel') }, { label: _t('apps.appmanager.replaceLabel'), value: 'confirm', primary: true }]
-              );
-              if (confirmSystem !== 'confirm') return;
+              const confirmSystem = await confirmPackageUpdate(pkg, previousInstall.version);
+              if (!confirmSystem) return;
               const swap = await watcher.replaceBundle(pkg.manifest.id, raw);
               if (!swap.ok) throw new Error(_t('apps.appmanager.errorCannotReplaceSystem'));
               lastInstalledSignature = null;
@@ -2620,12 +2656,7 @@ registerApp({
               return 'installed';
             }
             if (idx > -1) {
-              const replaceResult = await showModal(
-                _t('apps.appmanager.alreadyInstalledTitle'),
-                _t('apps.appmanager.alreadyInstalledBody', { name: pkg.manifest.name, current: installedApps[idx].version, next: pkg.manifest.version }),
-                [{ label: _t('common.cancel') }, { label: _t('apps.appmanager.replaceLabel'), value: 'confirm', primary: true }]
-              );
-              if (replaceResult !== 'confirm') return;
+              if (!await confirmPackageUpdate(pkg, installedApps[idx].version)) return;
               // Close-first (2026-11-16): the running app must be shut down
               // BEFORE its registry entry, package files and store record are
               // swapped — otherwise the open window keeps executing the old
@@ -2907,31 +2938,29 @@ registerApp({
 
       function getAllWebApps() { return wam ? wam.getAllApps() : []; }
 
-      const root = createEl('div', { style: 'display:flex;width:100%;height:100%;overflow:hidden;font-size:13px;' });
+      const root = createEl('div', { className: 'app-manager-panel app-manager-panel--webapps' });
 
       // ── Sidebar ──────────────────────────────────────────────────
-      const sidebar = createEl('div', {
-        style: 'width:300px;min-width:260px;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--bg-sunken);flex-shrink:0;'
-      });
+      const sidebar = createEl('div', { className: 'app-manager-sidebar' });
 
-      const toolbar = createEl('div', { style: 'padding:9px;display:flex;gap:6px;border-bottom:1px solid var(--border-subtle);' });
+      const toolbar = createEl('div', { className: 'app-manager-toolbar' });
       const searchEl = createEl('input', {
         type: 'text', id: 'notes-tasks-search-input', name: 'notes-tasks-search',
         placeholder: _t('apps.appmanager.searchPlaceholder'),
-        style: 'flex:1;padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;min-width:0;'
+        className: 'app-manager-search'
       });
       const addBtn = createEl('button', {
-        style: 'padding:5px 10px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;'
+        className: 'app-manager-primary-action'
       });
       addBtn.innerHTML = svgIcon('plus', 12) + ' ' + _t('apps.appmanager.addLabel');
       toolbar.append(searchEl, addBtn);
       sidebar.appendChild(toolbar);
 
-      const listEl = createEl('div', { style: 'flex:1;overflow-y:auto;padding:5px;' });
+      const listEl = createEl('div', { className: 'app-manager-list' });
       sidebar.appendChild(listEl);
 
       // ── Right panel ──────────────────────────────────────────────
-      const right = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
+      const right = createEl('div', { className: 'app-manager-detail' });
 
       let selectedWebId = null;
 
@@ -2975,10 +3004,10 @@ registerApp({
           const isSel = wa.id === selectedWebId;
           const host = extractHost(wa.url);
           const item = createEl('div', {
-            style: `display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:10px;cursor:pointer;transition:background 0.1s;${isSel ? 'background:var(--accent-muted);' : ''}`
+            className: `app-manager-package-item app-manager-web-item${isSel ? ' selected' : ''}`
           });
           const iconEl = createEl('div', {
-            style: 'width:32px;height:32px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;'
+            className: 'app-manager-package-icon app-manager-web-icon'
           });
           if (wa.icon) {
             if (/^data:|^https?:\/\//i.test(wa.icon)) {
@@ -2991,9 +3020,9 @@ registerApp({
           } else {
             iconEl.innerHTML = svgIcon('globe', 16);
           }
-          const meta = createEl('div', { style: 'flex:1;min-width:0;' });
+          const meta = createEl('div', { className: 'app-manager-package-meta' });
           // SECURITY: escapeHtml for user-controlled wa.name
-          meta.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary);font-size:12px;">${escapeHtml(wa.name)}</div><div style="font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(host)}</div>`;
+          meta.innerHTML = `<div class="app-manager-package-name">${escapeHtml(wa.name)}</div><div class="app-manager-package-subtitle">${escapeHtml(host)}</div>`;
           item.append(iconEl, meta);
 
           item.addEventListener('mouseenter', () => { if (!isSel) item.style.background = 'var(--bg-elevated)'; }, listenerOpts);

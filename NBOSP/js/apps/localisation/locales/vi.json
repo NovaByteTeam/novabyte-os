@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "Ứng dụng hệ thống không thể được thay thế bằng cài đặt gói.",
       "alreadyInstalledTitle": "Ứng dụng đã được cài đặt",
       "alreadyInstalledBody": "\"{{name}}\" đã được cài đặt rồi (v{{current}}). Thay thế bằng v{{next}}?",
-      "replaceLabel": "Thay thế",
+      "updateLabel": "Cập nhật",
       "appInstalledTitle": "Đã cài đặt ứng dụng",
       "appInstalledBody": "{{app}} v{{version}} đã cài đặt thành công.",
       "installFailedTitle": "Cài đặt không thành công",

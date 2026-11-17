@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "Programu za mfumo haziwezi kubadilishwa na usakinishaji wa vifurushi.",
       "alreadyInstalledTitle": "Programu Tayari Imesakinishwa",
       "alreadyInstalledBody": "\"{{name}}\" tayari imewekwa (v{{current}}) Badilisha na v{{next}}?",
-      "replaceLabel": "Badilisha",
+      "updateLabel": "Sasisha",
       "appInstalledTitle": "Programu Imesakinishwa",
       "appInstalledBody": "{{app}} v{{version}} imesakinishwa kwa mafanikio.",
       "installFailedTitle": "Imeshindwa Kusakinisha",

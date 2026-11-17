@@ -740,18 +740,60 @@ function launchWithTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+const HOME_ONCE_SESSION_KEY = 'novabyte:home-launch-override:v1';
+
+function consumeSessionHomeOverride() {
+  let serialized;
+  try {
+    serialized = sessionStorage.getItem(HOME_ONCE_SESSION_KEY);
+    if (serialized === null) return null;
+    sessionStorage.removeItem(HOME_ONCE_SESSION_KEY);
+  } catch (error) {
+    console.error('[BOOT] Could not read the one-session Home choice:', error);
+    return null;
+  }
+
+  let staged;
+  try {
+    staged = JSON.parse(serialized);
+  } catch (error) {
+    console.error('[BOOT] The one-session Home choice is malformed:', error);
+    return null;
+  }
+
+  const sessionUid = typeof SessionManager !== 'undefined'
+    ? SessionManager?.state?.()?.uid
+    : undefined;
+  const scopeUid = typeof NovaUserScope !== 'undefined'
+    ? NovaUserScope?.uid?.()
+    : undefined;
+  const activeUid = typeof sessionUid === 'string'
+    ? sessionUid
+    : (typeof scopeUid === 'string' ? scopeUid : '');
+  const candidates = DefaultApps?.getAppsForCategory?.('home');
+  if (!staged || staged.uid !== activeUid || typeof staged.appId !== 'string'
+    || !Array.isArray(candidates) || !candidates.some(candidate => candidate.id === staged.appId)) {
+    console.warn('[BOOT] Ignoring a stale or unavailable one-session Home choice');
+    return null;
+  }
+  return staged.appId;
+}
+
 async function startConfiguredHomeApp() {
   const bundledLauncherId = 'com.nbosp.launcher';
-  let selectedId = DefaultApps?.getDefault?.('home') || bundledLauncherId;
+  const savedHomeId = DefaultApps?.getDefault?.('home') || null;
+  const oneSessionHomeId = consumeSessionHomeOverride();
+  const isOneSessionHome = Boolean(oneSessionHomeId);
+  let selectedId = oneSessionHomeId || savedHomeId || bundledLauncherId;
   const root = document.getElementById('launcher-root');
   if (!root) throw new Error('Launcher root is missing from the OS page');
 
   const interruptedId = BootState.homeLaunchPending();
   if (interruptedId) {
-    console.error(`[BOOT] Home app "${interruptedId}" never finished starting last time; reverting to ${bundledLauncherId}`);
+    console.error(`[BOOT] Home app "${interruptedId}" never finished starting last time; restoring the saved Home choice`);
     BootState.clearHomeLaunchPending();
     if (selectedId !== bundledLauncherId) {
-      DefaultApps.setDefault?.('home', null);
+      if (selectedId === savedHomeId) DefaultApps.setDefault?.('home', null);
       selectedId = bundledLauncherId;
     }
   }
@@ -769,7 +811,8 @@ async function startConfiguredHomeApp() {
       && (typeof AppPermissionManager === 'undefined'
         || AppPermissionManager.isGranted('system:root', app.id) !== true)) {
       console.warn(`[BOOT] Selected Home app "${selectedId}" requires unavailable root access; using ${bundledLauncherId}`);
-      if (typeof DefaultApps.setDefault === 'function' && !DefaultApps.setDefault('home', null)) {
+      if ((!isOneSessionHome || selectedId === savedHomeId)
+        && typeof DefaultApps.setDefault === 'function' && !DefaultApps.setDefault('home', null)) {
         console.error(`[BOOT] Could not clear unavailable Home app "${selectedId}" from the default-app settings`);
       }
       window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
@@ -790,7 +833,9 @@ async function startConfiguredHomeApp() {
       } catch (error) {
         console.error(`[BOOT] Failed to start selected Home app "${selectedId}"; falling back to ${bundledLauncherId}:`, error);
         BootState.clearHomeLaunchPending();
-        DefaultApps.setDefault?.('home', null);
+        if (!isOneSessionHome || selectedId === savedHomeId) {
+          DefaultApps.setDefault?.('home', null);
+        }
         window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
         root.replaceChildren();
         await startBundledLauncher();

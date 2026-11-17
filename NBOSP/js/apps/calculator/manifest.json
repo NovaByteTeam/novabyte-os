@@ -5,6 +5,7 @@
   "author": "DirazCoder",
   "description": "Perform everyday calculations with NovaByte's built-in calculator.",
   "entry": "index.html",
+  "unrestrictedEntry": "app.js",
   "icon": "calculator",
   "type": "blank",
   "defaultSize": [

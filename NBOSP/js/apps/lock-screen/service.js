@@ -120,8 +120,6 @@ const STOCK_WALLPAPER_ID = 'stock-blue';
  * The login picker always shows stock blue; an account's own wallpaper only
  * appears once that account is the one being unlocked. The account's hive is
  * peeked read-only because nobody has authenticated yet, so it can't be mounted.
- * customWallpaper is machine-wide (too big for a hive value), so an account
- * flagged as custom shows whichever image is currently stored.
  */
 function wallpaperFor(account) {
   if (!account) return { id: STOCK_WALLPAPER_ID, custom: null };
@@ -130,12 +128,8 @@ function wallpaperFor(account) {
   const peek = (path) => {
     try { return NovaRegistry?.peekUserValue?.(segment, path); } catch (_) { return undefined; }
   };
-  const id = peek('HKNU/shell/wallpaper');
-  const hasCustom = !!peek('HKNU/settings/customWallpaperName');
-  return {
-    id: typeof id === 'string' ? id : STOCK_WALLPAPER_ID,
-    custom: hasCustom ? (OS.settings?.get?.('customWallpaper') || null) : null,
-  };
+  const id = peek('HKNU/shell/lockWallpaper');
+  return { id: typeof id === 'string' ? id : STOCK_WALLPAPER_ID, custom: null };
 }
 
 function setLockWallpaper(account) {

@@ -209,6 +209,14 @@
   .taskbar-start-btn:active {
     transform: scale(0.95);
   }
+  #taskbar.taskbar-compact .taskbar-start-btn,
+  #taskbar.taskbar-compact .taskbar-app-btn {
+    width: 32px;
+    height: 32px;
+  }
+  #taskbar.taskbar-compact .taskbar-start {
+    margin-right: 4px;
+  }
 
   .taskbar-apps {
     flex: 1;
@@ -273,6 +281,9 @@
     border-radius: 1px;
     transform: scaleX(1);
   }
+  #taskbar.taskbar-compact .taskbar-app-btn .indicator {
+    bottom: 1px;
+  }
 
   /* macOS-like bounce — fires once on app launch. */
   @keyframes dockBounce {
@@ -330,7 +341,7 @@
   /* background) instead of an opaque panel. */
   .taskbar-window-preview {
     position: fixed;
-    background: var(--bg-overlay);
+    background: var(--launchpad-bg, var(--bg-overlay));
     border: 1px solid var(--border-default);
     border-radius: var(--r-md);
     box-shadow: var(--shadow-lg);

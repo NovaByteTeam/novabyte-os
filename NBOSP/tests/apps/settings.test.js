@@ -99,6 +99,57 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(typeof app.init).toBe('function');
   });
 
+  it.each([
+    ['Just once', 'once'],
+    ['Always', 'always'],
+    ['Cancel', null],
+  ])('handles the Home launcher choice: %s', async (_label, choice) => {
+    const homeApps = [
+      { id: 'com.test.saved-home', name: 'Saved launcher' },
+      { id: 'com.test.new-home', name: 'New launcher' },
+    ];
+    const DefaultApps = {
+      CATEGORIES: { home: { name: 'Home app' } },
+      getAppsForCategory: vi.fn((category) => category === 'home' ? homeApps : []),
+      getDefault: vi.fn((category) => category === 'home' ? homeApps[0].id : null),
+      setDefault: vi.fn(() => true),
+    };
+    const showModal = vi.fn().mockResolvedValue(choice);
+    const sessionKey = 'novabyte:home-launch-override:v1';
+
+    const { content } = await loadSettings({ extra: { DefaultApps, showModal } });
+    const appSessionStorage = content.ownerDocument.defaultView.sessionStorage;
+    appSessionStorage.setItem(sessionKey, JSON.stringify({ uid: '', appId: 'com.test.stale-home' }));
+    sidebarBtn(content, 'Default Apps').click();
+    const homeLabel = [...content.querySelectorAll('*')]
+      .find((element) => element.textContent.trim() === 'Home app');
+    expect(homeLabel).toBeTruthy();
+    homeLabel.parentElement.parentElement.parentElement.querySelector('button').click();
+    content.ownerDocument.querySelectorAll('[role="radio"]')[1].click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(showModal).toHaveBeenCalledTimes(1);
+    expect(showModal.mock.calls[0][0]).toBe('Do you want to switch launcher?');
+    expect(showModal.mock.calls[0][1]).toContain('Saved launcher');
+    expect(showModal.mock.calls[0][1]).toContain('New launcher');
+    expect(showModal.mock.calls[0][2].map((action) => action.value)).toEqual(['once', 'always']);
+    if (choice === 'once') {
+      expect(DefaultApps.setDefault).not.toHaveBeenCalled();
+      expect(JSON.parse(appSessionStorage.getItem(sessionKey))).toEqual(expect.objectContaining({
+        appId: 'com.test.new-home',
+      }));
+    } else if (choice === 'always') {
+      expect(DefaultApps.setDefault).toHaveBeenCalledWith('home', 'com.test.new-home');
+      expect(appSessionStorage.getItem(sessionKey)).toBeNull();
+    } else {
+      expect(DefaultApps.setDefault).not.toHaveBeenCalled();
+      expect(JSON.parse(appSessionStorage.getItem(sessionKey))).toEqual({
+        uid: '',
+        appId: 'com.test.stale-home',
+      });
+    }
+  });
+
   it('shows the unavailable-system guard when NovaByteSystem is missing', async () => {
     const { app, window } = await loadWindowApp('settings');
     const content = initApp(app, { window, state: {} });
@@ -122,6 +173,7 @@ describe("'Settings' app (js/apps/settings)", () => {
   it('renders all 12 sidebar sections and navigates between them', async () => {
     const { content } = await loadSettings();
     const buttons = [...content.querySelectorAll('.nook-section-btn')];
+    expect(content.querySelector('.nook-sidebar-brand')).toBeTruthy();
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
       'Appearance', 'Accessibility', 'Desktop', 'System', 'Date and Region',
       'Connectivity', 'Storage', 'Notifications', 'Privacy', 'Root Access',
@@ -140,6 +192,21 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(content.querySelector('.nook-content').dataset.currentTab).toBe('accessibility');
     expect(content.querySelector('.nook-content h2').textContent).toBe('Accessibility');
     expect(content.querySelector('.nook-section-btn.active').getAttribute('aria-label')).toBe('Accessibility');
+  });
+
+  it('starts the recovery handoff directly after confirmation', async () => {
+    const recovery = { request: vi.fn(() => true) };
+    const showModal = vi.fn().mockResolvedValue('confirm');
+    const { content } = await loadSettings({ extra: { NovaRecovery: recovery, showModal } });
+    sidebarBtn(content, 'System').click();
+
+    const button = [...content.querySelectorAll('button')]
+      .find((candidate) => candidate.textContent === 'Boot to Recovery');
+    button.click();
+    await settle();
+
+    expect(recovery.request).toHaveBeenCalledWith('manual');
+    expect(localStorage.getItem('nova_manual_recovery')).toBeNull();
   });
 
   it('switches the theme and toggles the clock format in Appearance', async () => {
@@ -181,7 +248,11 @@ describe("'Settings' app (js/apps/settings)", () => {
     const cards = [...desktop.querySelectorAll('[role="button"][aria-label^="Wallpaper:"]')];
     expect(cards.map((c) => c.getAttribute('aria-label'))).toEqual([
       'Wallpaper: Nova Blue (active)', 'Wallpaper: Nova Teal',
+      'Wallpaper: Nova Blue (Lock screen)', 'Wallpaper: Nova Teal (Lock screen)',
     ]);
+    const lockTealCard = cards.find((card) => card.getAttribute('aria-label') === 'Wallpaper: Nova Teal (Lock screen)');
+    lockTealCard.click();
+    expect(lockTealCard.getAttribute('aria-pressed')).toBe('true');
 
     cards[1].click();
     expect(nbs.sets).toContainEqual(['wallpaperId', 'stock-teal']);

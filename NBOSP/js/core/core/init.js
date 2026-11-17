@@ -152,11 +152,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
   let requested = false;
   function requestRecovery(reason) {
-    if (requested) return;
+    if (requested) return true;
     requested = true;
     reason = reason || 'requested';
     try {
-      [MANUAL_RECOVERY_KEY, RECOVERY_FORCE_KEY, BOOT_ATTEMPTS_KEY, 'nova_show_recovery']
+      [MANUAL_RECOVERY_KEY, RECOVERY_FORCE_KEY, BOOT_ATTEMPTS_KEY, 'nova_show_recovery', 'nova_safe_mode']
         .forEach((k) => localStorage.removeItem(k));
     } catch (e) { /* storage unavailable: carry on, the request file is what matters */ }
 
@@ -175,7 +175,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!isNbospLinux()) {
       showBootFailure(reason, 'Recovery is only available on NovaByte OS. Clear site data and reload to try again.');
       requested = false;
-      return;
+      return false;
     }
     try {
       const fs = require('fs');
@@ -184,14 +184,21 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (e) {
       showBootFailure(reason, 'Could not write the recovery request: ' + e.message);
       requested = false;
-      return;
+      return false;
     }
-    require('child_process').execFile(POWER_HELPER, ['restart'], function (err) {
-      if (err) {
-        showBootFailure(reason, 'Could not restart into recovery: ' + err.message);
-        requested = false;
-      }
-    });
+    try {
+      require('child_process').execFile(POWER_HELPER, ['restart'], function (err) {
+        if (err) {
+          showBootFailure(reason, 'Could not restart into recovery: ' + err.message);
+          requested = false;
+        }
+      });
+      return true;
+    } catch (e) {
+      showBootFailure(reason, 'Could not restart into recovery: ' + e.message);
+      requested = false;
+      return false;
+    }
   }
 
   window.NovaRecovery = Object.freeze({ isAvailable: isNbospLinux, request: requestRecovery });

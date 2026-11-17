@@ -114,11 +114,17 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
   // when the session manager calls TrayService.applySavedVolume() after
   // mounting a user, and via the settings:changed mirror below.
   const persistedVolume = Number(OS.settings?.get?.('volume'));
+  const syncVolumeSliderAppearance = () => {
+    const level = Number(volumeSlider.value);
+    if (!Number.isFinite(level)) return;
+    volumeSlider.style.setProperty('--volume-level', `${Math.min(100, Math.max(0, level))}%`);
+  };
   if (Number.isFinite(persistedVolume)) {
     OS.volume = persistedVolume;
     volumeSlider.value = String(persistedVolume);
     volumeValue.textContent = persistedVolume + '%';
   }
+  syncVolumeSliderAppearance();
 
   // Closes the volume popup through its regular close path and drops it
   // from the shell popup coordinator. A pinned popup (tray right-click)
@@ -203,6 +209,7 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
     if (!Number.isFinite(newVolume)) return;
 
     OS.volume = newVolume;
+    syncVolumeSliderAppearance();
     volumeValue.textContent = newVolume + '%';
     OS.events?.emit?.('os:volumeChanged', { volume: newVolume });
 
@@ -231,6 +238,7 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
     const applied = Math.min(100, Math.max(0, incoming));
     OS.volume = applied;
     volumeSlider.value = String(applied);
+    syncVolumeSliderAppearance();
     volumeValue.textContent = applied + '%';
     OS.applyVolumeToWebviews(applied);
     OS.events?.emit?.('os:volumeChanged', { volume: applied });
@@ -244,6 +252,7 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
     const applied = Math.min(100, Math.max(0, saved));
     OS.volume = applied;
     volumeSlider.value = String(applied);
+    syncVolumeSliderAppearance();
     volumeValue.textContent = applied + '%';
     OS.applyVolumeToWebviews(applied);
     OS.events?.emit?.('os:volumeChanged', { volume: applied });

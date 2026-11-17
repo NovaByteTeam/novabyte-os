@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "سسٹم ایپس کو پیکیج انسٹال سے تبدیل نہیں کیا جا سکتا۔",
       "alreadyInstalledTitle": "ایپ پہلے سے انسٹال ہے",
       "alreadyInstalledBody": "\"{{name}}\"پہلے سے انسٹال ہے (v{{current}})۔ v کے ساتھ بدلنا{{next}}?",
-      "replaceLabel": "بدل دیں",
+      "updateLabel": "اپڈیٹ کریں",
       "appInstalledTitle": "ایپ انسٹال ہو گئی",
       "appInstalledBody": "{{app}} v{{version}} کامیابی سے نصب.",
       "installFailedTitle": "انسٹال کرنا ناکام ہو گیا",

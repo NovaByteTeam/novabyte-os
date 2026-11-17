@@ -163,6 +163,39 @@ describe('settings shim (js/platform/core/settings-shim.js)', () => {
     expect(OS.settings.get('customWallpaper')).toBe(dataUrl);
   });
 
+  it('scopes custom wallpapers to the active user and hides the old shared value', async () => {
+    const dataUrl = 'data:image/png;base64,' + 'A'.repeat(1000);
+    const legacyStore = {
+      customWallpaper: 'data:image/png;base64,legacy',
+      '__customWallpaper:user:u-ada': dataUrl,
+    };
+    const { OS, workerCalls } = freshOS({ legacyStore });
+    const originalScope = globalThis.NovaUserScope;
+    globalThis.NovaUserScope = {
+      enabled: () => true,
+      uid: () => 'u-ada',
+    };
+
+    try {
+      attachAll(OS);
+      await OS.settings.load();
+      expect(OS.settings.get('customWallpaper')).toBe(dataUrl);
+      expect(OS.settings.set('customWallpaper', 'data:image/png;base64,new')).toBe(true);
+      expect(workerCalls.some(([method, key]) =>
+        method === 'putSetting' && key === '__customWallpaper:user:u-ada')).toBe(true);
+      expect(workerCalls.some(([method, key]) =>
+        method === 'putSetting' && key === '__customWallpaper:legacy')).toBe(true);
+
+      globalThis.NovaUserScope.uid = () => 'u-sam';
+      await OS.settings.load();
+      expect(OS.settings.get('customWallpaper')).not.toBe(dataUrl);
+      expect(OS.settings.get('customWallpaper')).not.toBe('data:image/png;base64,legacy');
+    } finally {
+      if (originalScope === undefined) delete globalThis.NovaUserScope;
+      else globalThis.NovaUserScope = originalScope;
+    }
+  });
+
   it('enforces the wallpaper-change policy before anything is persisted', () => {
     const { OS, bus } = freshOS();
     const Reg = attachAll(OS);

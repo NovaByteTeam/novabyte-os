@@ -223,10 +223,11 @@ describe('scan-common.js (shared scan scope)', () => {
   });
 
   it('finds the known root-level files of every kind', () => {
-    const jsFiles = scanCommon.collectTargetFiles(jsSyntax.EXTENSIONS).map(f => path.relative(scanCommon.NBOSP_ROOT, f));
-    const jsonFiles = scanCommon.collectTargetFiles(jsonSyntax.EXTENSIONS).map(f => path.relative(scanCommon.NBOSP_ROOT, f));
-    const cssFiles = scanCommon.collectTargetFiles(cssSyntax.EXTENSIONS).map(f => path.relative(scanCommon.NBOSP_ROOT, f));
-    const htmlFiles = scanCommon.collectTargetFiles(htmlSyntax.EXTENSIONS).map(f => path.relative(scanCommon.NBOSP_ROOT, f));
+    const toPosixPath = (file) => path.relative(scanCommon.NBOSP_ROOT, file).split(path.sep).join('/');
+    const jsFiles = scanCommon.collectTargetFiles(jsSyntax.EXTENSIONS).map(toPosixPath);
+    const jsonFiles = scanCommon.collectTargetFiles(jsonSyntax.EXTENSIONS).map(toPosixPath);
+    const cssFiles = scanCommon.collectTargetFiles(cssSyntax.EXTENSIONS).map(toPosixPath);
+    const htmlFiles = scanCommon.collectTargetFiles(htmlSyntax.EXTENSIONS).map(toPosixPath);
     expect(jsFiles).toContain('client.js');
     expect(jsFiles).toContain('tests/syntax/js-syntax.js');
     expect(jsonFiles).toContain('package.json');

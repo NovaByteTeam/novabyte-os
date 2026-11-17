@@ -1896,6 +1896,7 @@ if (desktopEl) {
     const size = sGet('taskbarSize') || 'normal';
     const height = { compact: '36px', normal: '48px', large: '64px' }[size] || '48px';
     rootStyle.setProperty('--taskbar-height', height);
+    taskbar.classList.toggle('taskbar-compact', size === 'compact');
 
     const position = sGet('taskbarPosition') || 'bottom';
     const layouts = {

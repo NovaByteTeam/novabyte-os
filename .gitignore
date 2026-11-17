@@ -45,3 +45,8 @@ supabase/.temp/
 /NBOSP/root/*
 !/NBOSP/root/app-secrets.json
 **/coverage/
+
+# transient test-runner artifacts
+/NBOSP/tests/node-compile-cache/
+/NBOSP/tests/nova-sec-routes-*/
+/NBOSP/tests/vitest-coverage-*.lock

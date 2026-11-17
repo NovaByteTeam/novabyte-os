@@ -206,9 +206,6 @@ const SystemDialogs = (() => {
   function chevronRight() {
     return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
   }
-  function homeIcon() {
-    return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`;
-  }
   function pencilIcon() {
     return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>`;
   }
@@ -316,7 +313,13 @@ const SystemDialogs = (() => {
   }
 
   // Sidebar "Quick access" common folders, Windows order.
-  const QUICK_FOLDERS = ['Desktop', 'Documents', 'Downloads', 'Pictures', 'Music'];
+  const QUICK_FOLDERS = [
+    ['Desktop', 'monitor'],
+    ['Documents', 'file-text'],
+    ['Downloads', 'download'],
+    ['Pictures', 'image'],
+    ['Music', 'music'],
+  ];
 
   // "New folder" / "New file" base names — on-disk artifact names, matching
   // the Windows convention (kept literal, not localised, so tests and callers
@@ -555,12 +558,12 @@ const SystemDialogs = (() => {
       const sideButtons = [];
       const quickEntries = [];
       if (isDirectorySafe(homePath)) {
-        quickEntries.push({ label: _t('apps.sysdialog.home'), target: homePath, icon: homeIcon });
+        quickEntries.push({ label: _t('apps.sysdialog.home'), target: homePath, icon: () => sideIcon('folder-open', 16) });
       }
-      for (const folder of QUICK_FOLDERS) {
+      for (const [folder, iconName] of QUICK_FOLDERS) {
         const target = path.join(quickBase, folder);
         if (isDirectorySafe(target)) {
-          quickEntries.push({ label: folder, target, icon: folderIcon });
+          quickEntries.push({ label: folder, target, icon: () => sideIcon(iconName, 16) });
         }
       }
       for (const entry of quickEntries) {

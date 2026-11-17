@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "Les applications système ne peuvent pas être remplacées par des installations de packages.",
       "alreadyInstalledTitle": "Application déjà installée",
       "alreadyInstalledBody": "\"{{name}}\" est déjà installé (v{{current}}). Remplacer par v{{next}}?",
-      "replaceLabel": "Remplacer",
+      "updateLabel": "Mise à jour",
       "appInstalledTitle": "Application installée",
       "appInstalledBody": "{{app}} v{{version}} installé avec succès.",
       "installFailedTitle": "Échec de l'installation",

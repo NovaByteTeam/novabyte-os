@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "Sistem uygulamaları paket yüklemeleriyle değiştirilemez.",
       "alreadyInstalledTitle": "Uygulama Zaten Yüklü",
       "alreadyInstalledBody": "\"{{name}}\" zaten yüklü (v{{current}}). v ile değiştirin{{next}}?",
-      "replaceLabel": "Yer değiştirmek",
+      "updateLabel": "Güncelleme",
       "appInstalledTitle": "Uygulama Yüklendi",
       "appInstalledBody": "{{app}} v{{version}} başarıyla kuruldu.",
       "installFailedTitle": "Yükleme Başarısız Oldu",

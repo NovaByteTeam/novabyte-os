@@ -2758,7 +2758,7 @@
       "errorCannotReplaceSystem": "لا يمكن استبدال تطبيقات النظام بتثبيت الحزم.",
       "alreadyInstalledTitle": "التطبيق مثبت بالفعل",
       "alreadyInstalledBody": "\"{{name}}\" مثبت بالفعل (v{{current}}). استبداله بـ v{{next}}؟",
-      "replaceLabel": "استبدال",
+      "updateLabel": "تحديث",
       "appInstalledTitle": "تم تثبيت التطبيق",
       "appInstalledBody": "تم تثبيت {{app}} v{{version}} بنجاح.",
       "installFailedTitle": "فشل التثبيت",

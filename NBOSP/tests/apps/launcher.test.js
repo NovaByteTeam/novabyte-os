@@ -91,6 +91,14 @@ describe('Launcher shell (js/apps/launcher)', () => {
     expect(window.document.getElementById('restart-system-btn')).toBeNull();
   });
 
+  it('uses compact taskbar controls that fit the configured bar height', async () => {
+    const { window, document } = await loadLauncher();
+    window.configureLauncherTaskbar((key) => key === 'taskbarSize' ? 'compact' : undefined);
+
+    expect(document.getElementById('taskbar').classList.contains('taskbar-compact')).toBe(true);
+    expect(document.documentElement.style.getPropertyValue('--taskbar-height')).toBe('36px');
+  });
+
   it('opens the launchpad from the Start button and closes it again', async () => {
     // app.js registers toggleLaunchpad on #start-btn from two top-level
     // statements, but identical (type, callback, capture) registrations are

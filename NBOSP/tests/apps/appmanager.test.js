@@ -17,7 +17,7 @@ function makeOS() {
 
 // Full host environment appmanager's init expects (registry, Notify, WM, …).
 // setInterval is stubbed because init() installs a 2s registry-poll timer.
-async function loadAppManager({ seedApps = [], systemDialogs = { open: vi.fn(async () => null) }, modalResult } = {}) {
+async function loadAppManager({ seedApps = [], systemDialogs = { open: vi.fn(async () => null) }, modalResult, extra = {} } = {}) {
   const showModal = vi.fn(() => Promise.resolve(modalResult));
   const loaded = await loadWindowApp('appmanager', {
     stubs: {
@@ -29,6 +29,7 @@ async function loadAppManager({ seedApps = [], systemDialogs = { open: vi.fn(asy
         WM: { createWindow: vi.fn(), closeWindow: vi.fn(), updateTaskbar: vi.fn() },
         showModal,
         setInterval: () => 0,
+        ...extra,
       },
     },
   });
@@ -40,8 +41,7 @@ async function loadAppManager({ seedApps = [], systemDialogs = { open: vi.fn(asy
 }
 
 function listRows(content) {
-  // Sidebar rows: clickable divs with a 34px icon box, inside the packages panel
-  return [...content.querySelectorAll('div')].filter((d) => d.style.cursor === 'pointer' && d.querySelector('img, [style*="width: 34px"]'));
+  return [...content.querySelectorAll('.app-manager-package-item')];
 }
 
 describe('App Manager app (js/apps/appmanager)', () => {
@@ -79,6 +79,9 @@ describe('App Manager app (js/apps/appmanager)', () => {
     // Packages panel: search + install + show-hidden + empty detail drop zone
     expect(content.querySelector('#app-installer-search-input')).toBeTruthy();
     expect(content.querySelector('#app-manager-show-hidden')).toBeTruthy();
+    expect(content.classList.contains('app-manager-root')).toBe(true);
+    expect(content.querySelector('.app-manager-tabs')).toBeTruthy();
+    expect(content.querySelector('.app-manager-panel--packages')).toBeTruthy();
     const labels = [...content.querySelectorAll('label')].map((l) => l.textContent);
     expect(labels).toContain('Show hidden apps');
     expect(content.textContent).toContain('Install a .novaapp Package');
@@ -211,10 +214,10 @@ describe('App Manager app (js/apps/appmanager)', () => {
     );
   });
 
-  it('closing the running app happens before the replace mutates the registry (close-before-update)', async () => {
-    const { content, window, document, WM, os } = await loadAppManager({
+  it('closing the running app happens before the update mutates the registry', async () => {
+    const { content, window, document, WM, os, showModal } = await loadAppManager({
       seedApps: [{ id: 'com.test.app', name: 'Test App', version: '1.0.0', source: 'file' }],
-      modalResult: 'confirm', // the "Replace?" dialog confirms
+      modalResult: 'confirm',
     });
     // the app under replacement is running: one open window
     os.windows.set('win-7', { appId: 'com.test.app' });
@@ -233,12 +236,50 @@ describe('App Manager app (js/apps/appmanager)', () => {
     document.querySelector('#nb-untrusted-launch-btn').click();
     const result = await pending;
     expect(result).toBe('installed');
+    const updateDialog = showModal.mock.calls.find(call => call[5]?.variant === 'app-update');
+    expect(updateDialog[0]).toBe('Update Test App');
+    expect(updateDialog[1].querySelector('.app-manager-update-version--current').textContent).toBe('v1.0.0');
+    expect(updateDialog[1].querySelector('.app-manager-update-version--next').textContent).toBe('v2.0.0');
+    expect(updateDialog[2][1].label).toBe('Update');
 
     // the open window was closed with forceKill BEFORE the registry/store swap
     expect(WM.closeWindow).toHaveBeenCalledWith('win-7', { forceKill: true });
     // and the new install landed with the replaced version
     const stored = JSON.parse(window.localStorage.getItem(APPS_KEY));
     expect(stored.find(a => a.id === 'com.test.app')?.version).toBe('2.0.0');
+  });
+
+  it('uses the Update confirmation before replacing a trusted system bundle', async () => {
+    const replaceBundle = vi.fn(async () => ({ ok: true }));
+    const { content, window, showModal } = await loadAppManager({
+      seedApps: [{ id: 'com.test.system', name: 'Test System App', version: '1.0.0', system: true, source: 'system-bundle' }],
+      modalResult: 'confirm',
+      extra: {
+        AppPackage: {
+          verifyIntegrity: vi.fn(async () => true),
+          verifyAgainstTrustStore: vi.fn(async () => ({ trusted: true, signer: 'NovaByte System' })),
+        },
+        TrustStore: { list: () => [], isRevoked: () => false },
+        NovaPackageWatcher: { replaceBundle },
+        fetch: vi.fn(async () => ({
+          ok: true,
+          json: async () => [{ id: 'com.test.system' }],
+        })),
+      },
+    });
+    const pkg = {
+      novabyte_app: true,
+      manifest: { id: 'com.test.system', name: 'Test System App', version: '2.0.0', system: true },
+      integrity: { method: 'sha256', payloadHash: 'test', fileHashes: {} },
+      files: {},
+    };
+    const file = new window.File([JSON.stringify(pkg)], 'test-system.novaapp', { type: 'application/json' });
+
+    expect(await content._novaAppProcessFile(file)).toBe('installed');
+    const updateDialog = showModal.mock.calls.find(call => call[5]?.variant === 'app-update');
+    expect(updateDialog[0]).toBe('Update Test System App');
+    expect(updateDialog[2][1].label).toBe('Update');
+    expect(replaceBundle).toHaveBeenCalledWith('com.test.system', expect.any(String));
   });
 
   it('installs an unsigned .novaapp after the untrusted-dialog override', async () => {
