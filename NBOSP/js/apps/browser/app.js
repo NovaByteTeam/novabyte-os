@@ -136,6 +136,7 @@ registerApp({
     let nextTabId   = 2;
 
     const tabWebviews     = new Map();  // tabId → <webview>
+    const popupWebviews   = new Set();
     const tabIframes      = new Map();  // tabId → <iframe>
     const tabSourcePages  = new Map();  // tabId → rendered page source
     const tabViewMode     = new Map();  // tabId → 'webview' | 'iframe'
@@ -211,9 +212,51 @@ registerApp({
       })();`;
     }
 
+    function browserColorSchemePreloadScript(scheme) {
+      const pageScript = browserColorSchemeScript(scheme);
+      return `(() => {
+        const inject = () => {
+          const root = document.documentElement;
+          if (!root) return false;
+          const script = document.createElement('script');
+          script.textContent = ${JSON.stringify(pageScript)};
+          root.appendChild(script);
+          script.remove();
+          return true;
+        };
+        if (!inject()) {
+          const observer = new MutationObserver(() => {
+            if (inject()) observer.disconnect();
+          });
+          observer.observe(document, { childList: true, subtree: true });
+        }
+      })();`;
+    }
+
+    function installBrowserColorSchemePreload(wv, scheme) {
+      if (typeof wv.addContentScripts !== 'function') return;
+      try {
+        wv.removeContentScripts?.(['nbosp-browser-color-scheme']);
+      } catch (error) {
+        console.warn('[NB Browser] Could not replace the guest color-scheme preload:', error);
+      }
+      try {
+        wv.addContentScripts([{
+          name: 'nbosp-browser-color-scheme',
+          matches: ['<all_urls>'],
+          js: { code: browserColorSchemePreloadScript(scheme) },
+          run_at: 'document_start',
+          all_frames: false,
+        }]);
+      } catch (error) {
+        console.warn('[NB Browser] Could not install the guest color-scheme preload:', error);
+      }
+    }
+
     function applyBrowserColorScheme(wv) {
       const scheme = browserColorScheme();
       wv.style.colorScheme = scheme;
+      installBrowserColorSchemePreload(wv, scheme);
       if (wv._nbHasCommitted) {
         if (typeof wv.insertCSS === 'function') {
           try {
@@ -234,6 +277,7 @@ registerApp({
 
     const syncBrowserColorScheme = () => {
       for (const wv of tabWebviews.values()) applyBrowserColorScheme(wv);
+      for (const wv of popupWebviews) applyBrowserColorScheme(wv);
     };
     window.addEventListener('theme:changed', syncBrowserColorScheme, { signal: appAbort.signal });
     const onSystemSettingChanged = ({ key } = {}) => {
@@ -1431,6 +1475,7 @@ registerApp({
     urlBarWrap.append(urlBar, urlIcon, urlWarning);
 
     function updateUrlIcon(url) {
+      urlBar.title = url || '';
       if (/^https:\/\//i.test(url || '')) {
         urlIcon.innerHTML = svgIcon('lock', 14);
         urlIcon.style.color = 'var(--text-success)';
@@ -1458,6 +1503,7 @@ registerApp({
         urlIcon.setAttribute('aria-label', _t('apps.browser.urlBar.searchOrInternalAria'));
         urlWarning.style.display = 'none';
       }
+      urlBar.classList.toggle('has-security-warning', urlWarning.style.display !== 'none');
     }
 
     // Star bookmark button
@@ -2369,6 +2415,7 @@ registerApp({
       // it always work.
       wv._nbTabId = tabId;
       wv._nbDownloadRequestHeaders = new Map();
+      applyBrowserColorScheme(wv);
 
       wv.addEventListener('loadcommit', e => {
         if (e.isTopLevel) {
@@ -2736,6 +2783,13 @@ registerApp({
 
           const popWv = document.createElement('webview');
           popWv.style.cssText = 'flex:1;width:100%;';
+          popupWebviews.add(popWv);
+          applyBrowserColorScheme(popWv);
+          popWv.addEventListener('loadcommit', event => {
+            if (!event.isTopLevel) return;
+            popWv._nbHasCommitted = true;
+            applyBrowserColorScheme(popWv);
+          });
           const _parentTab = tabs.find(t => t.id === tabId);
           const _popPartition = _parentTab?.incognito
             ? ('incognito_' + tabId)
@@ -2746,7 +2800,10 @@ registerApp({
           backdrop.appendChild(card);
           container.appendChild(backdrop);
 
-          const closePopup = () => backdrop.remove();
+          const closePopup = () => {
+            popupWebviews.delete(popWv);
+            backdrop.remove();
+          };
           barClose.addEventListener('click', closePopup);
 
           popWv.addEventListener('loadstop', () => {

@@ -2,12 +2,12 @@
   {
     "id": "com.nbosp.appmanager",
     "file": "js/apps/com.nbosp.appmanager.novaapp",
-    "cacheKey": "519b55dcb60d4eaa7fe9ffba6e4e050708c016b185ad9e975e13a7c898bc8b40"
+    "cacheKey": "a4d37d699b31bb6907878bdec9b98469d3980f444444e89aff15a9cf7b3ba730"
   },
   {
     "id": "com.nbosp.browser",
     "file": "js/apps/com.nbosp.browser.novaapp",
-    "cacheKey": "b867eebc313190aa40605f7082497bee66c3d03578f018ea96f6d2073ae63eb8"
+    "cacheKey": "10030fc32b339d95d1b80b7ba765125ef3edbbb49af28b2309ee8e28cba868ba"
   },
   {
     "id": "com.nbosp.calculator",
@@ -102,7 +102,7 @@
   {
     "id": "com.nbosp.settings",
     "file": "js/apps/com.nbosp.settings.novaapp",
-    "cacheKey": "eaa1d3f510d014cf4cc4baab272456abc40a0e41f2e817095bf31ad270c1abf8"
+    "cacheKey": "0bba098b649996d99c67000ea1dad29df84967712b02d8508dd780eac68a75a2"
   },
   {
     "id": "com.nbosp.terminal",
@@ -228,7 +228,7 @@
   {
     "id": "com.nbosp.service.store-updates",
     "file": "js/apps/com.nbosp.service.store-updates.novaapp",
-    "cacheKey": "b63f18864329f83a1913990169217b34e58e18739909087233e3b1313f67bdbe",
+    "cacheKey": "0b90160227bce637487ed2ae5784fc7f2417a4ccfeef56ce55933ab93df5f13d",
     "systemService": true
   },
   {
@@ -264,7 +264,7 @@
   {
     "id": "com.nbosp.service.novabyte-system",
     "file": "js/apps/com.nbosp.service.novabyte-system.novaapp",
-    "cacheKey": "1a2dc6baba54b22a6f8985c1a370e03960176cb2ade0257212168ab9aa6d9e0f",
+    "cacheKey": "b38cf51eafb87a094691447e2f05ffbf5f79ab2b6cf574196b11b76b895796b2",
     "systemService": true
   },
   {

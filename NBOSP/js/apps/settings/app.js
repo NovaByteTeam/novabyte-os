@@ -657,8 +657,7 @@ registerApp({
       if (!isAlive()) return;
       closeAllOverlays();
       mainContent.replaceChildren();
-      // renderAbout sets padding to '0' — reset so other sections get their
-      // default padding back (previously it stayed at '0' after visiting About)
+      // Reset section-specific inline layout before rebuilding the content.
       mainContent.style.padding = '';
       mainContent.dataset.currentTab = currentSection;
       const section = SECTIONS.find((item) => item.id === currentSection);
@@ -740,11 +739,11 @@ registerApp({
           textContent: _t('settings.appearance.accentRestricted')
         }));
       }
-      const colorRow = createEl('div', { className: 'nook-row' });
+      const colorRow = createEl('div', { className: 'nook-row nook-accent-swatches' });
       for (const c of ACCENT_COLORS) {
         const selected = currentAccent === c;
         const btn = createEl('button', {
-          className: 'btn btn-sm',
+          className: 'btn btn-sm nook-accent-swatch',
           style: {
             width: '32px', height: '32px', background: c,
             border: selected ? '2px solid white' : 'none',
@@ -2835,10 +2834,7 @@ registerApp({
         }
         refreshCurrent();
 
-        changeBtn.addEventListener('click', () => openPicker(categoryId, category, (choice) => {
-          if (categoryId === 'home' && choice === 'once') window.location.reload();
-          else refreshCurrent();
-        }), { signal: lifecycle.signal });
+        changeBtn.addEventListener('click', () => openPicker(categoryId, category, refreshCurrent), { signal: lifecycle.signal });
 
         return row;
       }
@@ -2900,52 +2896,13 @@ registerApp({
           optRow.appendChild(radio);
 
           const choose = async () => {
-            let chosenHomeOption = null;
             try {
-              if (categoryId === 'home') {
-                const currentHomeId = DefaultApps.getDefault('home') || 'com.nbosp.launcher';
-                const currentHome = candidates.find(candidate => candidate.id === currentHomeId)
-                  || (typeof OS !== 'undefined' ? OS.apps?.[currentHomeId] : null);
-                const choice = await showModal(
-                  'Do you want to switch launcher?',
-                  `Default launcher: ${currentHome?.name || 'System default'}\nThis app: ${app.name}`,
-                  [
-                    { label: 'Just once', value: 'once' },
-                    { label: 'Always', value: 'always' },
-                  ],
-                );
-                if (choice !== 'once' && choice !== 'always') return;
-
-                if (!DefaultApps.getAppsForCategory('home').some(candidate => candidate.id === app.id)) {
-                  Notify.show({ title: _t('settings.defaultApps.notChanged'), body: _t('settings.defaultApps.noLongerAvailable'), type: 'error', appName: 'Nook' });
-                  return;
-                }
-
-                if (choice === 'once') {
-                  const sessionUid = typeof SessionManager !== 'undefined'
-                    ? SessionManager?.state?.()?.uid
-                    : undefined;
-                  const scopeUid = typeof NovaUserScope !== 'undefined'
-                    ? NovaUserScope?.uid?.()
-                    : undefined;
-                  const uid = typeof sessionUid === 'string'
-                    ? sessionUid
-                    : (typeof scopeUid === 'string' ? scopeUid : '');
-                  sessionStorage.setItem('novabyte:home-launch-override:v1', JSON.stringify({ uid, appId: app.id }));
-                } else {
-                  sessionStorage.removeItem('novabyte:home-launch-override:v1');
-                  if (!DefaultApps.setDefault(categoryId, app.id)) {
-                    Notify.show({ title: _t('settings.defaultApps.notChanged'), body: _t('settings.defaultApps.noLongerAvailable'), type: 'error', appName: 'Nook' });
-                    return;
-                  }
-                }
-                chosenHomeOption = choice;
-              } else if (!DefaultApps.setDefault(categoryId, app.id)) {
+              if (!DefaultApps.setDefault(categoryId, app.id)) {
                 Notify.show({ title: _t('settings.defaultApps.notChanged'), body: _t('settings.defaultApps.noLongerAvailable'), type: 'error', appName: 'Nook' });
                 return;
               }
               dismissOverlay(overlay);
-              onChosen(chosenHomeOption);
+              onChosen();
             } catch (err) {
               Notify.show({ title: _t('settings.defaultApps.notChanged'), body: err?.message || _t('settings.defaultApps.couldNotSave'), type: 'error', appName: 'Nook' });
             }
@@ -3778,8 +3735,7 @@ registerApp({
 
     // About
     function renderAbout() {
-      mainContent.style.padding = '0';
-      const body = createEl('div', { style: 'padding:24px 28px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;flex:1;' });
+      const body = createEl('div', { className: 'nook-about-body' });
       const linuxInfo = {
         distribution: _t('settings.about.notLinux'),
         kernel: _t('settings.about.unavailable'),
@@ -3813,9 +3769,9 @@ registerApp({
       }
 
       function mkRow(label, value, last) {
-        const row = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;' + (last ? '' : 'border-bottom:1px solid var(--border-subtle);') });
-        const lbl = createEl('span', { textContent: label, style: 'color:var(--text-secondary);flex-shrink:0;margin-right:12px;' });
-        const val = createEl('span', { style: 'color:var(--text-primary);font-weight:500;text-align:right;max-width:65%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' });
+        const row = createEl('div', { className: 'nook-about-row', style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;' + (last ? '' : 'border-bottom:1px solid var(--border-subtle);') });
+        const lbl = createEl('span', { textContent: label, style: 'color:var(--text-secondary);margin-right:12px;' });
+        const val = createEl('span', { className: 'nook-about-value', style: 'color:var(--text-primary);font-weight:500;text-align:right;' });
         val.textContent = value;
         row.append(lbl, val);
         return row;

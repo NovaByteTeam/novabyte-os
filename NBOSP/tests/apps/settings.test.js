@@ -99,11 +99,7 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(typeof app.init).toBe('function');
   });
 
-  it.each([
-    ['Just once', 'once'],
-    ['Always', 'always'],
-    ['Cancel', null],
-  ])('handles the Home launcher choice: %s', async (_label, choice) => {
+  it('sets the Home default in Settings without showing the launch-time switch prompt', async () => {
     const homeApps = [
       { id: 'com.test.saved-home', name: 'Saved launcher' },
       { id: 'com.test.new-home', name: 'New launcher' },
@@ -114,12 +110,8 @@ describe("'Settings' app (js/apps/settings)", () => {
       getDefault: vi.fn((category) => category === 'home' ? homeApps[0].id : null),
       setDefault: vi.fn(() => true),
     };
-    const showModal = vi.fn().mockResolvedValue(choice);
-    const sessionKey = 'novabyte:home-launch-override:v1';
-
+    const showModal = vi.fn();
     const { content } = await loadSettings({ extra: { DefaultApps, showModal } });
-    const appSessionStorage = content.ownerDocument.defaultView.sessionStorage;
-    appSessionStorage.setItem(sessionKey, JSON.stringify({ uid: '', appId: 'com.test.stale-home' }));
     sidebarBtn(content, 'Default Apps').click();
     const homeLabel = [...content.querySelectorAll('*')]
       .find((element) => element.textContent.trim() === 'Home app');
@@ -128,26 +120,8 @@ describe("'Settings' app (js/apps/settings)", () => {
     content.ownerDocument.querySelectorAll('[role="radio"]')[1].click();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(showModal).toHaveBeenCalledTimes(1);
-    expect(showModal.mock.calls[0][0]).toBe('Do you want to switch launcher?');
-    expect(showModal.mock.calls[0][1]).toContain('Saved launcher');
-    expect(showModal.mock.calls[0][1]).toContain('New launcher');
-    expect(showModal.mock.calls[0][2].map((action) => action.value)).toEqual(['once', 'always']);
-    if (choice === 'once') {
-      expect(DefaultApps.setDefault).not.toHaveBeenCalled();
-      expect(JSON.parse(appSessionStorage.getItem(sessionKey))).toEqual(expect.objectContaining({
-        appId: 'com.test.new-home',
-      }));
-    } else if (choice === 'always') {
-      expect(DefaultApps.setDefault).toHaveBeenCalledWith('home', 'com.test.new-home');
-      expect(appSessionStorage.getItem(sessionKey)).toBeNull();
-    } else {
-      expect(DefaultApps.setDefault).not.toHaveBeenCalled();
-      expect(JSON.parse(appSessionStorage.getItem(sessionKey))).toEqual({
-        uid: '',
-        appId: 'com.test.stale-home',
-      });
-    }
+    expect(showModal).not.toHaveBeenCalled();
+    expect(DefaultApps.setDefault).toHaveBeenCalledWith('home', 'com.test.new-home');
   });
 
   it('shows the unavailable-system guard when NovaByteSystem is missing', async () => {
@@ -238,6 +212,14 @@ describe("'Settings' app (js/apps/settings)", () => {
     clockToggle.click();
     expect(nbs.sets).toContainEqual(['clockFormat', '24h']);
     expect(clockToggle.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('keeps accent swatches from shrinking in narrow Settings windows', async () => {
+    const { content } = await loadSettings();
+    sidebarBtn(content, 'Appearance').click();
+    const swatches = content.querySelector('.nook-accent-swatches');
+    expect(swatches).toBeTruthy();
+    expect(swatches.querySelectorAll('.nook-accent-swatch')).toHaveLength(8);
   });
 
   it('renders region names using the UI locale instead of script-dependent autonyms', async () => {
@@ -362,6 +344,10 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(about.textContent).toContain('Mesa llvmpipe');
     expect(about.textContent).toContain('KVM');
     expect(about.textContent).toContain('Apache 2.0');
+    const aboutBody = about.querySelector('.nook-about-body');
+    expect(aboutBody).toBeTruthy();
+    expect(aboutBody.querySelectorAll(':scope > div')).toHaveLength(4);
+    expect(about.querySelector('.nook-page-header')).toBeTruthy();
 
     // jsdom exposes no navigator.clipboard → the guarded copy path surfaces
     // a "Copy Failed" notification instead of writing the clipboard.

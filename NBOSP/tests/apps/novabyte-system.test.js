@@ -72,6 +72,13 @@ describe('NovaByte System settings coordinator', () => {
     expect(api.settings.set('customWallpaperName', 'wallpaper.png')).toBe(true);
     expect(api.settings.get('customWallpaperName')).toBe('wallpaper.png');
     expect(api.settings.set('customWallpaperName', null)).toBe(true);
+    expect(api.settings.set('lockCustomWallpaper', 'data:image/png;base64,AQID')).toBe(true);
+    expect(api.settings.get('lockCustomWallpaper')).toBe('data:image/png;base64,AQID');
+    expect(api.settings.set('lockCustomWallpaperName', 'lock.png')).toBe(true);
+    expect(api.settings.get('lockCustomWallpaperName')).toBe('lock.png');
+    expect(api.settings.set('lockWallpaperId', null)).toBe(true);
+    expect(() => api.settings.set('lockCustomWallpaper', 'data:image/tiff;base64,AQID')).toThrow(/Invalid value/);
+    expect(() => api.settings.set('lockCustomWallpaperName', 'bad\u0001name')).toThrow(/Invalid value/);
     expect(() => api.settings.set('doNotDisturb', 'true')).toThrow(/Invalid value/);
     expect(() => api.settings.set('customWallpaperName', '')).toThrow(/Invalid value/);
     expect(() => api.settings.set('theme', 'unknown')).toThrow(/Invalid value/);

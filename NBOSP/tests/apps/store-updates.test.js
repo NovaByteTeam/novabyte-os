@@ -1,5 +1,5 @@
 // tests/apps/store-updates.test.js — service app: catalog update checker.
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { resetTestStorage } from '../setup.js';
 import { loadServiceApp, settle } from '../helpers/app-harness.js';
 
@@ -181,5 +181,33 @@ describe('StoreUpdateService service (js/apps/store-updates)', () => {
     await settle();
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain(CATALOG_URL);
+  });
+
+  it('does not request the catalog when the browser is offline at startup', async () => {
+    const calls = [];
+    const { window } = await loadServiceApp('store-updates', {
+      stubs: { fetch: fetchServing([], calls) },
+    });
+    window.localStorage.setItem('nova_store_update_interval_minutes', '0');
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+
+    window.StoreUpdateService.start();
+    await settle();
+    expect(calls).toEqual([]);
+  });
+
+  it('defers startup network errors without suppressing explicit manual-check failures', async () => {
+    const { window } = await loadServiceApp('store-updates', {
+      stubs: { fetch: () => Promise.reject(new TypeError('Failed to fetch')) },
+    });
+    window.localStorage.setItem('nova_store_update_interval_minutes', '0');
+    const warning = vi.spyOn(window.console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(window.console, 'error').mockImplementation(() => {});
+
+    window.StoreUpdateService.start();
+    await settle();
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining('catalog is unreachable; it will retry later.'));
+    expect(error).not.toHaveBeenCalled();
+    await expect(window.StoreUpdateService.checkNow()).rejects.toThrow('Failed to fetch');
   });
 });

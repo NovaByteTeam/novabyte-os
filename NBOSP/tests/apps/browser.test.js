@@ -106,6 +106,24 @@ describe('Browser app (js/apps/browser)', () => {
     expect(urlBar.placeholder).toBe('Search or enter URL…');
   });
 
+  it('uses the address-bar space for the full URL unless the insecure warning is visible', async () => {
+    const { app, window } = await loadWindowApp('browser', { stubs: browserStubs() });
+    const state = { cleanups: [] };
+    const content = initApp(app, { window, state });
+    const urlBar = content.querySelector('#browser-url-bar');
+
+    urlBar.value = 'https://example.test/a/very/long/path?query=full';
+    enter(window, urlBar);
+    expect(urlBar.title).toBe('https://example.test/a/very/long/path?query=full');
+    expect(urlBar.classList.contains('has-security-warning')).toBe(false);
+
+    urlBar.value = 'http://example.test/a/very/long/path?query=full';
+    enter(window, urlBar);
+    expect(urlBar.classList.contains('has-security-warning')).toBe(true);
+
+    app.onClose(state);
+  });
+
   it('uses the active theme colors in generated network error pages', async () => {
     const { app, window } = await loadWindowApp('browser', { stubs: browserStubs() });
     const content = initApp(app, { window });
@@ -147,7 +165,21 @@ describe('Browser app (js/apps/browser)', () => {
   });
 
   it('syncs the selected color scheme to guest webviews and theme changes', async () => {
-    const { app, window } = await loadWindowApp('browser', { stubs: browserStubs() });
+    const earlyScripts = [];
+    const { app, window } = await loadWindowApp('browser', { stubs: browserStubs({
+      extra: {
+        NovaSystemWebview: {
+          createTrustedGuest(_app, { parent }) {
+            const element = parent.ownerDocument.createElement('webview');
+            element.addContentScripts = scripts => earlyScripts.push(...scripts);
+            element.removeContentScripts = () => {};
+            parent.appendChild(element);
+            return { element };
+          },
+        },
+      },
+    }) });
+    window.document.documentElement.style.setProperty('--color-scheme', 'dark');
     const content = initApp(app, { window });
     const urlBar = content.querySelector('#browser-url-bar');
     urlBar.value = 'https://example.test/';
@@ -157,16 +189,6 @@ describe('Browser app (js/apps/browser)', () => {
     const injectedScripts = [];
     webview.executeScript = ({ code }) => injectedScripts.push(code);
     webview.insertCSS = ({ code }) => injectedStyles.push(code);
-    window.document.documentElement.style.setProperty('--color-scheme', 'light');
-
-    const load = new window.Event('loadcommit');
-    Object.defineProperties(load, {
-      isTopLevel: { value: true },
-      url: { value: 'https://example.test/' },
-    });
-    webview.dispatchEvent(load);
-    expect(webview.style.colorScheme).toBe('light');
-    expect(injectedStyles).toEqual([':root{color-scheme:light!important}']);
 
     const guestListeners = new Map();
     const guestWindow = {
@@ -189,8 +211,35 @@ describe('Browser app (js/apps/browser)', () => {
         constructor(type, options) { Object.assign(this, { type }, options); }
       },
     };
-    const guestDocument = { documentElement: { style: {} } };
+    const guestDocument = {
+      documentElement: {
+        style: {},
+        appendChild(script) {
+          new Function('window', 'document', script.textContent)(guestWindow, guestDocument);
+        },
+      },
+      createElement: () => ({ textContent: '', remove() {} }),
+    };
     const runGuestScript = code => new Function('window', 'document', code)(guestWindow, guestDocument);
+    expect(earlyScripts[0]).toMatchObject({
+      run_at: 'document_start',
+      all_frames: false,
+    });
+    expect(earlyScripts[0].js.code).toContain('__nbospSetColorScheme');
+    expect(earlyScripts[0].js.code).toContain('\\"dark\\"');
+    runGuestScript(earlyScripts[0].js.code);
+    expect(guestWindow.matchMedia('(prefers-color-scheme: dark)').matches).toBe(true);
+
+    window.document.documentElement.style.setProperty('--color-scheme', 'light');
+
+    const load = new window.Event('loadcommit');
+    Object.defineProperties(load, {
+      isTopLevel: { value: true },
+      url: { value: 'https://example.test/' },
+    });
+    webview.dispatchEvent(load);
+    expect(webview.style.colorScheme).toBe('light');
+    expect(injectedStyles).toEqual([':root{color-scheme:light!important}']);
     runGuestScript(injectedScripts.at(-1));
     const lightPreference = guestWindow.matchMedia('(prefers-color-scheme: light)');
     const changeEvents = [];

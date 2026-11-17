@@ -281,6 +281,57 @@ describe('WM (js/apps/shell-ui/wm.js)', () => {
       expect(wm.createWindow('nonexistent')).toBeNull();
     });
 
+    it.each(['once', 'always', null])('prompts when launching a Home-role app (%s)', async (choice) => {
+      const appId = 'com.test.new-home';
+      const sessionKey = 'novabyte:home-launch-override:v1';
+      const reload = vi.fn();
+      const showModal = vi.fn().mockResolvedValue(choice);
+      const defaultApps = {
+        getDefault: vi.fn(() => 'com.nbosp.launcher'),
+        getAppsForCategory: vi.fn(() => [{ id: appId, name: 'New launcher' }]),
+        setDefault: vi.fn(() => true),
+      };
+      OS.apps['com.nbosp.launcher'] = _makeApp({ id: 'com.nbosp.launcher', name: 'Saved launcher' });
+      OS.apps[appId] = _makeApp({ id: appId, name: 'New launcher', handles: { roles: ['home'] } });
+      window.DefaultApps = defaultApps;
+      window.showModal = showModal;
+      window.location = { reload };
+      window.__NOVA_ACTIVE_HOME_APP_ID__ = 'com.nbosp.launcher';
+      sessionStorage.removeItem(sessionKey);
+
+      const wm = requireWM();
+      wm.init();
+      expect(wm.createWindow(appId)).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(showModal).toHaveBeenCalledWith(
+        'Do you want to switch launcher?',
+        'Default launcher: Saved launcher\nThis app: New launcher',
+        [
+          { label: 'Just once', value: 'once' },
+          { label: 'Always', value: 'always' },
+        ],
+      );
+      if (choice === 'once') {
+        expect(JSON.parse(sessionStorage.getItem(sessionKey))).toEqual({ uid: '', appId });
+        expect(defaultApps.setDefault).not.toHaveBeenCalled();
+        expect(reload).toHaveBeenCalledOnce();
+      } else if (choice === 'always') {
+        expect(sessionStorage.getItem(sessionKey)).toBeNull();
+        expect(defaultApps.setDefault).toHaveBeenCalledWith('home', appId);
+        expect(reload).toHaveBeenCalledOnce();
+      } else {
+        expect(sessionStorage.getItem(sessionKey)).toBeNull();
+        expect(defaultApps.setDefault).not.toHaveBeenCalled();
+        expect(reload).not.toHaveBeenCalled();
+      }
+
+      delete window.DefaultApps;
+      delete window.showModal;
+      delete window.location;
+      delete window.__NOVA_ACTIVE_HOME_APP_ID__;
+    });
+
     it('applies option overrides to defaults', () => {
       const wm = requireWM();
       wm.init();

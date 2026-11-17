@@ -1518,24 +1518,6 @@
     border-radius: 2px;
     outline: none;
   }
-  .volume-popup .volume-slider {
-    background: linear-gradient(
-      to right,
-      var(--accent) 0%,
-      var(--accent) var(--volume-level, 80%),
-      var(--border-default) var(--volume-level, 80%),
-      var(--border-default) 100%
-    );
-  }
-  .volume-popup .volume-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--accent);
-    cursor: pointer;
-  }
-
   /* WiFi popup — created dynamically by tray/service.js (only positioning */
   /* stays inline on the element). Same glass treatment as .volume-popup */
   /* (blur + translucent background) so all tray flyouts look consistent. */
@@ -1874,6 +1856,37 @@
   }
   input[type="range"]::-webkit-slider-thumb:active {
     transform: scale(1.1);
+  }
+  .volume-popup input.volume-slider {
+    background: linear-gradient(
+      to right,
+      var(--accent) 0%,
+      var(--accent) var(--volume-level, 80%),
+      var(--border-default) var(--volume-level, 80%),
+      var(--border-default) 100%
+    );
+  }
+  .volume-popup input.volume-slider::-webkit-slider-thumb {
+    background: var(--accent);
+  }
+  .volume-popup input.volume-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+  }
+  .volume-popup input.volume-slider::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-default);
+  }
+  .volume-popup input.volume-slider::-moz-range-progress {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--accent);
   }
 
   /* Textareas — opt into field-sizing: content where supported so they */

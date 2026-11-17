@@ -72,8 +72,8 @@ describe('App Manager app (js/apps/appmanager)', () => {
 
   it('renders the Apps/Web Apps tab bar and the packages panel with an install drop zone', async () => {
     const { content } = await loadAppManager();
-    expect(content.querySelector('.app-manager-header h1').textContent).toBe('App Manager');
-    expect(content.querySelector('.app-manager-count').textContent).toBe('0');
+    expect(content.querySelector('.app-manager-header')).toBeNull();
+    expect(content.firstElementChild.classList.contains('app-manager-tabs')).toBe(true);
     const tabs = [...content.querySelectorAll('[data-tab]')];
     expect(tabs.map((t) => t.dataset.tab)).toEqual(['packages', 'webapps']);
     expect(tabs[0].textContent).toContain('Apps');
@@ -142,7 +142,6 @@ describe('App Manager app (js/apps/appmanager)', () => {
         { id: 'com.alpha.app', name: 'Alpha App', version: '1.2.3', author: 'Ann', verified: true, source: 'file' },
       ],
     });
-    expect(content.querySelector('.app-manager-count').textContent).toBe('2');
     const rows = listRows(content);
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain('Alpha App'); // alphabetical

@@ -51,6 +51,72 @@ const WM = window.WM = (() => {
   // Invalidated by window resize, taskbar class changes, and taskbar resizes.
   let _waCache = null;
   const _clearWACache = () => { _waCache = null; };
+  const HOME_ONCE_SESSION_KEY = 'novabyte:home-launch-override:v1';
+  const _pendingHomeSwitches = new Set();
+  const requestHomeLauncherSwitch = async (app) => {
+    if (_pendingHomeSwitches.has(app.id)) return;
+    _pendingHomeSwitches.add(app.id);
+    try {
+      const defaults = window.DefaultApps;
+      if (!defaults || typeof defaults.getDefault !== 'function'
+        || typeof defaults.getAppsForCategory !== 'function'
+        || typeof defaults.setDefault !== 'function') {
+        throw new Error('Default Apps service is unavailable');
+      }
+
+      const candidates = defaults.getAppsForCategory('home');
+      if (!Array.isArray(candidates) || !candidates.some(candidate => candidate.id === app.id)) {
+        throw new Error(`Home app "${app.id}" is no longer available`);
+      }
+
+      const currentHomeId = window.__NOVA_ACTIVE_HOME_APP_ID__
+        || defaults.getDefault('home')
+        || 'com.nbosp.launcher';
+      if (currentHomeId === app.id) return;
+
+      if (typeof window.showModal !== 'function') {
+        throw new Error('The launcher switch dialog is unavailable');
+      }
+      const currentHome = OS.apps?.[currentHomeId];
+      const choice = await window.showModal(
+        'Do you want to switch launcher?',
+        `Default launcher: ${currentHome?.name || 'System default'}\nThis app: ${app.name}`,
+        [
+          { label: 'Just once', value: 'once' },
+          { label: 'Always', value: 'always' },
+        ],
+      );
+      if (choice !== 'once' && choice !== 'always') return;
+
+      if (!defaults.getAppsForCategory('home').some(candidate => candidate.id === app.id)) {
+        throw new Error(`Home app "${app.id}" is no longer available`);
+      }
+
+      if (choice === 'once') {
+        const sessionUid = window.SessionManager?.state?.()?.uid;
+        const scopeUid = window.NovaUserScope?.uid?.();
+        const uid = typeof sessionUid === 'string'
+          ? sessionUid
+          : (typeof scopeUid === 'string' ? scopeUid : '');
+        sessionStorage.setItem(HOME_ONCE_SESSION_KEY, JSON.stringify({ uid, appId: app.id }));
+      } else {
+        sessionStorage.removeItem(HOME_ONCE_SESSION_KEY);
+        if (!defaults.setDefault('home', app.id)) {
+          throw new Error(`Could not set "${app.name}" as the default launcher`);
+        }
+      }
+      window.location.reload();
+    } catch (error) {
+      console.error('[WM] Could not switch Home app:', error);
+      window.Notify?.show?.({
+        title: 'Launcher not changed',
+        body: error?.message || 'Could not switch launcher.',
+        type: 'error',
+      });
+    } finally {
+      _pendingHomeSwitches.delete(app.id);
+    }
+  };
   const resetShellScroll = () => {
     const root = document.documentElement;
     const body = document.body;
@@ -109,6 +175,10 @@ const WM = window.WM = (() => {
       const id  = generateId();
       const app = OS.apps[appId];
       if (!app) return null;
+      if (app.handles?.roles?.includes('home')) {
+        void requestHomeLauncherSwitch(app);
+        return null;
+      }
 
       const systemSettings = window.NovaByteSystem?.settings;
       if (!systemSettings || typeof systemSettings.get !== 'function') {

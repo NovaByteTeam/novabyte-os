@@ -246,8 +246,18 @@
   function start() {
     if (started) return;
     started = true;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      scheduleNextCheck();
+      return;
+    }
     checkNow()
-      .catch(error => console.error('[StoreUpdateService] Startup update check failed:', error))
+      .catch(error => {
+        if (error?.name === 'TypeError') {
+          console.warn('[StoreUpdateService] Startup update check deferred: the catalog is unreachable; it will retry later.');
+          return;
+        }
+        console.error('[StoreUpdateService] Startup update check failed:', error);
+      })
       .finally(scheduleNextCheck);
   }
 

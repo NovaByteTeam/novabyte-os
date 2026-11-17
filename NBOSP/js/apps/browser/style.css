@@ -195,7 +195,7 @@
   }
   .browser-url-bar {
     width: 100%;
-    padding: 7px 92px 7px 36px;
+    padding: 7px 12px 7px 36px;
     border-radius: 20px;
     border: 1.5px solid var(--border-default);
     background: var(--bg-sunken);
@@ -205,6 +205,9 @@
     outline: none;
     transition: border-color 160ms, background 160ms, box-shadow 160ms;
     backdrop-filter: blur(8px);
+  }
+  .browser-url-bar.has-security-warning {
+    padding-right: 92px;
   }
   .browser-url-bar:focus {
     border-color: var(--accent);

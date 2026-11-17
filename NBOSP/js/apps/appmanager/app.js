@@ -1516,7 +1516,6 @@ registerApp({
       }
 
       installedApps = fresh;
-      if (appManagerCount) appManagerCount.textContent = String(installedApps.length);
       if (selectedPkgId && !newById.has(selectedPkgId)) {
         selectedPkgId = null;
       }
@@ -1545,28 +1544,6 @@ registerApp({
     // ── Root layout ────────────────────────────────────────────────
     content.classList.add('app-manager-root');
 
-    const appManagerHeader = createEl('header', { className: 'app-manager-header' });
-    const appManagerIdentity = createEl('div', { className: 'app-manager-identity' });
-    const appManagerIcon = createEl('div', { className: 'app-manager-header-icon', 'aria-hidden': 'true' });
-    appManagerIcon.innerHTML = svgIcon('package', 20);
-    const appManagerTitle = createEl('div', { className: 'app-manager-title' });
-    appManagerTitle.append(
-      createEl('h1', {
-        textContent: OS.apps?.[APP_MANAGER_ID]?.name || 'App Manager',
-      }),
-      createEl('span', {
-        textContent: OS.apps?.[APP_MANAGER_ID]?.description || _t('apps.appmanager.tabApps'),
-      })
-    );
-    appManagerIdentity.append(appManagerIcon, appManagerTitle);
-    const appManagerCount = createEl('div', {
-      className: 'app-manager-count',
-      'aria-label': _t('apps.appmanager.tabApps'),
-      textContent: String(installedApps.length),
-    });
-    appManagerHeader.append(appManagerIdentity, appManagerCount);
-    content.appendChild(appManagerHeader);
-
     // ── Tab bar ────────────────────────────────────────────────────
     const tabBar = createEl('div', { className: 'app-manager-tabs' });
 
@@ -1593,7 +1570,6 @@ registerApp({
         const active = btn.dataset.tab === activeTab;
         btn.classList.toggle('active', active);
       }
-      appManagerCount.textContent = String(installedApps.length);
     }
 
     const body = createEl('div', { className: 'app-manager-body' });
@@ -2735,7 +2711,6 @@ registerApp({
               Object.assign(appData, await PackageStore.installApp(appData));
             }
             installedApps.push(appData);
-            if (appManagerCount) appManagerCount.textContent = String(installedApps.length);
             saveStoredApps(installedApps);
              registerNovaApp(appData);
              pushLog({ action: 'install', appId: appData.id, label: `${appData.name} v${appData.version} installed` });
@@ -2884,7 +2859,6 @@ registerApp({
           console.warn('[AppManager] Failed to revoke permissions for', appId, e);
         }
         installedApps = installedApps.filter(a => a.id !== appId);
-        if (appManagerCount) appManagerCount.textContent = String(installedApps.length);
         saveStoredApps(installedApps);
         delete OS.apps[appId];
         const ri = APP_REGISTRY.findIndex(a => a.id === appId);
