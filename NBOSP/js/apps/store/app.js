@@ -816,6 +816,8 @@
         settingsOpen = !settingsOpen;
         renderView();
       });
+      const headerActions = document.createElement('div');
+      headerActions.className = 'store-header-actions';
       const searchWrap = document.createElement('label');
       searchWrap.className = 'store-search-wrap';
       searchWrap.setAttribute('aria-label', _t('apps.store.searchAppsAria'));
@@ -826,7 +828,8 @@
       search.className = 'store-search';
       search.autocomplete = 'off';
       searchWrap.appendChild(search);
-      header.append(brand, settingsButton, searchWrap);
+      headerActions.append(searchWrap, settingsButton);
+      header.append(brand, headerActions);
 
       const page = document.createElement('main');
       page.className = 'store-page';

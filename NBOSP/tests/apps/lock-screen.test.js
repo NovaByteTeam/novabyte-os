@@ -385,6 +385,37 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
       .toBe('url("stock-blue.png")');
   });
 
+  it('does not let a late account wallpaper read overwrite the picker wallpaper', async () => {
+    let resolveAdaWallpaper;
+    const adaWallpaper = new Promise((resolve) => { resolveAdaWallpaper = resolve; });
+    const { window, document } = await loadMultiUser({
+      extraStubs: {
+        WallpaperService: {
+          styleFor: (id, custom) => ({
+            backgroundImage: custom ? `url("${custom}")` : `url("${id}.png")`,
+          }),
+        },
+        NovaRegistry: { peekUserValue: () => 'stock-red' },
+        NovaSettingsShim: { peekLockWallpaper: (uid) => uid === 'u-ada-001' ? adaWallpaper : Promise.resolve(null) },
+      },
+    });
+
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][0].click();
+    await settle();
+    document.getElementById('lock-picker-back').click();
+    await settle();
+
+    expect(document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage)
+      .toBe('url("stock-blue.png")');
+
+    resolveAdaWallpaper('data:image/png;base64,ada');
+    await settle();
+    expect(document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage)
+      .toBe('url("stock-blue.png")');
+  });
+
   it('falls back to stock blue for an account whose hive has no wallpaper yet', async () => {
     const { window, document } = await loadMultiUser({
       extraStubs: {

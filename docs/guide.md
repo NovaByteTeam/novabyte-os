@@ -11,7 +11,7 @@ This is the entry point for building apps for NovaByte OS. It follows the full d
 | Question you have | Document |
 |---|---|
 | How do I build, package, install, publish, update an app? What manifest fields exist? | **This file** (`guide.md`) |
-| What does each of the 52 permissions do? How do prompts, denial, expiry, revocation work? | [`permissions.md`](permissions.md) |
+| What does each of the 53 permissions do? How do prompts, denial, expiry, revocation work? | [`permissions.md`](permissions.md) |
 | What are the exact `nova:*` channels, `window.nova` / `window.novaOS` methods, payloads, rate limits, error codes? | [`api-reference.md`](api-reference.md) |
 | Show me complete working example apps (storage, files, notifications, browser views, OAuth, IPC). | [`examples.md`](examples.md) |
 | How does the OS itself work (sandbox engine, NB-MAC, trust store, registry, server, image)? For OS contributors. | [`internals.md`](internals.md) |
@@ -843,7 +843,7 @@ All numbers verified against the current tree; full per-channel detail in [`api-
 | Registry | 16 path segments · 256 KiB value · per-hive caps | `nova-registry.js:83-96` |
 | Serve registry | 5 min heartbeat · 30 min idle prune | `app-sandbox.js:1126-1129` |
 | Sandbox launch delay | 250 ms (NW.js content-script race) | `app-sandbox.js:14328` |
-| Permissions catalog | 52 permissions · 11 categories · 4 risk tiers | `app-permission-manager.js:15-245` |
+| Permissions catalog | 53 permissions · 11 categories · 4 risk tiers | `app-permission-manager.js:15-245` |
 | Grant expiry | non-permanent 1 day · unused-app sweep 30 days · root never | `app-permission-manager.js:457-530` |
 | Prompt rate limit | 3/60 s per app+permission · cooldown 5 s→15 min | `app-permission-manager.js:264-277` |
 | Default sandbox attr tokens | `allow-scripts allow-forms allow-popups allow-modals allow-downloads` | `app-sandbox.js:13477-13485` |

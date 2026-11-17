@@ -36,6 +36,31 @@ const SEQ_LINE_CAP = 1000;
 const SLEEP_MAX_SECONDS = 30;
 const TREE_MAX_DEPTH = 5;
 
+const LINUX_HELP_FUNCTION = [
+  'help() {',
+  '  printf "%s\\n" "Commands available on this system:"',
+  '  (',
+  '    printf "%s\\n" help commands',
+  '    if command -v bash >/dev/null 2>&1; then',
+  '      bash --noprofile --norc -c "compgen -c"',
+  '    else',
+  '      printf "%s\\n" . : break cd continue eval exec exit export getopts hash pwd read readonly return set shift times trap umask unalias unset wait',
+  '      old_ifs=$IFS',
+  '      IFS=:',
+  '      for dir in $PATH; do',
+  '        [ -d "$dir" ] || continue',
+  '        for command in "$dir"/*; do',
+  '          [ -f "$command" ] && [ -x "$command" ] && printf "%s\\n" "${command##*/}"',
+  '        done',
+  '      done',
+  '      IFS=$old_ifs',
+  '    fi',
+  '  ) | sort -u',
+  '}',
+  'commands() { help "$@"; }',
+  ''
+].join('\n');
+
 // Aliases shipped with every new tab. Frozen so they're shared by reference.
 const DEFAULT_ALIASES = Object.freeze({
   ll: 'ls -la',
@@ -1467,6 +1492,7 @@ function initLinuxTerminal(content, state) {
       append(_t('apps.terminal.shellExited', { status: code ?? _t('apps.terminal.unknownStatus') }));
     });
     shell = child;
+    child.stdin.write(LINUX_HELP_FUNCTION);
   };
   const signalGroup = signal => {
     if (!shell || !shell.pid) return;

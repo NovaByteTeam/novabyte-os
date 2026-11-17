@@ -338,11 +338,11 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, vi.fn());
 
     const api = sandboxWindow.novaOS;
-    for (const cap of ['events.v2', 'geolocation.v2', 'media.v2', 'calendar.v2', 'contacts.v2', 'mail.v2', 'admin.v2', 'background.v2', 'permissions.v2', 'net.v2']) {
+    for (const cap of ['events.v2', 'geolocation.v2', 'media.v2', 'calendar.v2', 'contacts.v2', 'mail.v2', 'admin.v2', 'background.v2', 'permissions.v2', 'net.v2', 'vpn.v1']) {
       expect(api.capabilities.has(cap)).toBe(true);
     }
     expect(api.capabilities.has('events.v3')).toBe(false);
-    for (const area of ['events', 'geolocation', 'media', 'calendar', 'contacts', 'mail', 'admin', 'background', 'permissions', 'net']) {
+    for (const area of ['events', 'geolocation', 'media', 'calendar', 'contacts', 'mail', 'admin', 'background', 'permissions', 'net', 'vpn']) {
       expect(Object.isFrozen(api[area])).toBe(true);
     }
     // Full method surface of the new areas.
@@ -359,6 +359,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(Object.keys(api.background).sort()).toEqual(['onWake', 'stayAlive', 'wakeDone']);
     expect(Object.keys(api.permissions).sort()).toEqual(['checkRateLimited', 'request']);
     expect(Object.keys(api.net).sort()).toEqual(['websocket']);
+    expect(Object.keys(api.vpn).sort()).toEqual(['getStatus', 'registerProvider', 'removeProvider']);
   });
 
   it('exposes the novaOS v2 events facade with a host-subscription lifecycle', async () => {
@@ -721,6 +722,30 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(AppSandbox._internal.API_HANDLERS['nova:home:openDefaultAppsSettings']).toBeTypeOf('function');
     expect(AppSandbox._internal.API_HANDLERS['nova:home:apps:list']).toBeTypeOf('function');
     expect(AppSandbox._internal.API_HANDLERS['nova:home:apps:launch']).toBeTypeOf('function');
+  });
+
+  it('restricts registered VPN-provider apps to brokered network egress', () => {
+    const previousPermissionManager = globalThis.AppPermissionManager;
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: permission => permission === 'vpn:provider',
+    });
+    try {
+      const html = AppSandbox._internal.injectCapabilityShim(
+        '<!doctype html><html><head></head><body></body></html>',
+        { id: 'com.example.vpn', permissions: ['vpn:provider'], allowNestedWebview: true }
+      );
+      expect(html).toContain("img-src 'self' blob: data:");
+      expect(html).toContain("frame-src 'none'");
+      expect(html).toContain("form-action 'self'");
+      expect(html).not.toContain("img-src 'self' blob: data: https:");
+      expect(html).toContain("Object.defineProperty(globalThis, name");
+      expect(AppSandbox._internal.API_HANDLERS['nova:vpn:register']).toBeTypeOf('function');
+      expect(AppSandbox._internal.API_HANDLERS['nova:vpn:remove']).toBeTypeOf('function');
+      expect(AppSandbox._internal.API_HANDLERS['nova:vpn:status']).toBeTypeOf('function');
+    } finally {
+      if (previousPermissionManager === undefined) delete globalThis.AppPermissionManager;
+      else vi.stubGlobal('AppPermissionManager', previousPermissionManager);
+    }
   });
 
   it('lets only the active sandboxed Home app open Home defaults in Settings', async () => {

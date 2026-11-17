@@ -123,6 +123,20 @@
 
   function openFile(f) {
     if (!f) return;
+    if (/\.nvreg$/i.test(f.name || '')) {
+      const appId = 'com.nbosp.novareg';
+      if (!OS.apps?.[appId] || typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
+        notifyError('NovaReg is unavailable', new Error('Enable Developer Mode and try again.'));
+        return;
+      }
+      const opened = WM.createWindow(appId, {
+        importFile: { name: f.name, content: f.content },
+      });
+      if (!opened) {
+        notifyError('NovaReg could not be opened', new Error('Enable Developer Mode and try again.'));
+      }
+      return;
+    }
     const detectedMimeType = detectMimeFromName(f.name);
     const detectedMediaType = detectedMimeType.startsWith('image/') || detectedMimeType.startsWith('audio/');
     const mimeType = !f.mimeType || f.mimeType === 'application/octet-stream' ||
@@ -811,6 +825,27 @@
     // 'application/x-app-shortcut' and would otherwise fall back to the
     // generic file icon for every shortcut.
     resolveFileIcon(f) {
+      if (/\.nvreg$/i.test(f.name || '')) {
+        const icon = OS.apps?.['com.nbosp.novareg']?.icon;
+        const match = typeof icon === 'string'
+          ? icon.match(/^data:image\/svg\+xml;base64,([A-Za-z0-9+/=]+)$/)
+          : null;
+        if (match) {
+          try {
+            const svg = window.atob(match[1]);
+            const mark = svg.replace(
+              /<!-- background -->[\s\S]*?<!-- registry database cylinder -->/,
+              '<!-- registry database cylinder -->',
+            );
+            if (mark !== svg) {
+              return `data:image/svg+xml;base64,${window.btoa(mark)}`;
+            }
+          } catch (error) {
+            console.warn('[Files] Could not derive the NovaReg file icon:', error);
+          }
+        }
+        return 'registry';
+      }
       if (f.name?.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
         try {
           const data = JSON.parse(f.content);

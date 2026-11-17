@@ -23,7 +23,7 @@ const undici = require('undici');
 // CJS require — same instance style as proxies.test.js (uniform loading
 // across workers keeps the v8 coverage merge honest).
 const proxies = createRequire(import.meta.url)('../../server/proxies.js');
-const { _dnsResolvePrivate, _pinnedFetch, _dnsPrivateCache } = proxies._internal;
+const { _dnsResolvePrivate, _pinnedFetch, _dnsPrivateCache, _vpnRouteForRequest } = proxies._internal;
 
 // A host whose "DNS" says: one public IPv6 first (what verbatim order looks
 // like on dual-stack hosts), one public IPv4 second.
@@ -114,6 +114,24 @@ describe('proxies.js — multi-candidate SSRF resolution and pinned fetch', () =
       await _dnsResolvePrivate('cached.example');
       await _dnsResolvePrivate('cached.example');
       expect(lookupMock).toHaveBeenCalledTimes(1);
+    });
+
+    describe('_vpnRouteForRequest', () => {
+      const activeRoute = { providerId: 'com.example.vpn', address: '10.77.0.2' };
+
+      it('binds only the authenticated active provider to its tunnel source address', () => {
+        expect(_vpnRouteForRequest('com.example.vpn', 'com.example.vpn', activeRoute))
+          .toEqual({ required: true, authorized: true, localAddress: '10.77.0.2' });
+        expect(_vpnRouteForRequest('com.example.other', 'com.example.other', activeRoute))
+          .toEqual({ required: false });
+      });
+
+      it('fails closed when the active provider identity is missing or forged', () => {
+        expect(_vpnRouteForRequest('com.example.vpn', null, activeRoute))
+          .toEqual({ required: true, authorized: false });
+        expect(_vpnRouteForRequest('com.example.vpn', 'com.example.other', activeRoute))
+          .toEqual({ required: true, authorized: false });
+      });
     });
   });
 

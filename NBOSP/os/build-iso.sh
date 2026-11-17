@@ -138,6 +138,8 @@ for option in \
   BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SVGA \
   BR2_PACKAGE_NBOSP_KIOSK \
   BR2_PACKAGE_NBOSP_POWER \
+  BR2_PACKAGE_NBOSP_VPN \
+  BR2_PACKAGE_BASH \
   BR2_PACKAGE_NBOSP_INSTALL \
   BR2_PACKAGE_DOSFSTOOLS \
   BR2_PACKAGE_DOSFSTOOLS_MKFS_FAT \
@@ -251,6 +253,7 @@ fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   alsa-utils-dirclean nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean \
+  nbosp-vpn-dirclean \
   wlroots-dirclean labwc-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" toolchain
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" mesa3d-extract
@@ -570,6 +573,10 @@ if ! target_has_command tar || ! target_has_command gzip; then
 fi
 if [[ ! -u "$OUTPUT_DIR/target/usr/bin/nbosp-power" ]]; then
   echo "Restricted power helper is missing its setuid permission." >&2
+  exit 1
+fi
+if [[ ! -u "$OUTPUT_DIR/target/usr/bin/nbosp-vpn" ]]; then
+  echo "Restricted VPN helper is missing its setuid permission." >&2
   exit 1
 fi
 if [[ ! -u "$OUTPUT_DIR/target/usr/bin/nbosp-install" ]]; then

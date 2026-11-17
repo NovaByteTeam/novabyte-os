@@ -296,6 +296,17 @@ describe("'Store' app (js/apps/store)", () => {
       .toEqual(['com.example.paint']);
   });
 
+  it('keeps header actions grouped at the right of the brand', async () => {
+    const { content } = await loadStore();
+    const header = content.querySelector('.store-header');
+    const actions = header.querySelector('.store-header-actions');
+
+    expect(actions).toBeTruthy();
+    expect([...header.children]).toEqual([header.querySelector('.store-brand'), actions]);
+    expect(actions.querySelector('.store-search-wrap')).toBeTruthy();
+    expect(actions.querySelector('.store-settings-button')).toBeTruthy();
+  });
+
   it('manages update settings with and without StoreUpdateService', async () => {
     const { content, window } = await loadStore();
 

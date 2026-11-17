@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', function () {
   // ── Tray icon image fallback ─────────────────────────────────────────────
   // Previously: onerror="this.style.visibility='hidden'"
   // IDs assigned to the img tags in index.html for stable targeting.
-  ['tray-volume-img', 'tray-wifi-img', 'tray-bell-img'].forEach(function (id) {
+  ['tray-volume-img', 'tray-wifi-img', 'tray-vpn-img', 'tray-bell-img'].forEach(function (id) {
     var img = document.getElementById(id);
     if (img) {
       img.addEventListener('error', function () {

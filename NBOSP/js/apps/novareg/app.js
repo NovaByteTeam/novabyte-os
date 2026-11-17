@@ -343,13 +343,14 @@ registerApp({
     const copyPathBtn = el('button', btnStyle(false), _t('apps.novareg.copyPathBtn'));
     const findBtn = el('button', btnStyle(false), _t('apps.novareg.findBtn'));
     const favBtn = el('button', btnStyle(false), _t('apps.novareg.favBtn'));
+    const favoritesListBtn = el('button', btnStyle(false), _t('apps.novareg.favoritesListBtn'));
     const permBtn = el('button', btnStyle(false), _t('apps.novareg.permBtn'));
     const snapBtn = el('button', btnStyle(false), _t('apps.novareg.snapBtn'));
     const auditBtn = el('button', btnStyle(false), _t('apps.novareg.auditBtn'));
     const exportBtn = el('button', btnStyle(false), _t('apps.novareg.exportBtn'));
     const importBtn = el('button', btnStyle(false), _t('apps.novareg.importBtn'));
 
-    toolbar.append(jumpInput, jumpBtn, filterInput, newKeyBtn, newValueBtn, newLinkBtn, renameBtn, deleteBtn, copyPathBtn, findBtn, favBtn, permBtn, snapBtn, auditBtn, exportBtn, importBtn, historyDatalist);
+    toolbar.append(jumpInput, jumpBtn, filterInput, newKeyBtn, newValueBtn, newLinkBtn, renameBtn, deleteBtn, copyPathBtn, findBtn, favBtn, favoritesListBtn, permBtn, snapBtn, auditBtn, exportBtn, importBtn, historyDatalist);
 
     // ── main split ─────────────────────────────────────────────────────
     const main = el('div', 'display:flex;flex:1;min-height:0;');
@@ -637,8 +638,8 @@ registerApp({
     }
 
     function renderFavoritesMenu() { /* rebuilt on open */ }
-    favBtn.addEventListener('click', () => {
-      openPopover(favBtn, (pop) => {
+    favoritesListBtn.addEventListener('click', () => {
+      openPopover(favoritesListBtn, (pop) => {
         if (!favorites.length) pop.appendChild(el('div', 'padding:5px 10px;color:var(--text-muted,#9aa4b2);', _t('apps.novareg.noFavorites')));
         for (const fav of favorites.slice().reverse()) {
           popoverItem(pop, '★ ' + fav.path, () => {
@@ -950,6 +951,35 @@ registerApp({
         refresh().then(() => setStatus(_t('apps.novareg.statusImported', { count: result.merged, path: selectedPath })));
       } catch (err) { setStatus(_t('apps.novareg.statusImportFailed', { message: errorMessage(err) })); }
     }, { signal: ac.signal });
+
+    if (options?.importFile) {
+      const file = options.importFile;
+      refresh().then(() => {
+        try {
+          const text = typeof file.content === 'string' ? file.content : file.content.toString('utf8');
+          const parsed = window.NovaRegFile.parse(text);
+          const targetPath = parsed.root;
+          const segments = typeof targetPath === 'string' ? targetPath.split('/') : [];
+          if (!segments.length || !HIVES.includes(segments[0]) ||
+              segments.some((part) => !part || part === '.' || part === '..')) {
+            throw new Error('The registry file does not declare a valid root path.');
+          }
+          const prompt = `${_t('apps.novareg.importDialogTitle')}\n${file.name}\n${targetPath}`;
+          if (!window.confirm(prompt)) return;
+          try { Reg.saveSnapshot(segments[0], 'before-import', { actor: SELF }); } catch (_) {}
+          const result = Reg.import(targetPath, parsed.tree, { actor: SELF });
+          selectedPath = targetPath;
+          selectedValue = null;
+          expanded[targetPath] = true;
+          refresh().then(() => setStatus(_t('apps.novareg.statusImported', {
+            count: result.merged,
+            path: targetPath,
+          })));
+        } catch (err) {
+          setStatus(_t('apps.novareg.statusImportFailed', { message: errorMessage(err) }));
+        }
+      }).catch((err) => setStatus(_t('apps.novareg.statusImportFailed', { message: errorMessage(err) })));
+    }
 
     // Live refresh — one debounced listener on the registry change event.
     let refreshTimer = null;

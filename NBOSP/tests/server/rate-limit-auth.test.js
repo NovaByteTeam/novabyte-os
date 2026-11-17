@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const rateLimitAuth = require('../../server/rate-limit-auth.js');
 
-const { isTrustedSystemAppRequest } = rateLimitAuth;
+const { isTrustedSystemAppRequest, getTrustedAppProxyId } = rateLimitAuth;
 
 const SECRET = 'test-rate-limit-secret';
 const APP_ID = 'com.nbosp.email';
@@ -22,9 +22,40 @@ function makeRequest({ appId = APP_ID, timestamp = String(Date.now()), secret = 
     return { _headers: headers, get: (name) => headers[name.toLowerCase()] };
 }
 
+function makeProxyRequest({ appId = APP_ID, timestamp = String(Date.now()), secret = SECRET } = {}) {
+    const signature = crypto
+        .createHmac('sha256', secret)
+        .update(`${timestamp}\n${appId}\napp-proxy`)
+        .digest('hex');
+    const headers = {
+        'x-nova-app-id': appId,
+        'x-nova-app-time': timestamp,
+        'x-nova-app-signature': signature,
+    };
+    return { _headers: headers, get: (name) => headers[name.toLowerCase()] };
+}
+
 describe('system-app rate-limit authentication', () => {
     afterEach(() => {
         delete process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET;
+    });
+
+    describe('app network proxy identity authentication', () => {
+        afterEach(() => {
+            delete process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET;
+        });
+
+        it('returns the host-authenticated app id for a fresh app-proxy signature', () => {
+            process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = SECRET;
+            expect(getTrustedAppProxyId(makeProxyRequest())).toBe(APP_ID);
+        });
+
+        it('rejects forged, stale, and malformed app identity signatures', () => {
+            process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = SECRET;
+            expect(getTrustedAppProxyId(makeProxyRequest({ secret: 'attacker-controlled' }))).toBeNull();
+            expect(getTrustedAppProxyId(makeProxyRequest({ timestamp: String(Date.now() - 60_000) }))).toBeNull();
+            expect(getTrustedAppProxyId(makeProxyRequest({ appId: 'bad app id' }))).toBeNull();
+        });
     });
 
     it('accepts a fresh signature from the current server launch', () => {

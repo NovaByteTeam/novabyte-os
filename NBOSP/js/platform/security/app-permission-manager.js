@@ -26,6 +26,7 @@ const AppPermissionManager = (() => {
     FS_READ_AUDIO     : 'fs:read:audio',
     NET_INTERNAL      : 'net:internal',   NET_EXTERNAL      : 'net:external',
     NET_WEBSOCKET     : 'net:websocket',
+    VPN_PROVIDER      : 'vpn:provider',
     MAIL_READ         : 'mail:read',      MAIL_WRITE        : 'mail:write',
     MAIL_SEND         : 'mail:send',      MAIL_DELETE       : 'mail:delete',
     CALENDAR_READ     : 'calendar:read',  CALENDAR_WRITE    : 'calendar:write',
@@ -150,6 +151,7 @@ const AppPermissionManager = (() => {
     'net:internal'      : { category: 'network',    risk: 'high',     label: 'Internal network' },
     'net:external'      : { category: 'network',    risk: 'low',      label: 'Public internet access' },
     'net:websocket'     : { category: 'network',    risk: 'low',      label: 'Public WebSocket connections' },
+    'vpn:provider'      : { category: 'network',    risk: 'critical', label: 'Set up a device VPN' },
     'mail:read'         : { category: 'email',      risk: 'high',     label: 'Read emails' },
     'mail:write'        : { category: 'email',      risk: 'critical', label: 'Compose emails' },
     'mail:send'         : { category: 'email',      risk: 'critical', label: 'Send emails' },
@@ -754,6 +756,9 @@ const AppPermissionManager = (() => {
     permissionGrants.delete(makeAppScopedKey(appId, permission));
     rateLimitState.delete(makeAppScopedKey(appId, permission));
     await saveToStorage();
+    if (permission === PERMISSION_TYPES.VPN_PROVIDER && typeof window !== 'undefined') {
+      await window.NovaVPNService?.revokeProvider?.(appId);
+    }
     console.log(`[AppPermissionManager] Reset ${permission} → ${appId}`);
     if (permission === PERMISSION_TYPES.SYSTEM_ROOT && typeof AppSandbox !== 'undefined') {
       AppSandbox.reloadAfterRootRevocation?.(`Root permission for ${appId} was reset`);
@@ -1014,12 +1019,23 @@ const AppPermissionManager = (() => {
     // Keep an explicit denial so launch-time low-risk auto-grants cannot
     // silently undo the user's choice. resetPermission() clears it to pending.
     await persistDenial(permission, appId);
+    let vpnCleanupError = null;
+    if (permission === PERMISSION_TYPES.VPN_PROVIDER && typeof window !== 'undefined') {
+      try {
+        await window.NovaVPNService?.revokeProvider?.(appId);
+      } catch (error) {
+        vpnCleanupError = error;
+      }
+    }
     if (typeof AppSandbox !== 'undefined') {
       if (permission === PERMISSION_TYPES.SYSTEM_ROOT) {
         AppSandbox.reloadAfterRootRevocation?.(`Root permission for ${appId} was revoked`);
       }
       // Active guest contexts cannot retroactively lose security capabilities.
       AppSandbox.handlePermissionRevoked?.(permission, appId);
+    }
+    if (vpnCleanupError) {
+      throw new Error(`VPN provider cleanup failed after permission revocation: ${vpnCleanupError.message || vpnCleanupError}`);
     }
   }
 
@@ -1037,6 +1053,14 @@ const AppPermissionManager = (() => {
       if (key.startsWith(prefix)) rateLimitState.delete(key);
     }
     await saveToStorage();
+    let vpnCleanupError = null;
+    if (typeof window !== 'undefined') {
+      try {
+        await window.NovaVPNService?.revokeProvider?.(appId);
+      } catch (error) {
+        vpnCleanupError = error;
+      }
+    }
     if (typeof AppSandbox !== 'undefined') {
       if (rootGrantExists) {
         AppSandbox.reloadAfterRootRevocation?.(`All permissions for ${appId} were revoked`);
@@ -1051,6 +1075,9 @@ const AppPermissionManager = (() => {
     console.log(`[AppPermissionManager] Revoked all permissions for ${appId}`);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'Permissions', category: 'permissions', severity: 'info', message: `Revoked all ${count} permission(s) for ${appId}`, data: { appId, count, action: 'revoke-all' } });
+    }
+    if (vpnCleanupError) {
+      throw new Error(`VPN provider cleanup failed after permission revocation: ${vpnCleanupError.message || vpnCleanupError}`);
     }
   }
 

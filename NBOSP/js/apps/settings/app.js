@@ -41,6 +41,7 @@ registerApp({
       { id: 'system',          nameKey: 'settings.sidebar.system',         icon: 'processor'     },
       { id: 'date-and-region', nameKey: 'settings.sidebar.dateAndRegion',  icon: 'calendar'      },
       { id: 'connectivity',    nameKey: 'settings.sidebar.connectivity',   icon: 'globe'         },
+      { id: 'vpn',             nameKey: 'settings.sidebar.vpn',            icon: 'shield'        },
       { id: 'storage',         nameKey: 'settings.sidebar.storage',        icon: 'database'      },
       { id: 'notifications',   nameKey: 'settings.sidebar.notifications',  icon: 'bell'          },
       { id: 'privacy',         nameKey: 'settings.sidebar.privacy',        icon: 'lock'          },
@@ -687,6 +688,7 @@ registerApp({
         case 'system':            renderSystem();          break;
         case 'date-and-region':   renderDateAndRegion();   break;
         case 'connectivity':      renderConnectivity();   break;
+        case 'vpn':               renderVpn();            break;
         case 'storage':           renderStorage();         break;
         case 'notifications':     renderNotifications();   break;
         case 'shortcuts':         renderShortcuts();       break;
@@ -1604,6 +1606,159 @@ registerApp({
       }, { signal: lifecycle.signal });
 
       void refreshStatus();
+    }
+
+    function renderVpn() {
+      mainContent.appendChild(createEl('p', {
+        textContent: _t('settings.vpn.subtitle'),
+        style: 'margin:0 0 20px;color:var(--text-muted);font-size:13px;'
+      }));
+
+      const statusText = createEl('div', {
+        role: 'status',
+        'aria-live': 'polite',
+        style: 'font-size:13px;color:var(--text-muted);margin-bottom:12px;'
+      });
+      const statusGroup = createEl('section', { className: 'nook-group' });
+      statusGroup.appendChild(createEl('div', {
+        className: 'nook-group-title',
+        textContent: _t('settings.vpn.statusTitle')
+      }));
+      const toggle = createEl('button', {
+        className: 'btn btn-sm',
+        textContent: _t('settings.vpn.loading'),
+        disabled: true
+      });
+      const refreshButton = createEl('button', {
+        className: 'btn btn-sm',
+        textContent: _t('settings.vpn.refresh')
+      });
+      const statusControls = createEl('div', {
+        className: 'nook-row',
+        style: 'gap:8px;flex-wrap:wrap;'
+      });
+      statusControls.append(toggle, refreshButton);
+      statusGroup.appendChild(statusControls);
+
+      const deviceGroup = createEl('section', { className: 'nook-group' });
+      deviceGroup.appendChild(createEl('div', {
+        className: 'nook-group-title',
+        textContent: _t('settings.vpn.deviceTitle')
+      }));
+      deviceGroup.appendChild(createEl('p', {
+        textContent: _t('settings.vpn.deviceHint'),
+        style: 'margin:0 0 12px;color:var(--text-muted);font-size:13px;'
+      }));
+      const providerSelect = createEl('select', {
+        className: 'form-select',
+        'aria-label': _t('settings.vpn.providerAria'),
+        style: 'max-width:100%;min-width:0;margin-bottom:12px;'
+      });
+      const actionRow = createEl('div', {
+        className: 'nook-row',
+        style: 'gap:8px;flex-wrap:wrap;'
+      });
+      const deviceToggle = createEl('button', {
+        className: 'btn btn-sm',
+        textContent: _t('settings.vpn.connect'),
+        disabled: true
+      });
+      actionRow.appendChild(deviceToggle);
+      deviceGroup.append(providerSelect, actionRow);
+      mainContent.append(statusText, statusGroup, deviceGroup);
+
+      const service = window.NovaVPNService;
+      if (!service) {
+        statusText.textContent = _t('settings.vpn.unavailable');
+        return;
+      }
+
+      let currentStatus = { active: false, providerId: null };
+      let providers = [];
+      const refresh = async () => {
+        toggle.disabled = true;
+        deviceToggle.disabled = true;
+        refreshButton.disabled = true;
+        statusText.textContent = _t('settings.vpn.loading');
+        try {
+          const [status, registeredProviders] = await Promise.all([
+            service.getStatus(),
+            service.getProviders()
+          ]);
+          if (!isAlive()) return;
+          currentStatus = status;
+          providers = registeredProviders.filter((provider) => provider.granted);
+          providerSelect.replaceChildren();
+          for (const provider of providers) {
+            providerSelect.appendChild(createEl('option', {
+              value: provider.id,
+              textContent: provider.name
+            }));
+          }
+          if (currentStatus.active && providers.some((provider) => provider.id === currentStatus.providerId)) {
+            providerSelect.value = currentStatus.providerId;
+          }
+          statusText.textContent = currentStatus.active
+            ? _t('settings.vpn.activeFor', { name: providers.find((provider) => provider.id === currentStatus.providerId)?.name || currentStatus.providerId })
+            : _t('settings.vpn.inactive');
+          toggle.textContent = currentStatus.active ? _t('settings.vpn.disconnect') : _t('settings.vpn.connect');
+          toggle.disabled = !currentStatus.active;
+          deviceToggle.textContent = currentStatus.active && currentStatus.providerId === providerSelect.value
+            ? _t('settings.vpn.disconnect')
+            : _t('settings.vpn.connect');
+          deviceToggle.disabled = !currentStatus.active && !providers.length;
+          if (!providers.length) {
+            providerSelect.appendChild(createEl('option', {
+              value: '',
+              textContent: _t('settings.vpn.noProviders')
+            }));
+            providerSelect.disabled = true;
+          } else {
+            providerSelect.disabled = false;
+          }
+        } catch (error) {
+          if (!isAlive()) return;
+          statusText.textContent = _t('settings.vpn.error', { error: error?.message || String(error) });
+          toggle.disabled = true;
+          deviceToggle.disabled = true;
+        } finally {
+          refreshButton.disabled = false;
+        }
+      };
+
+      refreshButton.addEventListener('click', () => { void refresh(); }, { signal: lifecycle.signal });
+      toggle.addEventListener('click', async () => {
+        toggle.disabled = true;
+        try {
+          await service.deactivate();
+          await refresh();
+        } catch (error) {
+          statusText.textContent = _t('settings.vpn.error', { error: error?.message || String(error) });
+          toggle.disabled = false;
+        }
+      }, { signal: lifecycle.signal });
+      deviceToggle.addEventListener('click', async () => {
+        const selectedId = providerSelect.value;
+        deviceToggle.disabled = true;
+        try {
+          if (currentStatus.active && currentStatus.providerId === selectedId) {
+            await service.deactivate();
+          } else {
+            await service.activate(selectedId);
+          }
+          await refresh();
+        } catch (error) {
+          statusText.textContent = _t('settings.vpn.error', { error: error?.message || String(error) });
+          deviceToggle.disabled = false;
+        }
+      }, { signal: lifecycle.signal });
+      providerSelect.addEventListener('change', () => {
+        deviceToggle.textContent = currentStatus.active && currentStatus.providerId === providerSelect.value
+          ? _t('settings.vpn.disconnect')
+          : _t('settings.vpn.connect');
+      }, { signal: lifecycle.signal });
+
+      void refresh();
     }
 
     // Storage

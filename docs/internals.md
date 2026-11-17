@@ -28,7 +28,7 @@ Runtime model at a glance:
 | App sandbox | `AppSandbox` IIFE singleton; per-app `<webview>` records in `activeSandboxes` | `NBOSP/js/platform/security/app-sandbox.js:12,14881` |
 | Trusted host tier | System-signed `.novaapp` packages whose `unrestrictedEntry` script is injected straight into the OS page (no webview) | `NBOSP/js/platform/security/app-sandbox.js:14037-14131` |
 | Root tier | `system:root` apps executing in the host page, audited, backed by passwordless sudo | `NBOSP/js/platform/security/app-sandbox.js:14135-14184`; `NBOSP/js/platform/security/root-broker.js` |
-| System services | 26 headless first-party service bundles injected as `<script>` into the host page before `boot()` | `NBOSP/js/core/services/system-service-loader.js:132-151`; `NBOSP/js/apps/system-service-manifest.json` |
+| System services | 28 headless first-party service bundles injected as `<script>` into the host page before `boot()` | `NBOSP/js/core/services/system-service-loader.js:132-151`; `NBOSP/js/apps/system-service-manifest.json` |
 
 ```text
  Buildroot ISO / installed ext4 root (Linux 7.3.4, BusyBox init)
@@ -192,7 +192,7 @@ App reconcile details: bundled-system apps missing from `novaapp-manifest.json` 
 
 - CSRF: 32-byte hex token per session, force-saved even for anonymous requests; delivered via `<meta name="csrf-token">` on `GET /` and `GET /api/email/csrf-token`; enforced `timingSafeEqual` on all non-GET/HEAD/OPTIONS via header/body/query (`NBOSP/security/middleware.js:215-331`; `NBOSP/server/core/index.js:149-150`).
 - CSRF-exempt: `/health`, `/api/health`, `/api/info`, `/api/security/strip-tracking`, `/api/apps/serve` (prefix), `/api/push/subscribe`, `/api/email` (prefix — **entire email family**), `/bare/`, `/api/auth/login`, `/api/auth/setup`, `/api/auth/reverify`, `/api/auth/webauthn/login/{options,finish}` (`NBOSP/server/middleware.js:39-59`; `NBOSP/server/security/auth-routes.js:53-68`).
-- Trusted system requests: HMAC-SHA256(`${timestamp}\n${appId}`) over the per-launch secret in `X-Nova-System-App/-Time/-Signature` (±30 s skew). Grants **rate-limit skip only**, not auth bypass; also used as the auth gate for push stream/subscribe (`NBOSP/server/rate-limit-auth.js:5-36`).
+- Trusted system requests: HMAC-SHA256(`${timestamp}\n${appId}`) over the per-launch secret in `X-Nova-System-App/-Time/-Signature` (±30 s skew). Grants **rate-limit skip only**, not auth bypass; also used as the auth gate for push stream/subscribe. App-proxy assertions use a distinct HMAC purpose string and bind a guest-supplied app id to the host sandbox before VPN routing (`NBOSP/server/rate-limit-auth.js`).
 
 ### 4.4 Route inventory (grouped)
 
@@ -305,6 +305,12 @@ App K-V storage lives in the host-shell IndexedDB keyed `[appId, key]`; keys `ST
 
 The handler then requires `net:internal` for internal destinations, `net:external` otherwise (the MAC row is ANY-of the two so the front door does not preempt the per-destination check) (`:272-279` in the seed table comments; handler `:6393+`).
 
+### 5.6.1 Per-app VPN egress
+
+`com.nbosp.service.vpn` bridges the permission-gated `nova.vpn` API and the root-owned `nbosp-vpn` helper. A `vpn:provider` grant allows an installed sandboxed app to register one restricted WireGuard profile; Settings alone activates it. Profiles and active-provider metadata live under `/etc/novabyte-vpn` (0600), and `S90nbosp-vpn` restores the selected provider at boot.
+
+The host broker authenticates the app id with an HMAC assertion, then binds that provider's `/api/proxy` connection to the WireGuard interface source address. DNS for tunneled HTTP requests uses pinned DNS-over-HTTPS through the same address; WebSockets use a pinned Undici agent with the same source binding. The app CSP blocks unmanaged external resources/frames/forms and the sandbox blocks external navigation/popups and WebRTC for registered providers. IPv6 and private destinations are rejected rather than sent outside the tunnel. This is an app-broker feature, not process-wide firewalling; it does not claim to route arbitrary host or renderer protocols.
+
 ### 5.7 Frame security (`frame-security.js`, iframe posture)
 
 `NovaFrameSecurity` covers **`<iframe>` elements only** (not `<webview>` navigation); threat model: NW.js grants Node to iframes from trusted origins, so an escaped sandboxed page must not reach `parent.document` and strip its own sandbox (`NBOSP/js/platform/security/frame-security.js:9-19`). Enforcements: node-frame eligibility allowlist (`https://localhost(:\d+)?` / `127.0.0.1`), always-normal schemes (blob/data/javascript/file can never be node frames), `nwdisable` inheritance across the **full** ancestor chain, node frames must not carry `sandbox`, iframes with src must carry `sandbox` (`nwdisable` alone insufficient), `allow-same-origin`+`allow-scripts` flagged and deleted, `sandbox=""` recognized via `hasAttribute` (DOMTokenList length-0 pitfall), MutationObserver watches added iframes **and attribute changes** (closes the swap-src-after-audit hole), API frozen, 100-entry recent-issues ring (`frame-security.js:65-250,298-312,629-662,708-724`). `NORMAL_SANDBOX_TOKENS = 'allow-scripts allow-forms allow-modals allow-popups'` (`:80`). Note: the observer is effectively **audit-only** in production (see §12.2). Webview-scope behaviors (popup policy, downloads, external protocols, device permission gate, nested-webview navigation gate) live in app-sandbox/system-webview instead (`app-sandbox.js:13530-13715,9886-9951`; `NBOSP/js/apps/system-webview/service.js:336-502`).
@@ -354,7 +360,7 @@ File: `NBOSP/js/platform/security/app-permission-manager.js` ("apm"), with `unre
 
 ### 7.1 Catalog
 
-Single source: `PERMISSION_TYPES` + `PERMISSION_CATEGORIES` — **52 permissions, 11 categories, 4 risk tiers** (low 10 / medium 16 / high 15 / critical 11), mirrored as `KNOWN_PERMISSIONS` in `app-registry.js` (install-time strip of unknown names) (`apm:15-139,141-245`; `NBOSP/js/platform/core/app-registry.js:30-50,315-324`). Category counts: filesystem 6, network 3, email 4, calendar 3, contacts 3, device 6, data 3, system 16, apps 1, admin 4, sandbox 3 (`apm:141-245`). Notable grant rules:
+Single source: `PERMISSION_TYPES` + `PERMISSION_CATEGORIES` — **53 permissions, 11 categories, 4 risk tiers** (low 10 / medium 16 / high 15 / critical 12), mirrored as `KNOWN_PERMISSIONS` in `app-registry.js` (install-time strip of unknown names) (`apm:15-139,141-245`; `NBOSP/js/platform/core/app-registry.js:30-50,315-324`). Category counts: filesystem 6, network 4, email 4, calendar 3, contacts 3, device 6, data 3, system 16, apps 1, admin 4, sandbox 3 (`apm:141-245`). Notable grant rules:
 
 | Class | Rule | Ref |
 |---|---|---|
@@ -446,40 +452,42 @@ Caller gate re-checked every call: `rootModeEnabled()` (devMode ∧ rootAccessEn
 | 2 stay-alive | `system:background:live` | webview survives window close (reparented to hidden `#background-app-host`) | unbounded (OS-page lifetime); pinned non-dismissible Terminate notification is the kill switch | `app-sandbox.js:14539-14573`; `NBOSP/js/apps/notifications/service.js:654-675` |
 | 3 autostart | `system:autostart` + user boot-list entry (HKNU/apps/boot, written only by App Manager) | launches at OS boot, visible window; suppressed while locked | — | `NBOSP/js/core/core/boot.js:1140-1189` |
 
-A separate mechanism exists for first-party code: `systemService: true` + `unrestrictedEntry` manifests ("privileged OS code, not sandboxed third-party execution") — 26 headless services injected at boot (§3.3); service lifetime = OS-page lifetime, no restart (runtime error ⇒ banner), no CPU/memory budgets anywhere (`NBOSP/js/core/services/system-service-loader.js:132-151,240-252`).
+A separate mechanism exists for first-party code: `systemService: true` + `unrestrictedEntry` manifests ("privileged OS code, not sandboxed third-party execution") — 28 headless services injected at boot (§3.3); service lifetime = OS-page lifetime, no restart (runtime error ⇒ banner), no CPU/memory budgets anywhere (`NBOSP/js/core/services/system-service-loader.js:132-151,240-252`).
 
 ### 9.2 Service inventory (load order = manifest array order)
 
 | # | Service id | Purpose |
 |---|---|---|
 | 1 | com.nbosp.service.app-loader-optimiser | Preloads/caches .novaapp packages (IndexedDB `NovaByte_AppLoaderOptimizer`); special-cased first so later loads hit the cache |
-| 2 | com.nbosp.service.novabyte-system | Hardware/system bridge (network, power, developer.setMode/setRootAccess) |
-| 3 | com.nbosp.shell-ui | Window manager + menu + modals + desktop (only multi-script service: wm.js, menu.js, modals.js, desktop.js) |
-| 4 | com.nbosp.service.event-log | Central in-OS event/log ring (§9.6) |
-| 5 | com.nbosp.service.downloads-history | Download history ring (500) + chrome.downloads bridge |
-| 6 | com.nbosp.service.search-index | Search indexing |
-| 7 | com.nbosp.service.media-store | Media store |
-| 8 | com.nbosp.service.network-activity-log | Network activity log |
-| 9 | com.nbosp.service.notifications | Notify service (§9.5) |
-| 10 | com.nbosp.service.store-updates | Store update checker |
-| 11 | com.nbosp.service.scanner | Malware-heuristic scanner used at install |
-| 12 | com.nbosp.service.system-dialogs | System modal dialogs (save dialogs, etc.) |
-| 13 | com.nbosp.service.registry | `APP_REGISTRY` + `WebAppManager` + web-app windows + `OS.openUrl`/mailto + global link interception |
-| 14 | com.nbosp.service.default-apps | Default app/handler resolution |
-| 15 | com.nbosp.service.background-apps | Clock + email background singletons on `window.__NBOSP_BG` (§9.4) |
-| 16 | com.nbosp.service.server-events-bridge | SSE → EventLog bridge |
-| 17 | com.nbosp.service.calendar-notifier | 30 s calendar reminder poller (10 min lead) |
-| 18 | com.nbosp.service.wallpaper | Wallpaper presets/application |
-| 19 | com.nbosp.service.system-webview | Trusted webview guests + nested-webview mediator (`NovaSystemWebview`) |
-| 20 | com.nbosp.service.easter-egg | Easter egg |
-| 21 | com.nbosp.service.tray | Tray UI (§9.6) |
-| 22 | com.nbosp.service.screenshots | PrintScreen shortcuts capture |
-| 23 | com.nbosp.service.session | SessionManager (login/logout/per-account mounts) |
-| 24 | com.nbosp.service.lock-screen | Lock screen/login picker |
-| 25 | com.nbosp.service.debug-overlay | F3 dev HUD (devMode-gated inside `enable()`) |
-| 26 | com.nbosp.service.system-events | Shell wiring: notif panel, global keyboard shortcuts, resize, email bootstrap |
+| 2 | com.nbosp.localisation | Localization and locale resources |
+| 3 | com.nbosp.service.novabyte-system | Hardware/system bridge (network, power, developer.setMode/setRootAccess) |
+| 4 | com.nbosp.shell-ui | Window manager + menu + modals + desktop (only multi-script service: wm.js, menu.js, modals.js, desktop.js) |
+| 5 | com.nbosp.service.event-log | Central in-OS event/log ring (§9.6) |
+| 6 | com.nbosp.service.downloads-history | Download history ring (500) + chrome.downloads bridge |
+| 7 | com.nbosp.service.search-index | Search indexing |
+| 8 | com.nbosp.service.media-store | Media store |
+| 9 | com.nbosp.service.network-activity-log | Network activity log |
+| 10 | com.nbosp.service.vpn | WireGuard profile management, app-scoped network routing, and VPN status indicator |
+| 11 | com.nbosp.service.notifications | Notify service (§9.5) |
+| 12 | com.nbosp.service.store-updates | Store update checker |
+| 13 | com.nbosp.service.scanner | Malware-heuristic scanner used at install |
+| 14 | com.nbosp.service.system-dialogs | System modal dialogs (save dialogs, etc.) |
+| 15 | com.nbosp.service.registry | `APP_REGISTRY` + `WebAppManager` + web-app windows + `OS.openUrl`/mailto + global link interception |
+| 16 | com.nbosp.service.default-apps | Default app/handler resolution |
+| 17 | com.nbosp.service.background-apps | Clock + email background singletons on `window.__NBOSP_BG` (§9.4) |
+| 18 | com.nbosp.service.server-events-bridge | SSE → EventLog bridge |
+| 19 | com.nbosp.service.calendar-notifier | 30 s calendar reminder poller (10 min lead) |
+| 20 | com.nbosp.service.wallpaper | Wallpaper presets/application |
+| 21 | com.nbosp.service.system-webview | Trusted webview guests + nested-webview mediator (`NovaSystemWebview`) |
+| 22 | com.nbosp.service.easter-egg | Easter egg |
+| 23 | com.nbosp.service.tray | Tray UI (§9.6) |
+| 24 | com.nbosp.service.screenshots | PrintScreen shortcuts capture |
+| 25 | com.nbosp.service.session | SessionManager (login/logout/per-account mounts) |
+| 26 | com.nbosp.service.lock-screen | Lock screen/login picker |
+| 27 | com.nbosp.service.debug-overlay | F3 dev HUD (devMode-gated inside `enable()`) |
+| 28 | com.nbosp.service.system-events | Shell wiring: notif panel, global keyboard shortcuts, resize, email bootstrap |
 
-(`NBOSP/js/apps/system-service-manifest.json:1-107`.) None of the service manifests declare `permissions` — they run unrestricted in the OS page by construction; dependencies are implicit via load order only (`NBOSP/js/core/services/system-service-loader.js:152-173,194-210`). 26 of the entries in `novaapp-manifest.json` carry `systemService: true` (verified in tree; the background audit counted 26 of 49 entries, the current manifest has 55 entries).
+(`NBOSP/js/apps/system-service-manifest.json:1-107`.) None of the service manifests declare `permissions` — they run unrestricted in the OS page by construction; dependencies are implicit via load order only (`NBOSP/js/core/services/system-service-loader.js:152-173,194-210`). 27 of the entries in `novaapp-manifest.json` carry `systemService: true` (the current manifest has 56 entries).
 
 ### 9.3 AppScheduler (`NBOSP/js/platform/security/app-scheduler.js`)
 

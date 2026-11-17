@@ -107,7 +107,7 @@
   {
     "id": "com.nbosp.terminal",
     "file": "js/apps/com.nbosp.terminal.novaapp",
-    "cacheKey": "aafbddc20a36cde32bd589642a4981f271aa0a6d99ba1840405322e7de5906fc"
+    "cacheKey": "b15b26e6db00033a9de0ce515390319437bbd9e7a33903821a2eff0c5f0d4ea0"
   },
   {
     "id": "com.nbosp.sysaccess",
@@ -117,12 +117,12 @@
   {
     "id": "com.nbosp.files",
     "file": "js/apps/com.nbosp.files.novaapp",
-    "cacheKey": "47a0e6179d7b50235c8a6b93cb23c33c41c8b2aea13c57a21aa786c78df5b489"
+    "cacheKey": "694aaf085794499132638c1f69f7e61aee365513e833740ba500b06abc1e8cb1"
   },
   {
     "id": "com.nbosp.store",
     "file": "js/apps/com.nbosp.store.novaapp",
-    "cacheKey": "d08302a6e6f822c59a980c57b9263426afb6a4c6d036dba4ec151e33bae220a0"
+    "cacheKey": "3708ee8c416c55c19380021d01bce16d3630c06246dc511a7a5f01001e233f45"
   },
   {
     "id": "com.nbosp.service.app-loader-optimiser",
@@ -174,7 +174,7 @@
   {
     "id": "com.nbosp.service.lock-screen",
     "file": "js/apps/com.nbosp.service.lock-screen.novaapp",
-    "cacheKey": "67a727792b24fb7ace12e34826e92a15179ef41e4c84fe1da29309cb080f464c",
+    "cacheKey": "7357f9885fe4fe72cb97fdddf0db62cb171f3cbaf0d0573888cad3f5e15571f5",
     "systemService": true
   },
   {
@@ -282,7 +282,7 @@
   {
     "id": "com.nbosp.novareg",
     "file": "js/apps/com.nbosp.novareg.novaapp",
-    "cacheKey": "554863073fcfd61a2f349eff26ced12878a63003bb604569455a62e72b4cee7d"
+    "cacheKey": "ae70dfced97fcb08d38b3008e49a3aba50e4ba3da4bb4760ad4b9ef7f34eb145"
   },
   {
     "id": "com.nbosp.service.session",

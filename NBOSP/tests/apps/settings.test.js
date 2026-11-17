@@ -144,13 +144,13 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(content.querySelector('b').textContent).toBe('com.nbosp.settings');
   });
 
-  it('renders all 12 sidebar sections and navigates between them', async () => {
+  it('renders all 13 sidebar sections and navigates between them', async () => {
     const { content } = await loadSettings();
     const buttons = [...content.querySelectorAll('.nook-section-btn')];
     expect(content.querySelector('.nook-sidebar-brand')).toBeTruthy();
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
       'Appearance', 'Accessibility', 'Desktop', 'System', 'Date and Region',
-      'Connectivity', 'Storage', 'Notifications', 'Privacy', 'Root Access',
+      'Connectivity', 'VPN', 'Storage', 'Notifications', 'Privacy', 'Root Access',
       'Default Apps', 'About',
     ]);
     // Appearance is the default section and is marked active.
@@ -167,6 +167,43 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(content.querySelector('.nook-content').dataset.currentTab).toBe('accessibility');
     expect(content.querySelector('.nook-content h2').textContent).toBe('Accessibility');
     expect(content.querySelector('.nook-section-btn.active').getAttribute('aria-label')).toBe('Accessibility');
+  });
+
+  it('connects and disconnects the selected app through Device VPN settings', async () => {
+    let active = false;
+    const vpn = {
+      getStatus: vi.fn(async () => active
+        ? { active: true, providerId: 'com.test.vpn' }
+        : { active: false, providerId: null }),
+      getProviders: vi.fn(async () => [
+        { id: 'com.test.vpn', name: 'Test VPN', granted: true },
+      ]),
+      activate: vi.fn(async (providerId) => {
+        expect(providerId).toBe('com.test.vpn');
+        active = true;
+      }),
+      deactivate: vi.fn(async () => { active = false; }),
+    };
+    const { content } = await loadSettings({ extra: { NovaVPNService: vpn } });
+    sidebarBtn(content, 'VPN').click();
+    await settle();
+
+    expect(content.querySelector('.nook-content').textContent).toContain('VPN is disconnected.');
+    const providerSelect = content.querySelector('select[aria-label="VPN provider app"]');
+    expect(providerSelect.options).toHaveLength(1);
+    const deviceButton = [...content.querySelectorAll('.nook-group button')]
+      .find((button) => button.textContent === 'Connect');
+    deviceButton.click();
+    await settle();
+    expect(vpn.activate).toHaveBeenCalledWith('com.test.vpn');
+    expect(content.querySelector('.nook-content').textContent).toContain('Active · Test VPN');
+
+    const disconnect = [...content.querySelectorAll('.nook-group button')]
+      .find((button) => button.textContent === 'Disconnect');
+    disconnect.click();
+    await settle();
+    expect(vpn.deactivate).toHaveBeenCalled();
+    expect(content.querySelector('.nook-content').textContent).toContain('VPN is disconnected.');
   });
 
   it('starts the recovery handoff directly after confirmation', async () => {

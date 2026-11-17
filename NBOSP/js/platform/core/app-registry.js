@@ -36,6 +36,7 @@ const AppRegistry = (() => {
     'clipboard:read', 'clipboard:write',
     'data:export', 'data:backup', 'secrets:store',
     'net:internal', 'net:external', 'net:websocket',
+    'vpn:provider',
     'mail:read', 'mail:write', 'mail:send', 'mail:delete',
     'calendar:read', 'calendar:write', 'calendar:delete',
     'contacts:read', 'contacts:write', 'contacts:delete',
@@ -119,6 +120,7 @@ const AppRegistry = (() => {
     'com.nbosp.service.scanner',
     'com.nbosp.service.server-events-bridge',
     'com.nbosp.service.system-dialogs',
+    'com.nbosp.service.vpn',
     'com.nbosp.service.system-events',
   ]);
 

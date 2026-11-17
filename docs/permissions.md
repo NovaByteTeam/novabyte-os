@@ -1,6 +1,6 @@
 # Permissions reference (.novaapp)
 
-Every capability a NovaByte OS app can touch behind the IPC bridge is gated by a **permission** from a fixed catalog of **52 permissions in 11 categories** (`PERMISSION_TYPES` / `PERMISSION_CATEGORIES`, app-permission-manager.js:15-245). There are exactly two ways to obtain one:
+Every capability a NovaByte OS app can touch behind the IPC bridge is gated by a **permission** from a fixed catalog of **53 permissions in 11 categories** (`PERMISSION_TYPES` / `PERMISSION_CATEGORIES`, app-permission-manager.js:15-245). There are exactly two ways to obtain one:
 
 1. **Declare it in the manifest** — `permissions` (required) or `optionalPermissions` (point-of-use). Sensitive required permissions are prompted at first launch; low-risk ones are auto-granted.
 2. **Request it at runtime** — `await window.nova.requestPermission(name, reason)` (v1, raw result) or `await window.novaOS.permissions.request(name, reason)` (v2, resolves to a boolean). Both ride the `nova:request-permission` channel and open the same consent dialog.
@@ -16,7 +16,7 @@ Denial contract used throughout this document: **denial never blocks launch** �
 1. [How requesting works](#1-how-requesting-works)
 2. [What the user sees](#2-what-the-user-sees)
 3. [Grant lifetime](#3-grant-lifetime)
-4. [The reference — all 52 permissions](#4-the-reference--all-52-permissions)
+4. [The reference — all 53 permissions](#4-the-reference--all-53-permissions)
 5. [Legacy `vfs:*` aliases](#5-legacy-vfs-aliases)
 6. [Consolidated quick-reference table](#6-consolidated-quick-reference-table)
 7. [Edge cases and non-IPC grants](#7-edge-cases-and-non-ipc-grants)
@@ -136,7 +136,7 @@ Low-risk permissions produce **no dialog at launch** (silent auto-grant); a runt
 
 ---
 
-## 4. The reference — all 52 permissions
+## 4. The reference — all 53 permissions
 
 Grouped by the 11 catalog categories. Counts: filesystem 6, network 3, email 4, calendar 3, contacts 3, device 6, data 3, apps 1, system 16, admin 4, sandbox 3 = **52 entries**. Risk tiers: low 10, medium 16, high 15, critical 11.
 
@@ -233,7 +233,7 @@ The MAC seed table (`SEED_ENDPOINT_GRANTS`, app-sandbox.js:534-681) is the autho
 - **Limits tied to this permission:** none documented.
 - **Overlap guidance:** see `fs:read:images`.
 
-### network (3)
+### network (4)
 
 ### `net:internal` — Risk: high — Category: network
 - **User-visible label:** "Internal network"
@@ -280,6 +280,21 @@ The MAC seed table (`SEED_ENDPOINT_GRANTS`, app-sandbox.js:534-681) is the autho
 - **On denial:** app runs; `nova:net:websocket` rejects with `PERMISSION_DENIED`; ws event subscription fails with `PERMISSION_DENIED` and no subscription is created (app-sandbox.test.js:3033).
 - **Limits tied to this permission:** **no cap on concurrent sockets, frame sizes, or send rate** (documented); one connection-open resolves only from `onopen` — a never-opening socket surfaces as the generic 30 s IPC timeout.
 - **Overlap guidance:** independent of `net:external` (a plain-HTTP fetch grant does not cover sockets). Request `net:internal` too if your socket endpoints are private/first-party.
+
+### `vpn:provider` — Risk: critical — Category: network
+- **User-visible label:** "Set up a device VPN"
+- **What it unlocks:** `nova.vpn.registerProvider(config)`, `nova.vpn.removeProvider()`, and `nova.vpn.getStatus()` (also available under `novaOS.vpn`). Registration accepts a restricted WireGuard profile (up to 16 KiB). The app cannot activate its tunnel: the user selects an installed provider and connects it from Settings → VPN → Device VPN.
+- **Extra gates:** only installed sandboxed NovaApps can register; the host strips all profile settings except keys, addresses, allowed IPs, endpoint, and keepalive. While the provider is registered, unmanaged direct network paths are restricted. HTTP requests through `nova:net:fetch` and WebSockets through `nova:net:websocket` use the active tunnel; an unavailable tunnel/DNS route fails rather than falling back.
+- **How to request:** declare in `permissions` or request at runtime with `nova.requestPermission('vpn:provider', reason)`.
+- **Working example:**
+  ```js
+  await nova.vpn.registerProvider(wireGuardConfig);
+  const state = await nova.vpn.getStatus(); // { registered, active }
+  ```
+- **What the user sees:** a critical-risk permission prompt. Connecting and disconnecting are separate user-controlled actions in Settings.
+- **On denial or revocation:** registration rejects with `PERMISSION_DENIED`; revocation removes the provider profile and disconnects its tunnel.
+- **Limits tied to this permission:** one active provider at a time; current routing supports IPv4 destinations and app-mediated HTTP/WebSocket traffic only. Private destinations are denied by the network broker.
+- **Overlap guidance:** `vpn:provider` is separate from `net:external` and `net:websocket`; providers still need the corresponding network grants for their own network requests.
 
 ### email (4)
 
@@ -990,7 +1005,7 @@ Separately — and unrelated to permissions — legacy **channel** aliases (`nov
 
 ## 6. Consolidated quick-reference table
 
-All 52 permissions. "Extra gates" beyond the consent dialog are abbreviated; see the full entries above.
+All 53 permissions. "Extra gates" beyond the consent dialog are abbreviated; see the full entries above.
 
 | # | Permission | Category | Risk | User-visible label | Gated channels (short) | Extra gates |
 |---|---|---|---|---|---|---|
@@ -1004,6 +1019,7 @@ All 52 permissions. "Extra gates" beyond the consent dialog are abbreviated; see
 | 8 | `net:internal` | network | high | Internal network | `nova:net:fetch` (internal), `nova:net:websocket` (internal), nested-webview nav | — |
 | 9 | `net:external` | network | low | Public internet access | `nova:net:fetch` (external), nested-webview nav | auto-granted to web apps |
 | 10 | `net:websocket` | network | low | Public WebSocket connections | `nova:net:websocket` (+ advisory `ws:send`/`ws:close`); ws event bus | internal destinations also need `net:internal`; auto-granted to web apps |
+| 53 | `vpn:provider` | network | critical | Set up a device VPN | `nova:vpn:register/remove/status` | restricted WireGuard profile; activation is user-controlled in Settings |
 | 11 | `mail:read` | email | high | Read emails | `nova:mail:read` | connected account required |
 | 12 | `mail:write` | email | critical | Compose emails | `nova:mail:write`, `nova:mail:session` | connected account required |
 | 13 | `mail:send` | email | critical | Send emails | `nova:mail:send` | connected account + `smtpHost` |

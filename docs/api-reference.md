@@ -24,7 +24,7 @@ Facts that hold for all three layers:
 - **`window.novaOS` is `Object.freeze`'d** (`:10361`); `window.nova` is **not frozen** (`:11550`) and is in fact mutated later to add `nova.browser` when the app opts into nested webviews (`:12911`).
 - Permission checks happen **host-side on every call**. Declaring a permission in the manifest is necessary but never sufficient; grants can be revoked mid-session (revocation closes windows / cleans up — `:14388-14419`). See [`permissions.md`](permissions.md) for the catalog and prompt behavior.
 - There is **no `app.isSandboxed()`** anywhere in the OS (grep-verified). Feature detection is `novaOS.capabilities.has(name)`; identity/permission state comes from `novaOS.ready.get()` / `nova.app.getInfo()`.
-- `novaOS.capabilities.has(name)` is **feature detection only** — "a capability name says the runtime ships the surface, not that the app may use it" (`:10256-10272`). The 28 capability names are listed in §4.1.
+- `novaOS.capabilities.has(name)` is **feature detection only** — "a capability name says the runtime ships the surface, not that the app may use it" (`:10256-10272`). The 29 capability names are listed in §4.1.
 
 Layer choice in one line: use `novaOS.*` when a method exists there, `nova.*` for the v1-only surfaces (`appearance`, `contextMenu`, `overlay`, `wallpaper`, `home`, `files`, `browser`), and `nova.ipc(type, payload)` only for channels without a facade method (e.g. `nova:net:fetch` is normally reached through the patched `fetch()`, not called by hand).
 
@@ -179,11 +179,11 @@ CSP for app pages (`RELAXED_CSP_META`, `:13071`; the server-sent header for `/ap
 
 ## 3. `window.nova` v1 facade — complete method reference
 
-`window.nova` is a plain (mutable, **not frozen**) object literal assigned at `:11550`, with `ipc.*` extensions at `:11506-11547` and `browser.*` added later under the nested-webview opt-in (`:12911-12959`). **71 callable members** (69 always present + 2 `browser.*` under the opt-in) across 24 top-level keys (15 namespaces + 9 plain functions; `browser` is a 16th namespace when opted in). All methods return Promises unless noted. "Raw" in the Returns column = the handler's response object resolved as-is (flattened + nested, §2.1).
+`window.nova` is a plain (mutable, **not frozen**) object literal assigned at `:11550`, with `ipc.*` extensions at `:11506-11547` and `browser.*` added later under the nested-webview opt-in (`:12911-12959`). **74 callable members** (72 always present + 2 `browser.*` under the opt-in) across 25 top-level keys (16 namespaces + 9 plain functions; `browser` is a 17th namespace when opted in). All methods return Promises unless noted. "Raw" in the Returns column = the handler's response object resolved as-is (flattened + nested, §2.1).
 
 Several v2 areas have **no v1 surface** — noted inline so you don't hunt for them.
 
-### 3.0 Quick index (all 24 top-level keys)
+### 3.0 Quick index (all 25 top-level keys)
 
 | Key | Kind | Members | Section |
 |---|---|---|---|
@@ -197,6 +197,7 @@ Several v2 areas have **no v1 surface** — noted inline so you don't hunt for t
 | `app` | namespace | `getInfo`, `launch`, `getLaunchOptions`, `onLaunch`, `onStateChange` | §3.2 |
 | `home` | namespace | `openDefaultAppsSettings`, `apps.list`, `apps.launch` | §3.17 |
 | `wallpaper` | namespace | `set` | §3.18 |
+| `vpn` | namespace | `registerProvider`, `removeProvider`, `getStatus` | §3.6 |
 | `calendar` | namespace | `list`, `save`, `remove` | §3.19 |
 | `contacts` | namespace | `list`, `save`, `remove` | §3.19 |
 | `apps` | namespace | `list`, `launch`, `install`, `uninstall`, `openDefaultAppsSettings` | §3.20 |
@@ -212,6 +213,8 @@ Several v2 areas have **no v1 surface** — noted inline so you don't hunt for t
 | `stayAliveInBackground` | function | | §3.12 |
 | `websocket` | function | | §3.6 |
 | `getUserMedia` | function | | §3.13 |
+
+`nova.vpn.registerProvider(config)` stores a restricted WireGuard profile for the calling app; only the user can activate it from Settings → VPN. See [`permissions.md`](permissions.md#vpnprovider--risk-critical--category-network) for the `vpn:provider` consent and limits.
 
 ### 3.1 Core / raw bridge
 
@@ -258,6 +261,7 @@ Scoped media reads, watch, rename/move/mkdir/etc. are v2/raw only (§4.3, §4.4,
 |---|---|---|---|
 | `nova.openUrl(url)` | `nova:open-url` | Open a credential-free HTTP(S) URL in the OS default browser; resolves `{success, windowId}` | No permission (consent = browser window); `INVALID_ARGS` for non-http(s) or credentialed URLs; `UNAVAILABLE` (§5) |
 | `nova.websocket(url, protocols)` | `nova:net:websocket` (+ `nova:net:ws:send`/`:close`) | Open a host-owned socket; resolves a handle `{wsId, readyState, onMessage(cb), onError(cb), onClose(cb), send(data), close(code, reason)}` | `net:websocket` (+ `net:internal` for private/first-party hosts); ws/wss only, no embedded credentials; **open failures surface as the generic 60 s IPC timeout** (`:11753-11760`); no socket-count/frame-size/rate caps |
+| `nova.vpn.registerProvider(config)` / `removeProvider()` / `getStatus()` | `nova:vpn:register` / `nova:vpn:remove` / `nova:vpn:status` | Register or remove this app's restricted WireGuard profile; status is `{registered, active}`. Activation is performed by the user in Settings → VPN. | `vpn:provider`; config ≤16 KiB; only one active provider; IPv4 app-proxy traffic |
 | `fetch()` / `XMLHttpRequest` / `WebSocket` / `navigator.sendBeacon` | `nova:net:fetch` / `nova:net:websocket` | Globally replaced (`Object.defineProperty`, non-configurable — `delete window.fetch` cannot un-shadow, `:12302-12308`). Requests to the app's **own** `/api/apps/serve/<sandboxId>/` prefix bypass the bridge and use native fetch (WASM/Emscripten support, `:11892-11925`) | Any-of `net:internal`/`net:external` (per destination); request body ≤ 16 MiB (XHR: `RangeError('XHR request body exceeds the N MiB limit')`); sync XHR rejected; response has **no size cap** (§5) |
 
 XHR specifics: methods limited to `GET POST PUT PATCH DELETE HEAD OPTIONS`; header CRLF stripped; `responseXML` always null; multipart FormData hand-built with escaped names (`:12006-12057`, `:12092-12099`). `sendBeacon` resolves `true` synchronously regardless of outcome (native contract, `:12344-12352`). The native `WebSocket` constructor is replaced so a zero-permission app cannot open raw sockets (`:12218-12292`).
@@ -450,7 +454,7 @@ Apps **not** opted in: `createElement('webview')` returns an inert `<span>` and 
 
 ## 4. `window.novaOS` v2 facade — complete namespace reference
 
-`window.novaOS = Object.freeze({ apiVersion: 2, … })` (`:10361`); **28 frozen namespaces, 116 methods**, built by `buildNovaOSFacadeSource()` and injected into the same shim/realm as v1 (one `ipc()`, one pending-request map, `:11872`). Normalization rules applied per namespace are noted; everything else resolves the raw handler response (flattened + nested, §2.1).
+`window.novaOS = Object.freeze({ apiVersion: 2, … })` (`:10361`); **29 frozen namespaces, 119 methods**, built by `buildNovaOSFacadeSource()` and injected into the same shim/realm as v1 (one `ipc()`, one pending-request map, `:11872`). Normalization rules applied per namespace are noted; everything else resolves the raw handler response (flattened + nested, §2.1).
 
 Notable deliberate design points:
 
@@ -458,7 +462,7 @@ Notable deliberate design points:
 - Mutations (`set`/`remove`/`clear`/…) resolve **`undefined`**; host errors still reject.
 - `novaOS` has **no** `appearance`, `fs.shared.write`, `dialog list`, `permissions list`, or `net.fetch` members — appearance and the raw fetch override stay v1/global (§3.15, §3.6).
 
-### 4.0 Namespace quick index (28 namespaces, 116 methods)
+### 4.0 Namespace quick index (29 namespaces, 119 methods)
 
 | Namespace | Methods | Section | Namespace | Methods | Section |
 |---|---|---|---|---|---|
@@ -477,6 +481,7 @@ Notable deliberate design points:
 | `data` | 4 | §4.10 | `permissions` | 2 | §4.15 |
 | | | | `net` | 1 | §4.16 |
 | | | | `registry` | 8 | §4.17 |
+| | | | `vpn` | 3 | §4.18 |
 
 ### 4.1 `capabilities` (1 method)
 
@@ -484,7 +489,7 @@ Notable deliberate design points:
 |---|---|---|
 | `capabilities.has(name)` | — (local frozen table) | `boolean` — true iff the runtime ships the surface (`hasOwnProperty` and `=== true`). **Not** a permission check. |
 
-The 28 capability names (`:10255-10299`): `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, `settings.v2`, `ready.v2`, `events.v2`, `geolocation.v2`, `media.v2`, `calendar.v2`, `contacts.v2`, `mail.v2`, `admin.v2`, `background.v2`, `permissions.v2`, `net.v2`, `registry.v1`.
+The 29 capability names (`:10255-10299`): `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, `settings.v2`, `ready.v2`, `events.v2`, `geolocation.v2`, `media.v2`, `calendar.v2`, `contacts.v2`, `mail.v2`, `admin.v2`, `background.v2`, `permissions.v2`, `net.v2`, `registry.v1`, `vpn.v1`.
 
 ### 4.2 `storage` (6 methods) — per-app key-value store
 
@@ -677,6 +682,14 @@ Per-hive write rules (host-side, `:10976-10979`): apps write only their own `HKN
 | `registry.watch(path, cb)` | sugar over `nova:events:subscribe('nova:reg:changed')` + guest-side prefix filter (backslashes normalized) | Promise<off()> | needs the same grants as subscribing (`registry.read`); callback receives `{path, type, value, appId}` |
 
 Types: `REG_SZ`, `REG_DWORD`, `REG_QWORD`, `REG_BOOL`, `REG_JSON`, `REG_BINARY`, `REG_MULTI_SZ` (explicit-only), `REG_EXPAND_SZ`, `REG_LINK`; auto-detection for untyped values; `HKCU` aliases `HKNU`.
+
+### 4.18 `vpn` (3 methods) — user-controlled WireGuard provider
+
+| Method | Channel | Returns | Errors / limits |
+|---|---|---|---|
+| `vpn.registerProvider(config)` | `nova:vpn:register` | `{registered:true, providerId}` | `vpn:provider`; restricted WireGuard profile, ≤16 KiB; profile is stored but not activated |
+| `vpn.removeProvider()` | `nova:vpn:remove` | `{removed, providerId?}` | `vpn:provider`; removes this app's profile and disconnects it if active |
+| `vpn.getStatus()` | `nova:vpn:status` | `{registered, active}` for the calling app | `vpn:provider` |
 
 
 ---
@@ -897,14 +910,17 @@ Incoming requests/broadcasts reach the provider as pushes (`nova:ipc:request`, `
 | `nova:background:wake-done` | `nova.backgroundWakeDone`, `novaOS.background.wakeDone` | advisory (scheduler pre-verified `system:background`) | none | `{}` | `{success:true}` (flips the wake-done flag) | — |
 | `nova:background:stay-alive` | `nova.stayAliveInBackground`, `novaOS.background.stayAlive` | **`system:background:live`** | none | `{enabled}` (`payload?.enabled !== false`, default true; session-only, never persisted) | `{success, enabled}` | `PERMISSION_DENIED` `system:background:live permission required`; `UNAVAILABLE` `Sandbox not found` |
 
-### 5.16 Networking (4 channels)
+### 5.16 Networking (7 channels)
 
 | Channel | Facade | Permission (MAC) | Rate limit | Payload | Response | Errors |
 |---|---|---|---|---|---|---|
-| `nova:net:fetch` **[isolated ok]** | patched `fetch()`/`XHR`/`sendBeacon` | **ANY-of `net:internal`, `net:external`** (handler classifies per destination: internal → `net:internal`, else `net:external`) | none (server proxy limits out of scope) | `{url, method? (default GET; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS), headers?, body?, bodyEncoding? ('utf8' \| 'base64')}` — base64 bodies capped by ledger `httpBodyBytes` (**16 MiB** default) | `{success, status, statusText, headers, body, bodyEncoding}` — textual content types → utf8 string; everything else → base64 + `bodyEncoding:'base64'`. **No response-size cap, no in-handler timeout** | `INVALID_ARGS` (`url` missing, `Method not allowed: X`, encodings other than utf8/base64); `PERMISSION_DENIED` (destination class); `PAYLOAD_TOO_LARGE` `Binary request body exceeds the N MiB limit`; `NETWORK_ERROR` (proxy failure); URL rules: http/https only, protocol-relative resolved against host origin, cloud-metadata hosts (169.254.169.254, fd00:ec2::254) hard-denied |
-| `nova:net:websocket` | `nova.websocket`, `novaOS.net.websocket`, patched `WebSocket` | **`net:websocket`** (+ **`net:internal`** for private/first-party destinations) | none (no socket-count or frame caps) | `{url, protocols?}` — ws/wss only, absolute, no credentials in URL | `{success, wsId, readyState}` (resolved from `onopen` only; never-opening = generic timeout). Frames push `nova:net:ws:message` and mirror onto the OS event bus tagged with the owning appId | `INVALID_ARGS`-class URL errors (`Invalid WebSocket URL`, `Only ws and wss URLs are allowed`, `Credentials in WebSocket URLs are not allowed`, metadata-host denial); `PERMISSION_DENIED` `net:internal permission required for private or first-party WebSocket destinations` |
+| `nova:net:fetch` **[isolated ok]** | patched `fetch()`/XHR/`sendBeacon` | **ANY-of `net:internal`, `net:external`** (handler classifies per destination: internal → `net:internal`, else `net:external`) | none (server proxy limits out of scope) | `{url, method? (default GET; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS), headers?, body?, bodyEncoding? ('utf8' \| 'base64')}` — base64 bodies capped by ledger `httpBodyBytes` (**16 MiB** default) | `{success, status, statusText, headers, body, bodyEncoding}` — textual content types → utf8 string; everything else → base64 + `bodyEncoding:'base64'`. Active provider HTTP proxy traffic is source-bound to the WireGuard interface; DNS and redirects remain in that route. **No response-size cap, no in-handler timeout** | `INVALID_ARGS`; `PERMISSION_DENIED` (destination class); `VPN_ROUTE_DENIED` for internal destinations while active; `VPN_ROUTE_UNAVAILABLE` if host identity cannot be signed; `NETWORK_ERROR` on proxy failure; URL rules: http/https only, metadata hosts hard-denied |
+| `nova:net:websocket` | `nova.websocket`, `novaOS.net.websocket`, patched `WebSocket` | **`net:websocket`** (+ **`net:internal`** for private/first-party destinations) | none (no socket-count or frame caps) | `{url, protocols?}` — ws/wss only, absolute, no credentials in URL | `{success, wsId, readyState}`; frames push `nova:net:ws:message` and mirror onto the OS event bus tagged with the owning appId. Active provider sockets use a tunnel-bound agent and VPN DNS. | URL errors; `VPN_ROUTE_DENIED` for internal destinations while active; `VPN_ROUTE_UNAVAILABLE` on tunnel/DNS failure |
 | `nova:net:ws:send` | handle `send(data)` | advisory | none (no size cap) | `{wsId, data}` (objects JSON-stringified, null → `''`, else `String()`) | `{success:true}` | `UNAVAILABLE` `WebSocket not supported`; `INVALID_ARGS` `wsId is required`; `NOT_FOUND` `WebSocket connection not found` (foreign/unknown id); `INVALID_STATE` (`WebSocket is not open`, send failure) |
 | `nova:net:ws:close` | handle `close(code, reason)` | advisory | none | `{wsId, code? (default 1000), reason?}` | `{success:true}` (even for unknown ids; map entry deleted) | — |
+| `nova:vpn:register` | `nova.vpn.registerProvider(config)` / `novaOS.vpn.registerProvider(config)` | **`vpn:provider`** | none | `{config}` — restricted WireGuard profile, UTF-8 ≤16 KiB | `{registered:true, providerId}` | `PERMISSION_DENIED`; `INVALID_ARGS`; `VPN_ENFORCEMENT_UNAVAILABLE`; `VPN_PROVIDER_ERROR` |
+| `nova:vpn:remove` | `nova.vpn.removeProvider()` / `novaOS.vpn.removeProvider()` | **`vpn:provider`** | none | `{}` (calling app identity is host-derived) | `{removed:boolean, providerId?}` | `PERMISSION_DENIED`; `VPN_PROVIDER_ERROR` |
+| `nova:vpn:status` | `nova.vpn.getStatus()` / `novaOS.vpn.getStatus()` | **`vpn:provider`** | none | `{}` | `{registered:boolean, active:boolean}` for the calling app | `PERMISSION_DENIED`; `VPN_PROVIDER_ERROR` |
 
 Internal-host classification (`isInternalHost`): `localhost`, `api.novabyte.internal`, private IPv4 (127/8, 10/8, 172.16-31, 192.168/16, 169.254/16, 0.0.0.0/8, 100.64/10), IPv6 (`::1`, `::`, fc00::/7, fe80::/10, IPv4-mapped/-compatible), and — for WebSockets only — single-label names plus `.localhost .local .lan .internal .home.arpa .test` suffixes (`:1267-1401`, `:1299-1326`).
 

@@ -545,6 +545,7 @@
       "system": "System",
       "dateAndRegion": "Date and Region",
       "connectivity": "Connectivity",
+      "vpn": "VPN",
       "storage": "Storage",
       "notifications": "Notifications",
       "privacy": "Privacy",
@@ -683,6 +684,22 @@
       "forgot": "Forgot {{name}}.",
       "pairedWith": "Paired and connected to {{name}}.",
       "foundDevices": "Found {{count}} Bluetooth device(s)."
+    },
+    "vpn": {
+      "subtitle": "Manage the device VPN and choose which app provides its WireGuard tunnel.",
+      "statusTitle": "VPN status",
+      "deviceTitle": "Device VPN",
+      "deviceHint": "Choose an app that has registered a VPN provider. Network traffic for that app is routed through its tunnel while connected.",
+      "providerAria": "VPN provider app",
+      "loading": "Checking VPN…",
+      "refresh": "Refresh",
+      "activeFor": "Active · {{name}}",
+      "inactive": "VPN is disconnected.",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "noProviders": "No VPN provider apps are available.",
+      "unavailable": "The native VPN service is unavailable in this OS build.",
+      "error": "VPN error: {{error}}"
     },
     "storage": {
       "usage": "Storage Usage",
@@ -2341,6 +2358,7 @@
       "copyPathBtn": "Copy Path",
       "findBtn": "Find",
       "favBtn": "★ Fav",
+      "favoritesListBtn": "Favorites",
       "permBtn": "Permissions",
       "snapBtn": "Snapshots",
       "auditBtn": "Audit",

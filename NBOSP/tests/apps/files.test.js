@@ -32,10 +32,18 @@ async function loadFiles({ fs, registry = null } = {}) {
   };
   const OS = {
     settings: { get: () => undefined },
+    apps: {
+      'com.nbosp.novareg': {
+        icon: `data:image/svg+xml;base64,${Buffer.from(
+          '<svg><!-- background --><rect rx="112"/><!-- faint N --><text>N</text><!-- registry database cylinder --><path d="M1"/></svg>',
+        ).toString('base64')}`,
+      },
+    },
     clipboard: null,
     events: { on: mocks.eventsOn, off: mocks.eventsOff },
     workers: { fs: { call: mocks.workerCall } },
   };
+  const WM = { createWindow: vi.fn(() => ({})) };
   const loaded = await loadWindowApp('files', {
     stubs: {
       extra: {
@@ -44,7 +52,7 @@ async function loadFiles({ fs, registry = null } = {}) {
         ContextMenu: mocks.ContextMenu,
         showModal: mocks.showModal,
         showPrompt: mocks.showPrompt,
-        WM: { createWindow: vi.fn() },
+        WM,
         openFileWithDefaultApp: mocks.openFileWithDefaultApp,
         renderDesktopIcons: mocks.renderDesktopIcons,
         ...(registry ? { NovaRegistry: registry } : {}),
@@ -57,7 +65,7 @@ async function loadFiles({ fs, registry = null } = {}) {
   const state = { cleanups: [] };
   const content = initApp(app, { window, state });
   await settle(); // ensureDefaultSystemFolders() → initial renderFiles()
-  return { ...loaded, FS, OS, state, content, showPromptValue, ...mocks };
+  return { ...loaded, FS, OS, WM, state, content, showPromptValue, ...mocks };
 }
 
 function fileItems(content) {
@@ -525,6 +533,26 @@ describe('Files app (js/apps/files)', () => {
     items.find((i) => i.textContent.includes('Docs'))
       .dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
     expect(content.querySelector('#file-browser-path-input').value).toBe('/Docs');
+  });
+
+  it('uses the background-free NovaReg mark and opens .nvreg files in NovaReg', async () => {
+    const fs = makeFS();
+    const file = await fs.createFile(fs.rootId, 'settings.NVREG', '[HKNS\\shell]', 'text/plain');
+    const { content, window, WM, openFileWithDefaultApp } = await loadFiles({ fs });
+    const item = fileItems(content).find((entry) => entry.textContent.includes(file.name));
+    const icon = item.querySelector('.vault-file-icon img');
+    const [, encodedSvg] = icon.getAttribute('src').match(/^data:image\/svg\+xml;base64,(.+)$/);
+    const svg = window.atob(encodedSvg);
+
+    expect(svg).not.toContain('rx="112"');
+    expect(svg).not.toContain('<text>N</text>');
+    expect(svg).toContain('<path d="M1"/>');
+
+    item.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
+    expect(WM.createWindow).toHaveBeenCalledWith('com.nbosp.novareg', {
+    importFile: { name: file.name, content: file.content },
+    });
+    expect(openFileWithDefaultApp).not.toHaveBeenCalled();
   });
 
   it('infers media MIME types before handing files to the existing app-open contract', async () => {

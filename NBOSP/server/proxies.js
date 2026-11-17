@@ -1,6 +1,8 @@
 const rateLimit = require('express-rate-limit');
-const { isTrustedSystemAppRequest } = require('./rate-limit-auth');
+const { isTrustedSystemAppRequest, getTrustedAppProxyId } = require('./rate-limit-auth');
 const dns = require('dns');
+const fs = require('fs');
+const net = require('net');
 const ServerEventLog = require('./core/server-event-log');
 
 // ── Frame-Embed Check Proxy ────────────────────────────────────────────────
@@ -245,6 +247,7 @@ const _PRIVATE_PREFIXES = ['10.', '172.16.', '172.17.', '172.18.', '172.19.',
     '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
     '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
     '192.168.', '169.254.', '100.64.', '127.'];
+const VPN_STATUS_PATH = '/run/novabyte-vpn/status';
 
 function _isPrivateHost(hostname) {
     const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
@@ -252,6 +255,27 @@ function _isPrivateHost(hostname) {
     if (_PRIVATE_PREFIXES.some(p => h.startsWith(p))) return true;
     if (h.endsWith('.local') || h.endsWith('.internal')) return true;
     return false;
+}
+
+function _readActiveVpnRoute() {
+    let contents;
+    try {
+        contents = fs.readFileSync(VPN_STATUS_PATH, 'utf8');
+    } catch (error) {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+    }
+    const [providerId, address] = contents.trim().split(/\r?\n/);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(providerId || '') || net.isIPv4(address || '') !== 1) {
+        throw Object.assign(new Error('Invalid active VPN routing status'), { code: 'VPN_STATUS_INVALID' });
+    }
+    return { providerId, address };
+}
+
+function _vpnRouteForRequest(requestedAppId, trustedAppId, activeRoute) {
+    if (!activeRoute || requestedAppId !== activeRoute.providerId) return { required: false };
+    if (trustedAppId !== requestedAppId) return { required: true, authorized: false };
+    return { required: true, authorized: true, localAddress: activeRoute.address };
 }
 
 // IPv4-mapped IPv6 (::ffff:a.b.c.d) — pull out the embedded v4 address so it
@@ -389,11 +413,12 @@ function undiciModules() {
 // the proxy's 30 s total timeout: a dead first candidate costs at most 8 s
 // before we fall through to the next validated address.
 const PINNED_CONNECT_TIMEOUT_MS = 8000;
-function _pinnedAgent(pinnedAddress, family) {
+function _pinnedAgent(pinnedAddress, family, localAddress) {
     const { Agent } = undiciModules();
     return new Agent({
         connect: {
             timeout: PINNED_CONNECT_TIMEOUT_MS,
+            ...(localAddress ? { localAddress } : {}),
             lookup: (_hostname, _opts, cb) => {
                 cb(null, [{ address: pinnedAddress, family: family === 6 ? 6 : 4 }]);
             },
@@ -407,7 +432,7 @@ function _pinnedAgent(pinnedAddress, family) {
 // rebinding gap this whole pinning scheme exists to close (validate now,
 // connect to something else later). One agent per request, closed right
 // after, is the correct trade-off here — not a missed pooling optimization.
-async function _pinnedFetch(urlString, opts, dnsResult) {
+async function _pinnedFetch(urlString, opts, dnsResult, localAddress = null) {
     if (!dnsResult || dnsResult.private) {
         throw Object.assign(new Error('Refusing to fetch unvalidated/private address'), { code: 'SSRF_BLOCKED' });
     }
@@ -429,7 +454,7 @@ async function _pinnedFetch(urlString, opts, dnsResult) {
     // that already reached the wire.
     let lastErr;
     for (const candidate of candidates) {
-        const agent = _pinnedAgent(candidate.address, candidate.family);
+        const agent = _pinnedAgent(candidate.address, candidate.family, localAddress);
         try {
             return await undiciModules().fetch(urlString, { ...opts, dispatcher: agent });
         } catch (err) {
@@ -439,6 +464,74 @@ async function _pinnedFetch(urlString, opts, dnsResult) {
         }
     }
     throw lastErr;
+}
+
+const _vpnDnsCache = new Map();
+async function _dnsResolveViaVpn(hostname, localAddress) {
+    const failClosed = { private: true, address: null, family: null, addresses: [] };
+    if (!hostname || typeof hostname !== 'string' || !localAddress) return failClosed;
+    const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (_isPrivateHost(host)) return failClosed;
+    const addressFamily = net.isIP(host);
+    if (addressFamily === 4) {
+        if (_isPrivateIpAddr(host)) return failClosed;
+        return { private: false, address: host, family: 4, addresses: [{ address: host, family: 4 }] };
+    }
+    if (addressFamily === 6) {
+        throw Object.assign(new Error('The active VPN route currently supports IPv4 destinations only.'), { code: 'VPN_IPV6_UNSUPPORTED' });
+    }
+
+    const cacheKey = `${localAddress}\n${host}`;
+    const cached = _vpnDnsCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < _DNS_TTL) return cached;
+
+    const queryUrl = new URL('https://cloudflare-dns.com/dns-query');
+    queryUrl.searchParams.set('name', host);
+    queryUrl.searchParams.set('type', 'A');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+        const response = await _pinnedFetch(queryUrl.toString(), {
+            headers: { Accept: 'application/dns-json' },
+            redirect: 'error',
+            signal: controller.signal,
+        }, {
+            private: false,
+            address: '1.1.1.1',
+            family: 4,
+            addresses: [{ address: '1.1.1.1', family: 4 }],
+        }, localAddress);
+        if (!response.ok) {
+            throw Object.assign(new Error(`VPN DNS resolver returned HTTP ${response.status}`), { code: 'VPN_DNS_FAILED' });
+        }
+        const text = await response.text();
+        if (text.length > 64 * 1024) {
+            throw Object.assign(new Error('VPN DNS response exceeded the size limit'), { code: 'VPN_DNS_FAILED' });
+        }
+        const payload = JSON.parse(text);
+        if (payload.Status !== 0 || !Array.isArray(payload.Answer)) {
+            throw Object.assign(new Error('VPN DNS lookup returned no successful A record response'), { code: 'VPN_DNS_FAILED' });
+        }
+        const addresses = payload.Answer
+            .filter((answer) => answer?.type === 1 && typeof answer.data === 'string')
+            .map((answer) => answer.data)
+            .filter((address) => net.isIPv4(address) === 1)
+            .map((address) => ({ address, family: 4 }));
+        const anyPrivate = addresses.length === 0 || addresses.some((entry) => _isPrivateIpAddr(entry.address));
+        const safeAddresses = anyPrivate ? [] : [...new Map(addresses.map((entry) => [entry.address, entry])).values()];
+        const result = {
+            private: anyPrivate,
+            address: safeAddresses[0]?.address || null,
+            family: safeAddresses[0]?.family || null,
+            addresses: safeAddresses,
+            ts: Date.now(),
+        };
+        _vpnDnsCache.set(cacheKey, result);
+        if (_vpnDnsCache.size > 500) _vpnDnsCache.delete(_vpnDnsCache.keys().next().value);
+        return result;
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 const appProxyLimiter = rateLimit({
@@ -453,6 +546,24 @@ const appProxyLimiter = rateLimit({
 function setupAppNetworkProxy(app) {
     app.post('/api/proxy', appProxyLimiter, requireSession, async (req, res) => {
         const { url: rawUrl, method: rawMethod, headers: reqHeaders, body: reqBody, bodyEncoding = 'utf8' } = req.body ?? {};
+        let vpnLocalAddress = null;
+        try {
+            const activeRoute = _readActiveVpnRoute();
+            const requestedAppId = req.get('x-nova-app-id');
+            const route = _vpnRouteForRequest(requestedAppId, getTrustedAppProxyId(req), activeRoute);
+            if (route.required && !route.authorized) {
+                return res.status(403).json({ error: 'Authenticated app identity is required for VPN-routed requests.' });
+            }
+            vpnLocalAddress = route.localAddress || null;
+        } catch (error) {
+            ServerEventLog.log({
+                app: 'AppNetworkProxy',
+                severity: 'error',
+                message: `Could not read active VPN routing status: ${error.message}`,
+                data: { code: error.code || null },
+            });
+            return res.status(503).json({ error: 'VPN routing status is unavailable; refusing the proxy request.' });
+        }
 
         // Validate URL
         if (!rawUrl || typeof rawUrl !== 'string') {
@@ -478,7 +589,20 @@ function setupAppNetworkProxy(app) {
         }
         // dnsResult carries the resolved IP forward so the eventual fetch can be
         // pinned to it (see loop below) instead of re-resolving the hostname.
-        let dnsResult = await _dnsResolvePrivate(urlObj.hostname);
+        let dnsResult;
+        try {
+            dnsResult = vpnLocalAddress
+                ? await _dnsResolveViaVpn(urlObj.hostname, vpnLocalAddress)
+                : await _dnsResolvePrivate(urlObj.hostname);
+        } catch (error) {
+            ServerEventLog.log({
+                app: 'AppNetworkProxy',
+                severity: 'error',
+                message: `VPN DNS resolution failed for ${urlObj.hostname}: ${error.message}`,
+                data: { hostname: urlObj.hostname, code: error.code || null },
+            });
+            return res.status(502).json({ error: `VPN DNS resolution failed: ${error.message}`, code: error.code || 'VPN_DNS_FAILED' });
+        }
         if (dnsResult.private) {
             ServerEventLog.log({
                 app: 'AppNetworkProxy',
@@ -568,7 +692,19 @@ function setupAppNetworkProxy(app) {
             // Re-resolve + re-validate on every hop (redirect targets can point
             // anywhere) and keep the resolved IP so the fetch below is pinned to
             // exactly what we just validated.
-            dnsResult = await _dnsResolvePrivate(hopUrlObj.hostname);
+            try {
+                dnsResult = vpnLocalAddress
+                    ? await _dnsResolveViaVpn(hopUrlObj.hostname, vpnLocalAddress)
+                    : await _dnsResolvePrivate(hopUrlObj.hostname);
+            } catch (error) {
+                ServerEventLog.log({
+                    app: 'AppNetworkProxy',
+                    severity: 'error',
+                    message: `VPN DNS resolution failed for redirect ${hopUrlObj.hostname}: ${error.message}`,
+                    data: { hostname: hopUrlObj.hostname, code: error.code || null },
+                });
+                return res.status(502).json({ error: `VPN DNS resolution failed: ${error.message}`, code: error.code || 'VPN_DNS_FAILED' });
+            }
             if (dnsResult.private) {
                 return res.status(403).json({ error: 'Internal URLs are not permitted' });
             }
@@ -584,7 +720,7 @@ function setupAppNetworkProxy(app) {
                     body: (method === 'GET' || method === 'HEAD') ? undefined : outgoingBody,
                     redirect: 'manual',
                     signal: controller.signal,
-                }, dnsResult);
+                }, dnsResult, vpnLocalAddress);
             } catch (err) {
                 clearTimeout(timer);
                 const errCode = err.code || (err.cause && err.cause.code) || null;
@@ -811,7 +947,10 @@ module.exports = {
         _isPrivateHost,
         _isPrivateIpAddr,
         _dnsResolvePrivate,
+        _dnsResolveViaVpn,
+        _vpnRouteForRequest,
         _pinnedFetch,
         _dnsPrivateCache,
+        _vpnDnsCache,
     },
 };

@@ -22,7 +22,7 @@ concern found during the audit — is in [`../AUDIT.md`](../AUDIT.md).
 | File | Audience | What it covers |
 |---|---|---|
 | [`guide.md`](guide.md) | App developers | The journey end to end: first project, manifest reference, build/sign/verify (incl. the verified NovaByte Studio packager flow), install, runtime model, permissions in brief, background execution, data lifecycle (update/uninstall), dev & debug workflow, trust/verification, publishing, limits & defaults, compatibility, glossary |
-| [`permissions.md`](permissions.md) | App developers | All 52 permissions: what each unlocks, how to request it, a working example, what the user sees, what happens on denial, limits, overlap guidance, legacy `vfs:*` aliases |
+| [`permissions.md`](permissions.md) | App developers | All 53 permissions: what each unlocks, how to request it, a working example, what the user sees, what happens on denial, limits, overlap guidance, legacy `vfs:*` aliases |
 | [`api-reference.md`](api-reference.md) | App developers | Every guest-reachable `nova:*` IPC channel, the complete `window.nova` (v1) and `window.novaOS` (v2) facades, pushed events, rate limits & quotas, error codes, legacy compatibility |
 | [`examples.md`](examples.md) | App developers | Working examples, from the verified hello world through storage, files, notifications, networking, alarms, background execution, push, app-to-app IPC, share targets, secrets, registry, default apps, and the dev workflow |
 | [`internals.md`](internals.md) | OS contributors | How the OS actually works: boot sequence, local server, sandbox engine, MAC policy, permission manager, registry, background services, the Linux image, testing architecture, known internals gaps |

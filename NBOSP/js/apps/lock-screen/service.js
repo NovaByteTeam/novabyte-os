@@ -115,6 +115,7 @@ function submitSheetIfComplete() {
 // ── Shared sheet rendering (numpad + dots are reused components) ─────
 
 const STOCK_WALLPAPER_ID = 'stock-blue';
+let lockWallpaperRequest = 0;
 
 /**
  * The login picker always shows stock blue; an account's own wallpaper only
@@ -139,6 +140,7 @@ async function wallpaperFor(account) {
 }
 
 async function setLockWallpaper(account) {
+  const request = ++lockWallpaperRequest;
   const lockScreenEl = document.getElementById('lock-screen');
   const service = window.WallpaperService;
   if (!lockScreenEl || typeof service?.styleFor !== 'function') return;
@@ -148,6 +150,7 @@ async function setLockWallpaper(account) {
     lockScreenEl.prepend(layer);
   }
   const { id, custom } = await wallpaperFor(account);
+  if (request !== lockWallpaperRequest) return;
   Object.assign(layer.style, service.styleFor(id, custom));
 }
 
@@ -834,7 +837,6 @@ async function selectAccountForAuth(user, { resumable = false } = {}) {
   const lockScreenEl = document.getElementById('lock-screen');
   const pickerEl = lockScreenEl?.querySelector('.lock-picker');
   if (pickerEl) pickerEl.style.display = 'none';
-  await setLockWallpaper(user);
 
   for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad']) {
     const el = document.getElementById(id);
@@ -894,6 +896,7 @@ async function selectAccountForAuth(user, { resumable = false } = {}) {
       card.appendChild(switchBtn);
     }
   }
+  await setLockWallpaper(user);
 }
 
 // ── First-boot setup (launches the NovaByte Setup .novaapp) ───────────

@@ -95,6 +95,15 @@
   font-size: 11px;
 }
 
+.store-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex: 0 1 520px;
+  min-width: 0;
+}
+
 .store-settings-button {
   flex: 0 0 auto;
   padding: 8px 11px;
@@ -122,7 +131,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  width: min(340px, 48%);
+  width: min(340px, 100%);
+  flex: 1 1 340px;
+  min-width: 0;
 }
 
 .store-search-wrap[hidden] {
@@ -990,8 +1001,13 @@
     gap: 12px;
   }
 
-  .store-search-wrap {
+  .store-header-actions {
     width: 100%;
+    flex: 0 0 auto;
+  }
+
+  .store-search-wrap {
+    width: auto;
   }
 
   .store-search-wrap[hidden] {

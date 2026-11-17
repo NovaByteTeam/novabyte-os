@@ -21,6 +21,22 @@ const AppSandbox = (() => {
     try { return window._t(key, vars); } catch { return undefined; }
   }
 
+  function appNetworkProxyHeaders(app) {
+    if (!app?.id || typeof require !== 'function' || typeof process === 'undefined') return {};
+    const secret = process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET;
+    if (!secret) return {};
+    const timestamp = String(Date.now());
+    const signature = require('crypto')
+      .createHmac('sha256', secret)
+      .update(`${timestamp}\n${app.id}\napp-proxy`)
+      .digest('hex');
+    return {
+      'X-Nova-App-ID': app.id,
+      'X-Nova-App-Time': timestamp,
+      'X-Nova-App-Signature': signature,
+    };
+  }
+
   // Module state
 
   // Active sandboxes keyed by sandboxId. Each value holds the webview element,
@@ -69,6 +85,54 @@ const AppSandbox = (() => {
       console.error('[RootAccess] Could not read the root audit log:', error);
       rootAuditEntries = [];
       return [];
+    }
+  }
+
+  async function handleVpnRegister({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('vpn:provider', app.id)) {
+      return respondError(webview, 'nova:vpn:register', requestId, 'PERMISSION_DENIED', 'vpn:provider permission required');
+    }
+    if (typeof payload?.config !== 'string') {
+      return respondError(webview, 'nova:vpn:register', requestId, 'INVALID_ARGS', 'config must be a WireGuard profile string');
+    }
+    try {
+      if (!await AppSandbox.enforceVpnBoundary(app.id)) {
+        return respondError(webview, 'nova:vpn:register', requestId, 'VPN_ENFORCEMENT_UNAVAILABLE', 'Could not enforce the VPN network boundary for this app');
+      }
+      const result = await window.NovaVPNService.registerProvider(app.id, payload.config);
+      return respond(webview, 'nova:vpn:register', requestId, result);
+    } catch (error) {
+      return respondError(webview, 'nova:vpn:register', requestId, 'VPN_PROVIDER_ERROR', error?.message || String(error));
+    }
+  }
+
+  async function handleVpnRemove({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('vpn:provider', app.id)) {
+      return respondError(webview, 'nova:vpn:remove', requestId, 'PERMISSION_DENIED', 'vpn:provider permission required');
+    }
+    try {
+      const result = await window.NovaVPNService.removeProvider(app.id);
+      return respond(webview, 'nova:vpn:remove', requestId, result);
+    } catch (error) {
+      return respondError(webview, 'nova:vpn:remove', requestId, 'VPN_PROVIDER_ERROR', error?.message || String(error));
+    }
+  }
+
+  async function handleVpnStatus({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('vpn:provider', app.id)) {
+      return respondError(webview, 'nova:vpn:status', requestId, 'PERMISSION_DENIED', 'vpn:provider permission required');
+    }
+    try {
+      const [providers, status] = await Promise.all([
+        window.NovaVPNService.getProviders(),
+        window.NovaVPNService.getStatus(),
+      ]);
+      return respond(webview, 'nova:vpn:status', requestId, {
+        registered: providers.some((provider) => provider.id === app.id),
+        active: status.active && status.providerId === app.id,
+      });
+    } catch (error) {
+      return respondError(webview, 'nova:vpn:status', requestId, 'VPN_PROVIDER_ERROR', error?.message || String(error));
     }
   }
 
@@ -228,14 +292,6 @@ const AppSandbox = (() => {
   const CLIPBOARD_HISTORY_MAX = 30;
   const ALLOWED_HTTP_METHODS = new Set([
     'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS',
-  ]);
-  const ALLOWED_WEB_PROTOCOLS = new Set(['http:', 'https:']);
-  // Hostnames that count as "internal" for permission gating, beyond
-  // whatever isInternalHost's IP-range checks already catch. Named
-  // first-party internal services live here since they don't resolve to
-  // a fixed literal IP we could range-check.
-  const INTERNAL_HOSTS = new Set([
-    'localhost', 'api.novabyte.internal',
   ]);
   const DEFAULT_WINDOW_WIDTH = 800;
   const DEFAULT_WINDOW_HEIGHT = 600;
@@ -607,6 +663,9 @@ const AppSandbox = (() => {
       // correct per-destination check could run.
       'nova:net:fetch': ['net:internal', 'net:external'],
       'nova:net:websocket': ['net:websocket'],
+      'nova:vpn:register': ['vpn:provider'],
+      'nova:vpn:remove': ['vpn:provider'],
+      'nova:vpn:status': ['vpn:provider'],
       // Devices.
       'nova:device:geolocation': ['device:geolocation'],
       'nova:device:camera': ['device:camera'],
@@ -1258,6 +1317,10 @@ const AppSandbox = (() => {
     }
   }
 
+  const INTERNAL_HOSTS = new Set(['localhost', 'api.novabyte.internal']);
+  const BLOCKED_METADATA_HOSTS = new Set(['169.254.169.254', 'fd00:ec2::254']);
+  const ALLOWED_WEB_PROTOCOLS = new Set(['http:', 'https:']);
+
   // Cloud metadata endpoints — checked ahead of, and independent of, the
   // internal/external classification below. isInternalHost correctly
   // classifies these as internal (they're link-local), which means any app
@@ -1269,8 +1332,6 @@ const AppSandbox = (() => {
   // bundled into the same grant as first-party internal services.
   // 169.254.169.254 covers AWS/GCP/Azure/DigitalOcean's IMDS; fd00:ec2::254
   // is AWS's IPv6 equivalent.
-  const BLOCKED_METADATA_HOSTS = new Set(['169.254.169.254', 'fd00:ec2::254']);
-
   // Resolve a URL string against the current origin and classify it as
   // internal or external. Handles protocol-relative URLs (//host/path) safely
   // by always resolving through new URL(rawUrl, window.location.origin).
@@ -1301,11 +1362,6 @@ const AppSandbox = (() => {
     };
   }
 
-  // Parse a dotted-decimal IPv4 string into 4 octets, or null if it isn't
-  // one. `URL` already normalizes alternate encodings (hex, octal, decimal-
-  // integer, short forms like "127.1") into plain dotted-decimal before this
-  // ever sees the hostname, so a strict dotted-decimal parse here is safe —
-  // it's not re-opening the encodings URL already collapsed.
   // WebSocket destinations use their own protocols, but must enforce the
   // same public-vs-internal boundary as fetch(). Literal private/loopback,
   // link-local, first-party internal, and metadata hosts never qualify as
@@ -1339,6 +1395,11 @@ const AppSandbox = (() => {
     return { valid: true, url: resolved.href, isInternal: isInternalHost(hostname) || localDnsName };
   }
 
+  // Parse a dotted-decimal IPv4 string into 4 octets, or null if it isn't
+  // one. `URL` already normalizes alternate encodings (hex, octal, decimal-
+  // integer, short forms like "127.1") into plain dotted-decimal before this
+  // ever sees the hostname, so a strict dotted-decimal parse here is safe —
+  // it's not re-opening the encodings URL already collapsed.
   function parseIPv4(hostname) {
     const parts = hostname.split('.');
     if (parts.length !== 4) return null;
@@ -3349,7 +3410,8 @@ const AppSandbox = (() => {
   }
 
   async function handleNestedWebview({ payload, requestId, app, webview, sandbox }) {
-    if (!sandbox?.nestedWebviewOptedIn
+    if (isVpnProviderGranted(app)
+      || !sandbox?.nestedWebviewOptedIn
       || typeof AppPermissionManager === 'undefined'
       || AppPermissionManager.isGranted('sandbox:nested-webview', app?.id) !== true) {
       return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'sandbox:nested-webview permission required');
@@ -6498,6 +6560,10 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted(netPerm, app.id)) {
       return respondError(webview, 'nova:net:fetch', requestId, 'PERMISSION_DENIED', `${netPerm} permission required`);
     }
+    const vpnActive = window.NovaVPNService?.isActiveForSync?.(app.id) === true;
+    if (vpnActive && classified.isInternal) {
+      return respondError(webview, 'nova:net:fetch', requestId, 'VPN_ROUTE_DENIED', 'Internal destinations are unavailable while this app VPN is active');
+    }
     // SECURITY (2026-11-15 audit, finding H3): the internal branch below
     // executes this fetch in the HOST page. Same-origin /api/ URLs would
     // therefore ride the host's express-session cookie (the entire
@@ -6612,9 +6678,14 @@ const AppSandbox = (() => {
         // from this document would be subject to the target server's CORS
         // policy (most external APIs don't allow browser-origin requests),
         // so we hand the request to /api/proxy, which makes it server-to-server.
+        const proxyHeaders = appNetworkProxyHeaders(app);
+        if (vpnActive && !proxyHeaders['X-Nova-App-ID']) {
+          return respondError(webview, 'nova:net:fetch', requestId, 'VPN_ROUTE_UNAVAILABLE', 'Cannot authenticate this app to the VPN network proxy');
+        }
         const { status: proxyStatus, ok, json: proxyJson } = await authedJsonFetch('/api/proxy', {
           method: 'POST',
           app,
+          headers: proxyHeaders,
           body: { url: classified.url, method: safeMethod, headers: headerObj, body: body ?? null, bodyEncoding: bodyEncoding || 'utf8' },
         });
         if (!ok) {
@@ -6661,11 +6732,25 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:net:websocket', requestId, 'PERMISSION_DENIED', 'net:internal permission required for private or first-party WebSocket destinations');
     }
     let ws;
+    let disposeVpnSocket = null;
     try {
-      ws = protocols?.length
-        ? new WebSocket(classified.url, protocols)
-        : new WebSocket(classified.url);
+      if (window.NovaVPNService?.isActiveForSync?.(app.id)) {
+        if (classified.isInternal) {
+          return respondError(webview, 'nova:net:websocket', requestId, 'VPN_ROUTE_DENIED', 'Internal destinations are unavailable while this app VPN is active');
+        }
+        const connection = await window.NovaVPNService.openWebSocket(app.id, classified.url, protocols);
+        if (!connection?.socket) {
+          return respondError(webview, 'nova:net:websocket', requestId, 'VPN_ROUTE_UNAVAILABLE', 'Could not establish this WebSocket through the active VPN');
+        }
+        ws = connection.socket;
+        disposeVpnSocket = connection.dispose;
+      } else {
+        ws = protocols?.length
+          ? new WebSocket(classified.url, protocols)
+          : new WebSocket(classified.url);
+      }
     } catch (e) {
+      try { disposeVpnSocket?.(); } catch (error) { log('warn', 'VPN WebSocket cleanup failed', error); }
       return respondError(webview, 'nova:net:websocket', requestId, 'INVALID_ARGS', e?.message || 'Unknown error');
     }
     const wsId = `ws_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -6673,7 +6758,7 @@ const AppSandbox = (() => {
     // down. Without this, sockets would outlive their app and leak.
     if (sandbox) {
       if (!sandbox.wsConnections) sandbox.wsConnections = new Map();
-      sandbox.wsConnections.set(wsId, { ws, appId: app.id });
+      sandbox.wsConnections.set(wsId, { ws, appId: app.id, dispose: disposeVpnSocket });
     }
     ws.onopen = () => respond(webview, 'nova:net:websocket', requestId, { success: true, wsId, readyState: ws.readyState });
     ws.onmessage = (e) => {
@@ -6698,6 +6783,7 @@ const AppSandbox = (() => {
       OS?.events?.emit?.('nova:net:ws:close', {
         appId: app.id, wsId, code: e.code, reason: e.reason, clean: e.wasClean,
       });
+      try { disposeVpnSocket?.(); } catch (error) { log('warn', 'VPN WebSocket cleanup failed', error); }
       sandbox?.wsConnections?.delete(wsId);
     };
     // Response is sent asynchronously via onopen; nothing to return here.
@@ -6738,6 +6824,7 @@ const AppSandbox = (() => {
     const wsState = sandbox?.wsConnections?.get(wsId);
     if (wsState) {
       try { wsState.ws.close(code ?? 1000, reason); } catch { /* already closed */ }
+      try { wsState.dispose?.(); } catch (error) { log('warn', 'VPN WebSocket cleanup failed', error); }
       sandbox?.wsConnections?.delete(wsId);
     }
     return respond(webview, 'nova:net:ws:close', requestId, { success: true });
@@ -9529,6 +9616,9 @@ const AppSandbox = (() => {
     'nova:reg:list': handleRegList,
     'nova:reg:export': handleRegExport,
     'nova:reg:import': handleRegImport,
+    'nova:vpn:register': handleVpnRegister,
+    'nova:vpn:remove': handleVpnRemove,
+    'nova:vpn:status': handleVpnStatus,
     'nova:request-permission': handleRequestPermission,
     'nova:permission-rate-limited': handlePermissionRateLimited,
     'nova:window:close': handleWindowClose,
@@ -9961,6 +10051,7 @@ const AppSandbox = (() => {
       if (sandboxRecord?.wsConnections) {
         for (const [, wsState] of sandboxRecord.wsConnections) {
           try { wsState.ws.close(1000, 'sandbox closed'); } catch { /* already closed */ }
+          try { wsState.dispose?.(); } catch (error) { log('warn', 'VPN WebSocket cleanup failed', error); }
         }
         sandboxRecord.wsConnections.clear();
       }
@@ -10145,8 +10236,21 @@ const AppSandbox = (() => {
     }
   }
 
+  function isVpnProviderGranted(app) {
+    try {
+      return !!app?.id && AppPermissionManager?.isGranted('vpn:provider', app.id) === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isVpnBoundaryRequired(app) {
+    return isVpnProviderGranted(app)
+      || window.NovaVPNService?.isActiveForSync?.(app?.id) === true;
+  }
+
   function isExternalFramesPermitted(app) {
-    return isNestedWebviewPermitted(app);
+    return !isVpnProviderGranted(app) && isNestedWebviewPermitted(app);
   }
 
   function canNestedWebviewNavigate(app, rawUrl) {
@@ -10164,63 +10268,8 @@ const AppSandbox = (() => {
       && AppPermissionManager?.isGranted(permission, app?.id) === true;
   }
 
-  // Marker used ONLY on the one-shot handshake that hands a MessagePort
-  // from the isolated transport script to the main-world capability shim.
-  // Deliberately distinct from IPC_MARKER (the guest->host console.log
-  // marker). Unlike the previous design, this marker does NOT authenticate
-  // ongoing request/response traffic — see the handshake comment below for
-  // why a tagged window.postMessage alone is forgeable by any main-world
-  // script and can't be trusted for anything beyond the initial port handoff.
   const BRIDGE_MARKER = '__NOVA_BRIDGE__';
-
-  // Cache for buildIsolatedTransportScript — the script is identical for
-  // every sandbox, so build it once and reuse the string. Reset by tests
-  // via _internal._resetState.
   let _isolatedTransportScriptCache = null;
-
-  // Builds the isolated-world transport content script. This owns the
-  // ONLY code path that can produce a valid guest->host IPC message
-  // (console.log(IPC_MARKER + ...)) or read a host->guest response
-  // (window.__novaInbox). It is injected via webview.addContentScripts()
-  // at run_at: 'document_start', which — unlike a <script> spliced into
-  // the guest's own HTML — runs in a separate JS realm (Chromium's
-  // "isolated world", same mechanism as Chrome extension content
-  // scripts) that the guest's own page script cannot reach, patch, or
-  // race against. See JavaScript Contexts in NW.js docs: isolated and
-  // main-world scripts share the DOM but not JS globals.
-  //
-  // Ongoing traffic with the main-world capability shim (buildCapabilityShim
-  // below) goes over a dedicated MessageChannel, not tagged window.postMessage.
-  // This is a deliberate correction: window.postMessage with a __novaBridge
-  // tag authenticates "this arrived on this window" but NOT "this actually
-  // came from the isolated script" — any main-world code (including an
-  // attacker who achieved script execution in the guest's own page, e.g. via
-  // an XSS bug in the app itself) can call
-  // window.postMessage(sameShapeObject, ...) and a listener keyed only on the
-  // tag has no way to tell the difference. Concretely, that let a compromised
-  // guest forge a fake "response" for one of its OWN in-flight requestIds and
-  // win the race against the real host response, corrupting whatever the
-  // guest's own app code does with that result.
-  //
-  // A MessagePort is what authenticates a message now: holding a reference
-  // to port2 is only possible for code that received it in the one-shot
-  // handshake below, and the isolated script stops listening for further
-  // handshake requests the instant one is claimed — so nothing that runs
-  // afterward (including later-injected or dynamically-eval'd guest script)
-  // can obtain a second reference to it. A message arriving on
-  // `port1.onmessage` can only have been sent via `port2.postMessage`, so no
-  // tag/marker is needed to trust port traffic — possession of the port is
-  // the credential.
-  //
-  // This still closes what the window.postMessage version closed relative to
-  // the original single-realm shim: (1) a guest page redefining console.log
-  // before the shim's IIFE ran could previously blind or spoof the IPC
-  // channel — that channel lives in a realm the guest's console.log override
-  // never touches; (2) window.__novaInbox / window.__novaOutboxPull used to
-  // be plain globals on the guest's own window — now they're closures inside
-  // this isolated script, invisible to window.* lookups from the main world.
-  // It additionally closes the response-forgery gap the tagged-postMessage
-  // bridge itself introduced.
   function buildIsolatedTransportScript() {
     // Cached: the transport script is identical for every sandbox, so build
     // it once. The original code regenerated a multi-KB string template on
@@ -10427,8 +10476,8 @@ const AppSandbox = (() => {
     'ready.v2': true,
     // Full-coverage v2 sugar over the remaining frozen v1 channel families
     // (events, device, calendar/contacts, mail, admin, background,
-    // permissions, websocket) — still pure sugar, still nothing new
-    // host-side.
+    // permissions, websocket) and VPN provider APIs — still permission-gated
+    // by the host.
     'events.v2': true,
     'geolocation.v2': true,
     'media.v2': true,
@@ -10439,6 +10488,7 @@ const AppSandbox = (() => {
     'background.v2': true,
     'permissions.v2': true,
     'net.v2': true,
+    'vpn.v1': true,
     // NovaByte Registry — nova:reg:* channels + the nova:reg:changed event.
     'registry.v1': true,
   });
@@ -10633,6 +10683,20 @@ const AppSandbox = (() => {
           return ipc('nova:fs:read', { path: 'shared:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
         },
       }),
+    }),
+    // WireGuard provider management is separate from network access itself:
+    // an app can register a tunnel only with vpn:provider, while activation is
+    // always a user-controlled Settings action.
+    vpn: Object.freeze({
+      registerProvider: function(config) {
+        return ipc('nova:vpn:register', { config: config });
+      },
+      removeProvider: function() {
+        return ipc('nova:vpn:remove', {});
+      },
+      getStatus: function() {
+        return ipc('nova:vpn:status', {});
+      },
     }),
     // Indexed shared media metadata (nova:media:query). File bytes must
     // still be read through fs.read(), which applies the usual per-file
@@ -11162,7 +11226,7 @@ const AppSandbox = (() => {
   // (StorageLedger.getBudget) — the guest-side constants match the caps the
   // host actually enforces, so an app with a raised budget doesn't fail
   // client-side at the old lower cap.
-  function buildCapabilityShim(nestedWebviewOptedIn, initialUrl = null, budgets = {}) {
+  function buildCapabilityShim(nestedWebviewOptedIn, initialUrl = null, budgets = {}, restrictDirectNetwork = false) {
   return `<script>
 (function() {
   'use strict';
@@ -11170,6 +11234,15 @@ const AppSandbox = (() => {
   // Baked in from the package manifest. Actual permission is checked by the
   // host for every nested-webview IPC request.
   const __NOVA_NESTED_WEBVIEW_OPTED_IN__ = ${nestedWebviewOptedIn ? 'true' : 'false'};
+  if (${restrictDirectNetwork ? 'true' : 'false'}) {
+    for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection']) {
+      try {
+        Object.defineProperty(globalThis, name, { value: undefined, configurable: false, writable: false });
+      } catch (error) {
+        console.error('[NovaVPN] Could not disable direct peer connections:', error);
+      }
+    }
+  }
   let __NOVA_PENDING_INITIAL_URL__ = ${JSON.stringify(initialUrl)};
 
   // A handful of channels block on a human making a decision in a native
@@ -11836,6 +11909,17 @@ const AppSandbox = (() => {
       set: function(key, value) {
         return ipc('nova:wallpaper:set', { key: key, value: value });
       }
+    },
+    vpn: {
+      registerProvider: function(config) {
+        return ipc('nova:vpn:register', { config: config });
+      },
+      removeProvider: function() {
+        return ipc('nova:vpn:remove', {});
+      },
+      getStatus: function() {
+        return ipc('nova:vpn:status', {});
+      },
     },
     requestPermission: function(permission, reason) {
       return ipc('nova:request-permission', { permission: permission, reason: reason });
@@ -13215,7 +13299,14 @@ const AppSandbox = (() => {
   // outright now, and 'wasm-unsafe-eval' does not reopen that hole.
   const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\'; script-src \'self\' blob: \'unsafe-inline\' \'wasm-unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' blob:">';
 
-  function buildRelaxedCspMeta(allowExternalFrames = false) {
+  function buildVpnBoundaryPolicy() {
+    return "default-src 'self' blob: data:; script-src 'self' blob: 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' blob: data:; img-src 'self' blob: data:; font-src 'self' blob: data:; connect-src 'self' blob:; frame-src 'none'; form-action 'self'; object-src 'none'; base-uri 'self'; media-src 'self' blob: data:; worker-src 'self' blob:; prefetch-src 'none'";
+  }
+
+  function buildRelaxedCspMeta(allowExternalFrames = false, restrictDirectNetwork = false) {
+    if (restrictDirectNetwork) {
+      return '<meta http-equiv="Content-Security-Policy" content="' + buildVpnBoundaryPolicy() + '">';
+    }
     const frameSrc = allowExternalFrames ? '; frame-src http: https:' : '';
     return '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\'; script-src \'self\' blob: \'unsafe-inline\' \'wasm-unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' blob:' + frameSrc + '">';
   }
@@ -13273,9 +13364,10 @@ const AppSandbox = (() => {
   function injectCapabilityShim(html, app, launchOptions = {}) {
     if (typeof html !== 'string') return html;
     html = deferPackagedScripts(html);
-    const nestedWebviewOptedIn = isNestedWebviewOptedIn(app);
-    const allowExternalFrames = isExternalFramesPermitted(app);
-    const initialUrl = isNestedWebviewPermitted(app)
+    const restrictDirectNetwork = isVpnProviderGranted(app);
+    const nestedWebviewOptedIn = !restrictDirectNetwork && isNestedWebviewOptedIn(app);
+    const allowExternalFrames = !restrictDirectNetwork && isExternalFramesPermitted(app);
+    const initialUrl = !restrictDirectNetwork && isNestedWebviewPermitted(app)
       && typeof launchOptions.url === 'string'
       && canNestedWebviewNavigate(app, launchOptions.url)
       ? resolveAndClassifyUrl(launchOptions.url).url
@@ -13284,8 +13376,8 @@ const AppSandbox = (() => {
       requestTimeoutMs: StorageLedger.getBudget(app?.id, 'requestTimeoutMs'),
       httpBodyBytes: StorageLedger.getBudget(app?.id, 'httpBodyBytes'),
     };
-    const shim = buildCapabilityShim(nestedWebviewOptedIn, initialUrl, ledgerBudgets);
-    const cspMeta = buildRelaxedCspMeta(allowExternalFrames);
+    const shim = buildCapabilityShim(nestedWebviewOptedIn, initialUrl, ledgerBudgets, restrictDirectNetwork);
+    const cspMeta = buildRelaxedCspMeta(allowExternalFrames, restrictDirectNetwork);
     // Add transparent document-root styling through the same unconditional
     // prefix path as the capability shim. This works for fragments or HTML
     // that omit/mangle <head>, because the HTML parser creates implied roots.
@@ -13652,6 +13744,7 @@ const AppSandbox = (() => {
     return attr;
   }
 
+
   // Popup display path for sandboxed apps.
   //
   // The sandbox attribute alone never shows a popup. Chromium only spawns
@@ -13702,6 +13795,12 @@ const AppSandbox = (() => {
     const onNewWindow = event => {
       const popupWindow = event?.window;
       const discard = () => { try { popupWindow?.discard?.(); } catch (e) { log('debug', 'popup discard failed', e); } };
+
+      if (isVpnBoundaryRequired(app)) {
+        logPopup(`blocked: VPN provider apps cannot open unmanaged network windows url=${shortUrl(event?.targetUrl)}`);
+        discard();
+        return;
+      }
 
       if (!popupsPermitted) {
         // The sandbox tokens already told the guest popups are blocked —
@@ -13866,6 +13965,18 @@ const AppSandbox = (() => {
   // main page JS, DOM, or memory regardless of app content.
   function createSandbox(app, container, state, launchOptions = {}, forceSandbox = false) {
     const webview = document.createElement('webview');
+    const vpnNavigationGuard = (event) => {
+      if (!isVpnBoundaryRequired(app)) return;
+      try {
+        const target = new URL(event.url);
+        if (target.origin === window.location.origin) return;
+      } catch (_) {
+        if (event.url === 'about:blank') return;
+      }
+      event.preventDefault();
+      log('warn', `Blocked unmanaged navigation from VPN provider app ${app.id}: ${event.url || 'invalid URL'}`);
+    };
+    webview.addEventListener('will-navigate', vpnNavigationGuard);
 
     // nodeintegration=false means the app cannot require() Node.js modules
     // even if the preload script has access — defense in depth.
@@ -14564,6 +14675,39 @@ const AppSandbox = (() => {
     return true;
   }
 
+  async function enforceVpnBoundary(appId) {
+    const targets = [...activeSandboxes.values()].filter((sandbox) => sandbox.appId === appId);
+    if (!targets.length) return false;
+    const source = `(() => {
+      const policy = ${JSON.stringify(buildVpnBoundaryPolicy())};
+      let meta = document.querySelector('meta[data-nova-vpn-boundary]');
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.httpEquiv = 'Content-Security-Policy';
+        meta.dataset.novaVpnBoundary = 'true';
+        (document.head || document.documentElement).prepend(meta);
+      }
+      meta.content = policy;
+      for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection']) {
+        Object.defineProperty(globalThis, name, { value: undefined, configurable: false, writable: false });
+      }
+      return true;
+    })()`;
+    for (const sandbox of targets) {
+      if (typeof sandbox.webview?.executeJavaScript !== 'function') {
+        log('error', `Cannot enforce VPN boundary for ${appId}: webview execution is unavailable`);
+        return false;
+      }
+      try {
+        await sandbox.webview.executeJavaScript(source);
+      } catch (error) {
+        log('error', `Could not enforce VPN boundary for ${appId}`, error);
+        return false;
+      }
+    }
+    return true;
+  }
+
   // Destroy a sandbox by ID. Tears down listeners, WebSockets, event
   // subscriptions, open dialogs, and unregisters app files from the serve
   // route. Safe to call multiple times — second call is a no-op.
@@ -14899,6 +15043,7 @@ const AppSandbox = (() => {
     launchHome,
     destroy,
     handlePermissionRevoked,
+    enforceVpnBoundary,
     getSandbox,
     getAllSandboxes,
     getBadge,
@@ -14948,6 +15093,7 @@ const AppSandbox = (() => {
       resolveAndClassifyWebSocketUrl,
       isInternalHost,
       handlePermissionRevoked,
+      enforceVpnBoundary,
       GUEST_FORBIDDEN_IPC_APIS,
       appBadgeState,
       fsWatchers,

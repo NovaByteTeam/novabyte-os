@@ -40,6 +40,8 @@ function makeRegistryStub() {
     get: (path) => (path === 'HKNS/apps/installed' ? INVENTORY : undefined),
     list: (path) => LISTINGS[path] || { path, keys: [], values: {} },
     set: vi.fn(),
+    import: vi.fn(() => ({ merged: 1 })),
+    saveSnapshot: vi.fn(),
   };
 }
 
@@ -51,13 +53,23 @@ async function loadEditor({
   devMode = true,
   registry = makeRegistryStub(),
   systemDialogs = { open: vi.fn(async () => null) },
+  importFile,
+  confirmImport = () => true,
+  novaRegFile,
 } = {}) {
   const loaded = await loadWindowApp('novareg', {
-    stubs: { extra: { OS: makeOS(devMode), NovaRegistry: registry, SystemDialogs: systemDialogs } },
+    stubs: { extra: {
+      OS: makeOS(devMode),
+      NovaRegistry: registry,
+      SystemDialogs: systemDialogs,
+      confirm: confirmImport,
+      ...(novaRegFile ? { NovaRegFile: novaRegFile } : {}),
+    } },
   });
   const { window } = loaded;
   const state = { cleanups: [] };
-  const content = initApp(loaded.app, { window, state });
+  const content = window.document.createElement('div');
+  loaded.app.init(content, state, { importFile });
   await settle();
   return { ...loaded, state, content };
 }
@@ -109,6 +121,56 @@ describe('NovaReg app (js/apps/novareg)', () => {
       accept: '.json,.nvreg,application/json,text/plain',
     }));
     expect(content.querySelector('input[type="file"]')).toBeNull();
+  });
+
+  it('separates favorite toggling from opening the favorites list', async () => {
+    const registry = makeRegistryStub();
+    const { content, window } = await loadEditor({ registry });
+    const buttons = [...content.querySelectorAll('button')];
+    const favoriteToggle = buttons.find((button) => button.textContent === '★ Fav');
+    const favoritesList = buttons.find((button) => button.textContent === 'Favorites');
+
+    click(window, favoriteToggle);
+    expect(registry.set).toHaveBeenCalledWith(
+      'HKND/com.nbosp.novareg/favorites',
+      [{ path: 'HKNS' }],
+      { type: 'REG_JSON', actor: 'com.nbosp.novareg' },
+    );
+    expect(content.querySelector(':scope > div[style*="z-index"]')).toBeNull();
+
+    click(window, favoritesList);
+    expect(content.querySelector(':scope > div[style*="z-index"]').textContent).toContain('HKNS');
+    expect(registry.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('imports a file opened from Files at the root declared by its .nvreg content', async () => {
+    const registry = makeRegistryStub();
+    const confirmImport = vi.fn(() => true);
+    const { content } = await loadEditor({
+      registry,
+      confirmImport,
+      novaRegFile: {
+        parse: () => ({
+          root: 'HKNS/shell/theme',
+          tree: { keys: {}, values: { '(default)': { type: 'REG_SZ', data: 'nova-dark' } } },
+        }),
+      },
+      importFile: {
+        name: 'theme.nvreg',
+        content: '; nova registry format v1\n[HKNS\\shell\\theme]\n@="nova-dark"\n',
+      },
+    });
+    await settle();
+
+    expect(registry.saveSnapshot).toHaveBeenCalledWith('HKNS', 'before-import', {
+      actor: 'com.nbosp.novareg',
+    });
+    expect(registry.import).toHaveBeenCalledWith('HKNS/shell/theme', {
+      keys: {},
+      values: { '(default)': { type: 'REG_SZ', data: 'nova-dark' } },
+    }, { actor: 'com.nbosp.novareg' });
+    expect(confirmImport).toHaveBeenCalledWith(expect.stringContaining('HKNS/shell/theme'));
+    expect(content.textContent).toContain('HKNS/shell/theme');
   });
 
   it('shows a friendly name for the selected key at boot and after navigation', async () => {

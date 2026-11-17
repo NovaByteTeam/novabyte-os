@@ -1,0 +1,20 @@
+#!/bin/sh
+
+case "$1" in
+	start)
+		if ! /usr/bin/nbosp-vpn restore; then
+			logger -t nbosp-vpn "Stored VPN could not be restored; tunnel remains inactive"
+		fi
+		;;
+	stop)
+		if ! /usr/bin/nbosp-vpn shutdown; then
+			logger -t nbosp-vpn "VPN shutdown failed"
+		fi
+		;;
+	*)
+		echo "Usage: $0 {start|stop}" >&2
+		exit 2
+		;;
+esac
+
+exit 0
