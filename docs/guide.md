@@ -731,7 +731,7 @@ Uninstall is confirmed with a modal ("Uninstall "<name>" v<version>? This cannot
 - **Debug overlay** — F3 / Ctrl+Shift+D FPS/memory HUD, devMode-gated inside `enable()`.
 - **NovaReg** — registry editor (Developer Mode); renders friendly names for ~90 well-known paths.
 
-**Devtools availability**: on dev builds, F12/Ctrl+Shift+I opens DevTools on the OS host page unconditionally (`ui-init.js:58-61`), and the dev `package.json` ships `--remote-debugging-port=9222`, `--auto-open-devtools-for-tabs`, `--disable-web-security` — treat any non-kiosk run as unhardened. The kiosk image replaces these with `--disable-devtools` and a hardened arg set (`prepare-kiosk.mjs:29-63`). There is no code path that exposes `showDevTools()` on third-party sandbox webviews — devtools are for the host page and your own dev builds. `window.__NOVA_DEBUG` un-mutes the console (it is muted by default).
+**Devtools availability**: F12/Ctrl+Shift+I opens DevTools on the OS host page (`ui-init.js:58-61`), including in the kiosk image. Kiosk builds disable browser extensions and omit the dev-only remote-debugging port, auto-open, and web-security flags. There is no code path that exposes `showDevTools()` on third-party sandbox webviews — DevTools are for the host page. `window.__NOVA_DEBUG` un-mutes the console (it is muted by default).
 
 **Tests**: `npm test` runs `npx vitest run --reporter=verbose`; the integration suites also run under `tests/integration/run-all.js`. The suites that pin the app-facing contract:
 
