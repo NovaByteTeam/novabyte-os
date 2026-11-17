@@ -341,7 +341,7 @@
   /* background) instead of an opaque panel. */
   .taskbar-window-preview {
     position: fixed;
-    background: var(--launchpad-bg, var(--bg-overlay));
+    background: var(--bg-overlay);
     border: 1px solid var(--border-default);
     border-radius: var(--r-md);
     box-shadow: var(--shadow-lg);
@@ -574,7 +574,7 @@
       opacity 300ms var(--ease-macos),
       transform 300ms var(--ease-macos),
       visibility 300ms;
-    background: var(--bg-overlay);
+    background: var(--launchpad-bg, var(--bg-overlay));
     backdrop-filter: blur(24px) saturate(200%) brightness(90%);
     -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(90%);
     flex-direction: column;

@@ -68,6 +68,8 @@
 
   const CUSTOM_WALLPAPER_STORAGE_PREFIX = '__customWallpaper:';
   const LEGACY_CUSTOM_WALLPAPER_KEY = `${CUSTOM_WALLPAPER_STORAGE_PREFIX}legacy`;
+  const LOCK_CUSTOM_WALLPAPER_STORAGE_PREFIX = '__lockCustomWallpaper:';
+  let attachedOS = null;
 
   function isMultiUserMode() {
     return typeof NovaUserScope !== 'undefined' && !!NovaUserScope
@@ -76,12 +78,15 @@
   }
 
   function legacyStorageKey(key) {
-    if (key !== 'customWallpaper' || !isMultiUserMode()) return key;
+    if (key !== 'customWallpaper' && key !== 'lockCustomWallpaper') return key;
+    if (!isMultiUserMode()) return key;
     if (typeof NovaUserScope.uid !== 'function') return null;
     const uid = NovaUserScope.uid();
-    return typeof uid === 'string' && uid
-      ? `${CUSTOM_WALLPAPER_STORAGE_PREFIX}user:${uid}`
-      : null;
+    if (typeof uid !== 'string' || !uid) return null;
+    const prefix = key === 'lockCustomWallpaper'
+      ? LOCK_CUSTOM_WALLPAPER_STORAGE_PREFIX
+      : CUSTOM_WALLPAPER_STORAGE_PREFIX;
+    return `${prefix}user:${uid}`;
   }
 
   function readLegacyStore(OS) {
@@ -120,6 +125,7 @@
       } catch (err) {
         if (logger) logger.error('Failed to persist setting(s) to the legacy Linux settings store', err);
       }
+
       return;
     }
     if (OS.workers && OS.workers.fs && typeof OS.workers.fs.call === 'function') {
@@ -132,6 +138,19 @@
         });
       }
     }
+  }
+
+  function peekLockWallpaper(uid) {
+    if (typeof uid !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(uid)) {
+      return Promise.resolve(null);
+    }
+    return Promise.resolve(readLegacyStore(attachedOS || {})).then((raw) => {
+      const image = raw?.[`${LOCK_CUSTOM_WALLPAPER_STORAGE_PREFIX}user:${uid}`];
+      if (typeof image !== 'string' || !image.startsWith('data:image/') || image.length > 24 * 1024 * 1024) {
+        return null;
+      }
+      return image;
+    });
   }
 
   // ── Hydration ───────────────────────────────────────────────────────────
@@ -204,6 +223,7 @@
   // ── attach() ────────────────────────────────────────────────────────────
 
   function attach(OS, reg) {
+    attachedOS = OS;
     if (!OS || !OS.settings || !OS.events || !reg || typeof reg.get !== 'function') return false;
     const s = OS.settings;
     if (s.__registryBacked) return true;
@@ -217,7 +237,8 @@
     // is synchronous and atomic; on failure the legacy channel takes over so
     // the change is never lost for the session's storage reality.
     s.set = function registryBackedSet(key, value) {
-      if ((key === 'wallpaperId' || key === 'customWallpaper' || key === 'customWallpaperName') &&
+      if ((key === 'wallpaperId' || key === 'customWallpaper' || key === 'customWallpaperName'
+          || key === 'lockWallpaperId' || key === 'lockCustomWallpaper' || key === 'lockCustomWallpaperName') &&
           this.get('prohibitWallpaperChange') === true) {
         return false;
       }
@@ -259,7 +280,10 @@
               [LEGACY_CUSTOM_WALLPAPER_KEY]: raw.customWallpaper,
             }));
           }
-          const keys = Object.keys(raw).filter((key) => !key.startsWith(CUSTOM_WALLPAPER_STORAGE_PREFIX));
+          const keys = Object.keys(raw).filter((key) =>
+            !key.startsWith(CUSTOM_WALLPAPER_STORAGE_PREFIX)
+            && !key.startsWith(LOCK_CUSTOM_WALLPAPER_STORAGE_PREFIX)
+          );
           if (keys.length) {
             const adopted = reg.adoptLegacySettings((key) => raw[key], keys);
             if (adopted > 0) logger.info(`[SettingsShim] Adopted ${adopted} legacy setting(s) into the registry`);
@@ -306,6 +330,7 @@
     hydrateFromRegistry,
     readLegacyStore,
     writeLegacyStore,
+    peekLockWallpaper,
     // Test hooks — never used by the shell.
     _internal: {
       setLinuxRuntime(value) { platformIsLinux = value === true; },

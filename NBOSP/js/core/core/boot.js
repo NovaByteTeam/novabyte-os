@@ -379,16 +379,39 @@ const Boot = {
 
 
   /**
-   * Sync OS version between code constant, settings store, and localStorage.
-   * Code version always wins.
+   * Sync OS version between the registry value, runtime identity, and localStorage.
    * @param {Function} sGet
    */
   syncVersion(sGet) {
     const { vPill } = Boot._dom;
-    const codeVer   = OS.version;
-    if (sGet('osVersion') !== codeVer) OS.settings.set('osVersion', codeVer);
-    try { localStorage.setItem(KEYS.OS_VERSION, codeVer); } catch (_) {}
-    if (vPill) vPill.textContent = 'VERSION ' + codeVer;
+    const codeVersion = Boot._codeVersion ?? (Boot._codeVersion = OS.version);
+    const storedVersion = sGet('osVersion');
+    const version = typeof storedVersion === 'string' && storedVersion.trim()
+      ? storedVersion.trim()
+      : codeVersion;
+    OS.version = version;
+    if (storedVersion !== version) OS.settings.set('osVersion', version);
+    try { localStorage.setItem(KEYS.OS_VERSION, version); } catch (_) {}
+    if (vPill) vPill.textContent = 'VERSION ' + version;
+
+    if (!Boot._versionListenerWired && OS.events?.on) {
+      Boot._versionListenerWired = true;
+      OS.events.on('nova:reg:changed', (event) => {
+        if (event?.path !== 'HKNS/system/osVersion') return;
+        const nextVersion = event.type === null
+          ? codeVersion
+          : typeof event.value === 'string' ? event.value.trim() : null;
+        if (nextVersion && nextVersion.length <= 64 && nextVersion !== OS.version) {
+          OS.version = nextVersion;
+          try { localStorage.setItem(KEYS.OS_VERSION, nextVersion); } catch (_) {}
+          if (Boot._dom?.vPill) Boot._dom.vPill.textContent = 'VERSION ' + nextVersion;
+          document.querySelectorAll('[data-os-version]').forEach((el) => {
+            el.textContent = `${el.dataset.osVersionPrefix || ''}${nextVersion}`;
+          });
+          OS.events.emit?.('os:version:changed', nextVersion);
+        }
+      });
+    }
   },
 
   /**

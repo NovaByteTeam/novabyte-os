@@ -859,9 +859,15 @@ const AppPermissionManager = (() => {
     // know the code's provenance is unproven.
     let trustNote = null;
     if (permission === PERMISSION_TYPES.SYSTEM_ROOT) {
-      const record = typeof AppRegistry !== 'undefined' ? AppRegistry.getApp(appId) : null;
-      const systemSigned = record?.verified === true && record?.signer === 'NovaByte System';
-      if (!systemSigned) {
+      const record = (typeof OS !== 'undefined' && OS.apps?.[appId])
+        || (typeof AppRegistry !== 'undefined' ? AppRegistry.getApp(appId) : null);
+      const verifiedPublisher = record?.verified === true
+        && typeof record.signer === 'string'
+        && record.signer.trim() !== ''
+        && record.signer !== 'integrity-only'
+        && record.revoked !== true
+        && record.tampered !== true;
+      if (!verifiedPublisher) {
         trustNote = t('shell.permissions.dialog.trustNote')
           || 'UNVERIFIED PUBLISHER — this package was NOT signed by any trusted signing authority. Granting root lets its code run unrestricted inside the OS host process.';
       }

@@ -661,6 +661,27 @@ registerApp({
       // default padding back (previously it stayed at '0' after visiting About)
       mainContent.style.padding = '';
       mainContent.dataset.currentTab = currentSection;
+      const section = SECTIONS.find((item) => item.id === currentSection);
+      mainContent.classList.toggle('has-page-header', !!section);
+      if (section) {
+        const pageHeader = createEl('header', { className: 'nook-page-header' });
+        const pageIcon = createEl('div', { className: 'nook-page-icon', 'aria-hidden': 'true' });
+        pageIcon.innerHTML = svgIcon(section.icon, 22);
+        const pageTitle = createEl('h2', {
+          className: 'nook-page-title',
+          textContent: _t(section.nameKey),
+        });
+        const pageIdentity = createEl('div', { className: 'nook-page-identity' });
+        pageIdentity.append(
+          createEl('span', {
+            className: 'nook-page-kicker',
+            textContent: OS.apps?.['com.nbosp.settings']?.name || 'Settings',
+          }),
+          pageTitle
+        );
+        pageHeader.append(pageIcon, pageIdentity);
+        mainContent.appendChild(pageHeader);
+      }
       switch (currentSection) {
         case 'appearance':        renderAppearance();      break;
         case 'accessibility':     renderAccessibility();   break;
@@ -1163,10 +1184,17 @@ registerApp({
       const regionSelect = document.createElement('select');
       regionSelect.className = 'input';
       regionSelect.id = 'region-select';
+      const regionLanguage = typeof NovaI18n !== 'undefined' && typeof NovaI18n.getLanguage === 'function'
+        ? NovaI18n.getLanguage()
+        : navigator.language || 'en';
+      const regionNames = typeof Intl.DisplayNames === 'function'
+        ? new Intl.DisplayNames([regionLanguage], { type: 'region' })
+        : null;
       for (const r of REGIONS) {
         const opt = document.createElement('option');
         opt.value = r.code;
-        opt.textContent = r.name;
+        const regionCode = r.code.slice(r.code.lastIndexOf('-') + 1);
+        opt.textContent = regionNames?.of(regionCode) || r.name;
         if (r.code === currentRegion) opt.selected = true;
         regionSelect.appendChild(opt);
       }
@@ -1811,7 +1839,7 @@ registerApp({
       mainContent.appendChild(createEl('h2', { textContent: _t('settings.sidebar.desktop'), style: { marginBottom: '20px' } }));
 
       // Wallpaper
-      const wallpaperGroup = createEl('div', { className: 'nook-group' });
+      const wallpaperGroup = createEl('div', { className: 'nook-group nook-group--wide' });
       wallpaperGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.desktop.wallpaper') }));
 
       const presetRow = createEl('div', { className: 'nook-row' });
@@ -1928,7 +1956,7 @@ registerApp({
       wallpaperGroup.appendChild(wallpaperRow);
       mainContent.appendChild(wallpaperGroup);
 
-      const lockWallpaperGroup = createEl('div', { className: 'nook-group', style: { marginTop: '16px' } });
+      const lockWallpaperGroup = createEl('div', { className: 'nook-group nook-group--wide', style: { marginTop: '16px' } });
       lockWallpaperGroup.appendChild(createEl('div', {
         className: 'nook-group-title',
         textContent: `${_t('settings.desktop.wallpaper')} - Lock screen`,
@@ -1941,9 +1969,11 @@ registerApp({
       const lockPresetContainer = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;' });
       const lockWallpaperCards = [];
       const storedLockWallpaperId = systemSettings.get('lockWallpaperId');
-      let selectedLockWallpaperId = PRESET_WALLPAPERS.some(wp => wp.id === storedLockWallpaperId)
+      const storedLockCustomWallpaper = systemSettings.get('lockCustomWallpaper');
+      let selectedLockWallpaperId = !storedLockCustomWallpaper && PRESET_WALLPAPERS.some(wp => wp.id === storedLockWallpaperId)
         ? storedLockWallpaperId
-        : 'stock-blue';
+        : storedLockCustomWallpaper ? null : 'stock-blue';
+      let resetLockButton;
 
       PRESET_WALLPAPERS.forEach((wp) => {
         const isActive = selectedLockWallpaperId === wp.id;
@@ -1959,7 +1989,9 @@ registerApp({
         });
 
         const chooseLockWallpaper = () => {
-          if (systemSettings.set('lockWallpaperId', wp.id) === false) {
+          if (systemSettings.set('lockCustomWallpaper', null) === false ||
+              systemSettings.set('lockCustomWallpaperName', null) === false ||
+              systemSettings.set('lockWallpaperId', wp.id) === false) {
             Notify.show({
               title: _t('settings.desktop.wallpaperNotChanged'),
               body: _t('settings.desktop.wallpaperPolicyBody'),
@@ -1969,6 +2001,8 @@ registerApp({
             return;
           }
           selectedLockWallpaperId = wp.id;
+          lockCustomDetails.querySelector('.nook-row-desc').textContent = _t('settings.desktop.noCustomImage');
+          resetLockButton.style.display = 'none';
           for (const [index, lockCard] of lockWallpaperCards.entries()) {
             const active = PRESET_WALLPAPERS[index].id === selectedLockWallpaperId;
             lockCard.style.borderColor = active ? 'var(--accent)' : 'transparent';
@@ -1990,6 +2024,93 @@ registerApp({
 
       lockPresetRow.appendChild(lockPresetContainer);
       lockWallpaperGroup.appendChild(lockPresetRow);
+
+      const lockCustomRow = createEl('div', { className: 'nook-row nook-lock-wallpaper-custom' });
+      const lockCustomDetails = createEl('div', { className: 'nook-lock-wallpaper-info' });
+      lockCustomDetails.append(
+        createEl('span', { className: 'nook-row-label', textContent: _t('settings.desktop.customImage') }),
+        createEl('span', {
+          className: 'nook-row-desc',
+          textContent: storedLockCustomWallpaper
+            ? (systemSettings.get('lockCustomWallpaperName') || _t('settings.desktop.customImageFallback'))
+            : _t('settings.desktop.noCustomImage'),
+        })
+      );
+      const lockCustomActions = createEl('div', { className: 'nook-lock-wallpaper-actions' });
+      const lockUploadButton = createEl('button', {
+        className: 'btn btn-sm',
+        textContent: _t('settings.desktop.chooseImage'),
+      });
+      lockUploadButton.addEventListener('click', async () => {
+        const file = await SystemDialogs.open({
+          title: _t('settings.desktop.chooseWallpaper'),
+          filter: (name, isDir) => isDir || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name),
+        });
+        if (!file || !isAlive()) return;
+        try {
+          const bytes = typeof file.content === 'string'
+            ? new TextEncoder().encode(file.content)
+            : new Uint8Array(file.content);
+          const mime = file.mimeType?.startsWith('image/') ? file.mimeType : 'image/png';
+          const base64 = typeof Buffer !== 'undefined'
+            ? Buffer.from(bytes).toString('base64')
+            : btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''));
+          const image = `data:${mime};base64,${base64}`;
+          if (systemSettings.set('lockCustomWallpaper', image) === false ||
+              systemSettings.set('lockCustomWallpaperName', file.name) === false ||
+              systemSettings.set('lockWallpaperId', null) === false) {
+            throw new Error(_t('settings.desktop.wallpaperPolicyBody'));
+          }
+          lockCustomDetails.querySelector('.nook-row-desc').textContent = file.name;
+          resetLockButton.style.display = '';
+          selectedLockWallpaperId = null;
+          lockWallpaperCards.forEach((card) => {
+            card.setAttribute('aria-pressed', 'false');
+            card.style.borderColor = 'transparent';
+            card.style.boxShadow = 'none';
+            card.style.opacity = '0.7';
+          });
+        } catch (error) {
+          Notify.show({
+            title: _t('settings.desktop.wallpaperNotChanged'),
+            body: error?.message || _t('settings.desktop.imageNotSupported'),
+            type: 'error',
+            appName: 'Settings',
+          });
+        }
+      }, { signal: lifecycle.signal });
+      lockCustomActions.appendChild(lockUploadButton);
+      resetLockButton = createEl('button', {
+        className: 'btn btn-sm',
+        textContent: _t('settings.desktop.resetToDefault'),
+        style: { display: storedLockCustomWallpaper ? '' : 'none' },
+      });
+      resetLockButton.addEventListener('click', () => {
+        if (systemSettings.set('lockCustomWallpaper', null) === false ||
+            systemSettings.set('lockCustomWallpaperName', null) === false ||
+            systemSettings.set('lockWallpaperId', 'stock-blue') === false) {
+          Notify.show({
+            title: _t('settings.desktop.wallpaperNotChanged'),
+            body: _t('settings.desktop.wallpaperPolicyBody'),
+            type: 'error',
+            appName: 'Settings',
+          });
+          return;
+        }
+        lockCustomDetails.querySelector('.nook-row-desc').textContent = _t('settings.desktop.noCustomImage');
+        selectedLockWallpaperId = 'stock-blue';
+        lockWallpaperCards.forEach((card, index) => {
+          const active = index === 0;
+          card.setAttribute('aria-pressed', String(active));
+          card.style.borderColor = active ? 'var(--accent)' : 'transparent';
+          card.style.boxShadow = active ? '0 0 0 2px var(--window-bg), 0 0 8px var(--accent)' : 'none';
+          card.style.opacity = active ? '1' : '0.7';
+        });
+        resetLockButton.style.display = 'none';
+      }, { signal: lifecycle.signal });
+      lockCustomActions.appendChild(resetLockButton);
+      lockCustomRow.append(lockCustomDetails, lockCustomActions);
+      lockWallpaperGroup.appendChild(lockCustomRow);
       mainContent.appendChild(lockWallpaperGroup);
 
       // Taskbar
@@ -2319,7 +2440,9 @@ registerApp({
           dangerous   = [...(novaData.permissions || []), ...(novaData.optionalPermissions || [])];
           normal      = [];
           appVersion  = novaData.version  || null;
-          appVerified = novaData.verified  ?? false;
+          appVerified = entry?.verified === true || novaData.verified === true
+            ? true
+            : typeof novaData.verified === 'boolean' ? novaData.verified : null;
           appAuthor   = novaData.author    || null;
         } else {
           const mapEntry = pmap[appId];
@@ -3707,7 +3830,7 @@ registerApp({
       logoBox.innerHTML = '<svg viewBox="0 0 120 120" width="32" height="32" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="abt-g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#58a6ff"/><stop offset="100%" stop-color="#a371f7"/></linearGradient></defs><polygon points="60,5 110,30 110,85 60,115 10,85 10,30" fill="rgba(88,166,255,0.05)" stroke="url(#abt-g)" stroke-width="2.5" opacity="0.9"/><polygon points="60,15 100,35 100,80 60,105 20,80 20,35" fill="none" stroke="url(#abt-g)" stroke-width="1.5" opacity="0.38"/><polygon points="60,28 88,43 88,76 60,91 32,76 32,43" fill="rgba(163,113,247,0.05)" stroke="url(#abt-g)" stroke-width="1" opacity="0.3"/><text x="60" y="69" text-anchor="middle" fill="url(#abt-g)" font-family="system-ui,-apple-system,sans-serif" font-size="30" font-weight="700">NB</text></svg>';
       const logoMeta = createEl('div');
       const lgTitle  = createEl('div', { style: 'font-size:17px;font-weight:800;background:linear-gradient(130deg,var(--text-primary) 25%,var(--accent) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px;line-height:1.15;', textContent: 'NovaByte' });
-      const verBadge = createEl('div', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:20px;padding:2px 11px;font-size:11px;font-weight:700;color:var(--accent);margin-bottom:3px;', textContent: 'v' + OS.version });
+      const verBadge = createEl('div', { 'data-os-version': '', 'data-os-version-prefix': 'v', style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:20px;padding:2px 11px;font-size:11px;font-weight:700;color:var(--accent);margin-bottom:3px;', textContent: 'v' + OS.version });
       const tagline = createEl('div', { style: 'font-size:10.5px;color:var(--text-muted);font-style:italic;', textContent: '' });
       logoMeta.append(lgTitle, verBadge, tagline);
       logoRow.append(logoBox, logoMeta);
@@ -3727,7 +3850,7 @@ registerApp({
       novaVersionRow.addEventListener('mouseenter', () => { novaVersionRow.style.background = 'rgba(88,166,255,0.08)'; });
       novaVersionRow.addEventListener('mouseleave', () => { novaVersionRow.style.background = 'transparent'; });
       const novaVerLabel = createEl('span', { textContent: _t('settings.about.novabyteVersion'), style: 'color:var(--text-secondary);flex-shrink:0;margin-right:12px;' });
-      const novaVerValue = createEl('span', { style: 'color:var(--text-primary);font-weight:500;text-align:right;max-width:65%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', textContent: 'v' + OS.version });
+      const novaVerValue = createEl('span', { 'data-os-version': '', 'data-os-version-prefix': 'v', style: 'color:var(--text-primary);font-weight:500;text-align:right;max-width:65%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', textContent: 'v' + OS.version });
       novaVersionRow.append(novaVerLabel, novaVerValue);
 
       let clickCount = 0;

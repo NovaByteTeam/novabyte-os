@@ -121,18 +121,24 @@ const STOCK_WALLPAPER_ID = 'stock-blue';
  * appears once that account is the one being unlocked. The account's hive is
  * peeked read-only because nobody has authenticated yet, so it can't be mounted.
  */
-function wallpaperFor(account) {
+async function wallpaperFor(account) {
   if (!account) return { id: STOCK_WALLPAPER_ID, custom: null };
-  // Hive documents are keyed by uid (user:<uid>:HKNU), not by the username.
-  const segment = account.uid;
+  // SessionManager mounts hives by username; uid is only the legacy fallback.
+  const segment = account.username || account.uname || account.uid;
   const peek = (path) => {
     try { return NovaRegistry?.peekUserValue?.(segment, path); } catch (_) { return undefined; }
   };
   const id = peek('HKNU/shell/lockWallpaper');
-  return { id: typeof id === 'string' ? id : STOCK_WALLPAPER_ID, custom: null };
+  let custom = null;
+  try {
+    custom = await window.NovaSettingsShim?.peekLockWallpaper?.(account.uid) || null;
+  } catch (error) {
+    console.warn('[LockScreen] Could not load the account lock wallpaper:', error);
+  }
+  return { id: typeof id === 'string' ? id : STOCK_WALLPAPER_ID, custom };
 }
 
-function setLockWallpaper(account) {
+async function setLockWallpaper(account) {
   const lockScreenEl = document.getElementById('lock-screen');
   const service = window.WallpaperService;
   if (!lockScreenEl || typeof service?.styleFor !== 'function') return;
@@ -141,7 +147,7 @@ function setLockWallpaper(account) {
     layer = createEl('div', { className: 'lock-wallpaper', 'aria-hidden': 'true' });
     lockScreenEl.prepend(layer);
   }
-  const { id, custom } = wallpaperFor(account);
+  const { id, custom } = await wallpaperFor(account);
   Object.assign(layer.style, service.styleFor(id, custom));
 }
 
@@ -752,7 +758,11 @@ function buildAccountTile(user, { resumable = false, showUsername = false } = {}
   }
   tile.appendChild(chips);
 
-  tile.addEventListener('click', () => selectAccountForAuth(user, { resumable }));
+  tile.addEventListener('click', () => {
+    selectAccountForAuth(user, { resumable }).catch((error) => {
+      console.error('[LockScreen] Could not open account sign-in:', error);
+    });
+  });
   return tile;
 }
 
@@ -815,7 +825,7 @@ function handlePickerKeydown(e, lockScreenEl) {
  * a passphrase field for passphrase accounts, and a biometric button only
  * when WebAuthn descriptors exist for that uid.
  */
-function selectAccountForAuth(user, { resumable = false } = {}) {
+async function selectAccountForAuth(user, { resumable = false } = {}) {
   sheetAccount = user;
   sheetResumable = resumable;
   surface = 'picker-auth';
@@ -824,7 +834,7 @@ function selectAccountForAuth(user, { resumable = false } = {}) {
   const lockScreenEl = document.getElementById('lock-screen');
   const pickerEl = lockScreenEl?.querySelector('.lock-picker');
   if (pickerEl) pickerEl.style.display = 'none';
-  setLockWallpaper(user);
+  await setLockWallpaper(user);
 
   for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad']) {
     const el = document.getElementById(id);

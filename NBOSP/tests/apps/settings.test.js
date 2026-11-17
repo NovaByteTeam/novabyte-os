@@ -184,6 +184,7 @@ describe("'Settings' app (js/apps/settings)", () => {
 
     sidebarBtn(content, 'System').click();
     expect(content.querySelector('.nook-content').dataset.currentTab).toBe('system');
+    expect(content.querySelector('.nook-page-header')).toBeTruthy();
     expect(content.querySelector('.nook-content h2').textContent).toBe('System');
     expect(content.querySelector('#system-username-input').value).toBe('nova');
     expect([...content.querySelectorAll('button')].some((b) => b.textContent === 'Boot to Recovery')).toBe(true);
@@ -239,6 +240,16 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(clockToggle.getAttribute('aria-checked')).toBe('true');
   });
 
+  it('renders region names using the UI locale instead of script-dependent autonyms', async () => {
+    const { content } = await loadSettings();
+    sidebarBtn(content, 'Date and Region').click();
+    const regionSelect = content.querySelector('#region-select');
+    const myanmar = regionSelect.querySelector('option[value="my-MM"]');
+    const regionName = new Intl.DisplayNames([navigator.language || 'en'], { type: 'region' }).of('MM');
+    expect(myanmar.textContent).toBe(regionName);
+    expect(myanmar.textContent).not.toMatch(/[□�]/);
+  });
+
   it('applies a preset wallpaper and manages taskbar settings in Desktop', async () => {
     const { content, nbs, notify } = await loadSettings();
     sidebarBtn(content, 'Desktop').click();
@@ -273,6 +284,36 @@ describe("'Settings' app (js/apps/settings)", () => {
     clockToggle.click();
     expect(nbs.sets).toContainEqual(['showTaskbarClock', false]);
     expect(trayClock.style.display).toBe('none');
+  });
+
+  it('uploads and resets a lock-screen image independently from the desktop wallpaper', async () => {
+    const file = {
+      name: 'account-lock.png',
+      mimeType: 'image/png',
+      content: Uint8Array.from([1, 2, 3]),
+    };
+    const { content, nbs } = await loadSettings({
+      extra: { SystemDialogs: { open: vi.fn(async () => file) } },
+    });
+    sidebarBtn(content, 'Desktop').click();
+
+    const lockUpload = content.querySelector('.nook-lock-wallpaper-custom button');
+    expect(lockUpload).toBeTruthy();
+    lockUpload.click();
+    await settle();
+
+    expect(nbs.sets).toContainEqual(['lockCustomWallpaper', 'data:image/png;base64,AQID']);
+    expect(nbs.sets).toContainEqual(['lockCustomWallpaperName', 'account-lock.png']);
+    expect(nbs.sets).toContainEqual(['lockWallpaperId', null]);
+    expect(nbs.sets.some(([key]) => key === 'customWallpaper')).toBe(false);
+    expect(content.querySelector('.nook-lock-wallpaper-custom .nook-row-desc').textContent)
+      .toBe('account-lock.png');
+
+    const resetLock = content.querySelector('.nook-lock-wallpaper-actions button:nth-child(2)');
+    expect(resetLock).toBeTruthy();
+    resetLock.click();
+    expect(nbs.sets).toContainEqual(['lockCustomWallpaper', null]);
+    expect(nbs.sets).toContainEqual(['lockWallpaperId', 'stock-blue']);
   });
 
   it('guards enabling Developer Mode behind the security warning dialog', async () => {

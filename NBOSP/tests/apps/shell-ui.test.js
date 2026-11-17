@@ -1415,11 +1415,12 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
     window.applyTheme('nova-light');
     expect(colorSchemeMeta.content).toBe('light');
     expect(window.document.documentElement.style.colorScheme).toBe('light');
+    expect(window.document.documentElement.style.getPropertyValue('--launchpad-bg')).toBe('rgba(255, 255, 255, 0.70)');
     window.applyTheme('nord');
     expect(events).toEqual(['nova-light', 'nord']);
     expect(colorSchemeMeta.content).toBe('dark');
     expect(window.document.documentElement.style.getPropertyValue('--bg-base')).toBe('#2e3440');
-    expect(window.document.documentElement.style.getPropertyValue('--launchpad-bg')).toBe('var(--window-bg)');
+    expect(window.document.documentElement.style.getPropertyValue('--launchpad-bg')).toBe('rgba(46, 52, 64, 0.70)');
     window.applyTheme('nova-dark');
     expect(window.document.documentElement.style.getPropertyValue('--launchpad-bg')).toBe('var(--bg-overlay)');
     expect(() => window.applyTheme('not-a-theme')).not.toThrow(); // falls back to nova-dark

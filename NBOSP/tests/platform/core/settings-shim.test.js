@@ -163,6 +163,35 @@ describe('settings shim (js/platform/core/settings-shim.js)', () => {
     expect(OS.settings.get('customWallpaper')).toBe(dataUrl);
   });
 
+  it('stores custom lock wallpapers under the active user and exposes only that user image to the picker', async () => {
+    const image = 'data:image/png;base64,lock-image';
+    const legacyStore = { '__lockCustomWallpaper:user:u-ada': image };
+    const { OS, workerCalls } = freshOS({ legacyStore });
+    const originalScope = globalThis.NovaUserScope;
+    globalThis.NovaUserScope = {
+      enabled: () => true,
+      uid: () => 'u-ada',
+    };
+
+    try {
+      attachAll(OS);
+      await OS.settings.load();
+      expect(OS.settings.get('lockCustomWallpaper')).toBe(image);
+      expect(await Shim.peekLockWallpaper('u-ada')).toBe(image);
+      expect(await Shim.peekLockWallpaper('u-sam')).toBeNull();
+      expect(await Shim.peekLockWallpaper('../settings')).toBeNull();
+
+      OS.settings.set('lockCustomWallpaper', image);
+      expect(workerCalls.some(([method, key]) =>
+        method === 'putSetting' && key === '__lockCustomWallpaper:user:u-ada')).toBe(true);
+      expect(NovaRegistry.settingsPathFor('lockCustomWallpaper')).toBeNull();
+      expect(NovaRegistry.settingsPathFor('lockCustomWallpaperName')).toBe('HKNU/shell/lockCustomWallpaperName');
+    } finally {
+      if (originalScope === undefined) delete globalThis.NovaUserScope;
+      else globalThis.NovaUserScope = originalScope;
+    }
+  });
+
   it('scopes custom wallpapers to the active user and hides the old shared value', async () => {
     const dataUrl = 'data:image/png;base64,' + 'A'.repeat(1000);
     const legacyStore = {

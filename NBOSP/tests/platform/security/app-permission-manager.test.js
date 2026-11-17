@@ -539,4 +539,84 @@ describe('AppPermissionManager — declared permission reasons', () => {
       expect(APM.isGranted('net:external', 'denial-app')).toBe(false);
     });
   });
+
+  it('does not label a verified runtime package as an unverified publisher in the root prompt', async () => {
+    installStubDocument();
+    const originalOS = globalThis.OS;
+    const originalAppRegistry = globalThis.AppRegistry;
+    const originalTranslate = window._t;
+    globalThis.OS = {
+      settings: { get: (key) => key === 'devMode' || key === 'rootAccessEnabled' },
+      apps: { 'verified-root-app': { verified: true, signer: 'Trusted Publisher' } },
+    };
+    globalThis.AppRegistry = {
+      getApp: vi.fn(() => ({ verified: false })),
+    };
+    window._t = () => undefined;
+
+    try {
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      const request = APM.requestPermission('system:root', 'verified-root-app');
+      expect(createdElements.some((node) => node.textContent.includes('UNVERIFIED PUBLISHER'))).toBe(false);
+      createdElements.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Deny').click();
+      await expect(request).resolves.toBe(false);
+    } finally {
+      globalThis.OS = originalOS;
+      globalThis.AppRegistry = originalAppRegistry;
+      if (originalTranslate === undefined) delete window._t;
+      else window._t = originalTranslate;
+    }
+  });
+
+  it('shows the unverified-publisher warning when the runtime package is not verified', async () => {
+    installStubDocument();
+    const originalOS = globalThis.OS;
+    const originalAppRegistry = globalThis.AppRegistry;
+    const originalTranslate = window._t;
+    globalThis.OS = {
+      settings: { get: (key) => key === 'devMode' || key === 'rootAccessEnabled' },
+      apps: { 'unverified-root-app': { verified: false } },
+    };
+    globalThis.AppRegistry = { getApp: vi.fn(() => null) };
+    window._t = () => undefined;
+
+    try {
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      const request = APM.requestPermission('system:root', 'unverified-root-app');
+      expect(createdElements.some((node) => node.textContent.includes('UNVERIFIED PUBLISHER'))).toBe(true);
+      createdElements.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Deny').click();
+      await expect(request).resolves.toBe(false);
+    } finally {
+      globalThis.OS = originalOS;
+      globalThis.AppRegistry = originalAppRegistry;
+      if (originalTranslate === undefined) delete window._t;
+      else window._t = originalTranslate;
+    }
+  });
+
+  it('does not treat an integrity-only package as a verified publisher', async () => {
+    installStubDocument();
+    const originalOS = globalThis.OS;
+    const originalAppRegistry = globalThis.AppRegistry;
+    const originalTranslate = window._t;
+    globalThis.OS = {
+      settings: { get: (key) => key === 'devMode' || key === 'rootAccessEnabled' },
+      apps: { 'integrity-only-root-app': { verified: true, signer: 'integrity-only' } },
+    };
+    globalThis.AppRegistry = { getApp: vi.fn(() => null) };
+    window._t = () => undefined;
+
+    try {
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      const request = APM.requestPermission('system:root', 'integrity-only-root-app');
+      expect(createdElements.some((node) => node.textContent.includes('UNVERIFIED PUBLISHER'))).toBe(true);
+      createdElements.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Deny').click();
+      await expect(request).resolves.toBe(false);
+    } finally {
+      globalThis.OS = originalOS;
+      globalThis.AppRegistry = originalAppRegistry;
+      if (originalTranslate === undefined) delete window._t;
+      else window._t = originalTranslate;
+    }
+  });
 });

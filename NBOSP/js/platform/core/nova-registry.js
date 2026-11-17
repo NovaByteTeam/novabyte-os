@@ -110,9 +110,9 @@ const NovaRegistry = (() => {
   //   HKNU/settings/* — every other per-user preference (settingsPathFor
   //                     files unmapped keys here automatically)
   //
-  // customWallpaper is deliberately absent (SETTINGS_EXCLUDED_KEYS): a
+  // Custom wallpapers are deliberately absent (SETTINGS_EXCLUDED_KEYS): a
   // multi-megabyte data URL would blow the per-value size quota, so it keeps
-  // riding the legacy persistence channel.
+  // riding the account-scoped legacy persistence channel.
   const SETTINGS_KEY_TO_PATH = Object.freeze({
     // mapped shell & desktop keys. 2026-11-15 redesign: theme, accent and
     // wallpaper are personal preferences — they ride the mounted HKNU hive
@@ -122,6 +122,7 @@ const NovaRegistry = (() => {
     accentColor: 'HKNU/shell/accentColor',
     wallpaperId: 'HKNU/shell/wallpaper',
     lockWallpaperId: 'HKNU/shell/lockWallpaper',
+    lockCustomWallpaperName: 'HKNU/shell/lockCustomWallpaperName',
     pinnedApps: 'HKNU/desktop/pins',
     defaultApps: 'HKNU/shell/defaultApps',
     // system (machine-scoped) keys
@@ -181,7 +182,7 @@ const NovaRegistry = (() => {
   );
 
   // Settings keys that never enter the registry (oversized payloads).
-  const SETTINGS_EXCLUDED_KEYS = Object.freeze(new Set(['customWallpaper']));
+  const SETTINGS_EXCLUDED_KEYS = Object.freeze(new Set(['customWallpaper', 'lockCustomWallpaper']));
 
   // Path prefixes that map back to a settings key for the generic
   // HKNU/settings/* / HKNS/{settings,system,security[\/policy]}/* areas.

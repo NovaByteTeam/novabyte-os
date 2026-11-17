@@ -213,7 +213,7 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--bg-sunken);
   }
   ::-webkit-scrollbar-thumb {
     background: var(--border-strong);
@@ -441,8 +441,12 @@
   #lock-screen > .lock-wallpaper {
     position: absolute;
     inset: 0;
-    z-index: -1;
+    z-index: 0;
     pointer-events: none;
+  }
+  #lock-screen > :not(.lock-wallpaper) {
+    position: relative;
+    z-index: 1;
   }
   #lock-screen > .lock-wallpaper::after {
     content: '';

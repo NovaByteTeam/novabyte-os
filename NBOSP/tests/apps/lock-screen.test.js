@@ -323,13 +323,17 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
   });
 
   it('shows stock blue on the picker and only switches to an account\'s wallpaper on its PIN screen', async () => {
-    // keyed by uid, like the registry's user:<uid>:HKNU documents (the usernames differ)
-    const stored = { 'u-ada-001': { lockId: 'stock-red' }, 'u-sam-002': { lockId: 'stock-green' } };
+    // User hives are mounted by username, while wallpaper blobs use the account UID.
+    const stored = { ada: { lockId: 'stock-red' }, sam: { lockId: 'stock-green' } };
+    const peekedSegments = [];
     const { window, document } = await loadMultiUser({
       extraStubs: {
         // the machine's desktop is still wearing whoever logged off last
         WallpaperService: { styleFor: (id) => ({ backgroundImage: `url("${id}.png")` }) },
-        NovaRegistry: { peekUserValue: (segment, path) => (path === 'HKNU/shell/lockWallpaper' ? stored[segment]?.lockId : undefined) },
+        NovaRegistry: { peekUserValue: (segment, path) => {
+          peekedSegments.push(segment);
+          return path === 'HKNU/shell/lockWallpaper' ? stored[segment]?.lockId : undefined;
+        } },
       },
     });
     const layerImage = () => document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage;
@@ -351,6 +355,34 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     [...document.querySelectorAll('.lp-tile')][1].click(); // Sam
     await settle();
     expect(layerImage()).toBe('url("stock-green.png")');
+    expect(peekedSegments).toContain('ada');
+    expect(peekedSegments).toContain('sam');
+  });
+
+  it('uses the selected account custom image and returns to stock blue on the picker', async () => {
+    const { window, document } = await loadMultiUser({
+      extraStubs: {
+        WallpaperService: {
+          styleFor: (id, custom) => ({
+            backgroundImage: custom ? `url("${custom}")` : `url("${id}.png")`,
+          }),
+        },
+        NovaRegistry: { peekUserValue: () => 'stock-blue' },
+        NovaSettingsShim: { peekLockWallpaper: async (uid) => uid === 'u-ada-001' ? 'data:image/png;base64,ada' : null },
+      },
+    });
+
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][0].click();
+    await settle();
+    expect(document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage)
+      .toBe('url("data:image/png;base64,ada")');
+
+    document.getElementById('lock-picker-back').click();
+    await settle();
+    expect(document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage)
+      .toBe('url("stock-blue.png")');
   });
 
   it('falls back to stock blue for an account whose hive has no wallpaper yet', async () => {

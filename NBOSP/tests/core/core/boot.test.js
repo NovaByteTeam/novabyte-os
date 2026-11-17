@@ -195,16 +195,81 @@ describe('Boot (js/core/core/boot.js)', () => {
     expect(rootClasses.add).toHaveBeenCalledWith('no-glass');
   });
 
-  it('syncVersion sets localStorage and vPill text', () => {
+  it('syncVersion uses a NovaReg OS version override and updates the version pill', () => {
     if (!window.Boot) { expect(true).toBe(true); return; }
     const vPill = { textContent: '' };
+    const originalVersion = globalThis.OS.version;
+    const originalSettings = globalThis.OS.settings;
+    const originalDom = window.Boot._dom;
+    const originalVersionListenerWired = window.Boot._versionListenerWired;
+    const originalCodeVersion = window.Boot._codeVersion;
     window.Boot._dom = { vPill };
     globalThis.OS.version = '3.0.2';
     globalThis.OS.settings = { set: vi.fn() };
-    const sGet = vi.fn(() => null);
-    window.Boot.syncVersion(sGet);
-    expect(vPill.textContent).toBe('VERSION 3.0.2');
-    expect(localStorage.getItem('novabyte_os_version')).toBe('3.0.2');
+    window.Boot._codeVersion = '3.0.2';
+    try {
+      window.Boot.syncVersion(() => '3.1.0-custom');
+      expect(globalThis.OS.version).toBe('3.1.0-custom');
+      expect(vPill.textContent).toBe('VERSION 3.1.0-custom');
+      expect(localStorage.getItem('novabyte_os_version')).toBe('3.1.0-custom');
+    } finally {
+      globalThis.OS.version = originalVersion;
+      globalThis.OS.settings = originalSettings;
+      window.Boot._dom = originalDom;
+      window.Boot._versionListenerWired = originalVersionListenerWired;
+      if (originalCodeVersion === undefined) delete window.Boot._codeVersion;
+      else window.Boot._codeVersion = originalCodeVersion;
+    }
+  });
+
+  it('syncVersion applies NovaReg version edits and resets to the build version when removed', () => {
+    if (!window.Boot) { expect(true).toBe(true); return; }
+    const originalOS = globalThis.OS;
+    const originalDom = window.Boot._dom;
+    const originalVersionListenerWired = window.Boot._versionListenerWired;
+    const originalCodeVersion = window.Boot._codeVersion;
+    const originalSettings = globalThis.OS.settings;
+    const originalEvents = globalThis.OS.events;
+    const versionLabel = document.createElement('span');
+    versionLabel.dataset.osVersion = '';
+    versionLabel.dataset.osVersionPrefix = 'v';
+    document.body.appendChild(versionLabel);
+    const listeners = {};
+    const vPill = { textContent: '' };
+    globalThis.OS.version = '3.0.2';
+    globalThis.OS.settings = { set: vi.fn() };
+    globalThis.OS.events = {
+      on: vi.fn((name, callback) => { listeners[name] = callback; }),
+      emit: vi.fn(),
+    };
+    window.Boot._dom = { vPill };
+    window.Boot._versionListenerWired = false;
+    window.Boot._codeVersion = '3.0.2';
+
+    try {
+      window.Boot.syncVersion(() => '3.0.2');
+      listeners['nova:reg:changed']({
+        path: 'HKNS/system/osVersion',
+        type: 'REG_SZ',
+        value: '4.1.0-custom',
+      });
+      expect(globalThis.OS.version).toBe('4.1.0-custom');
+      expect(vPill.textContent).toBe('VERSION 4.1.0-custom');
+      expect(versionLabel.textContent).toBe('v4.1.0-custom');
+
+      listeners['nova:reg:changed']({ path: 'HKNS/system/osVersion', type: null, value: null });
+      expect(globalThis.OS.version).toBe('3.0.2');
+      expect(vPill.textContent).toBe('VERSION 3.0.2');
+    } finally {
+      versionLabel.remove();
+      globalThis.OS = originalOS;
+      globalThis.OS.settings = originalSettings;
+      globalThis.OS.events = originalEvents;
+      window.Boot._dom = originalDom;
+      window.Boot._versionListenerWired = originalVersionListenerWired;
+      if (originalCodeVersion === undefined) delete window.Boot._codeVersion;
+      else window.Boot._codeVersion = originalCodeVersion;
+    }
   });
 
   it('configureTaskbar does not throw when taskbar is missing', () => {
