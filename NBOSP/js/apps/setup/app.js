@@ -201,7 +201,7 @@ registerApp({
     const top = createEl('div', { className: 'nvsetup-top' });
     const brand = createEl('div', { className: 'nvsetup-brand' });
     const logo = createEl('span', { className: 'nvsetup-logo', 'aria-hidden': 'true' });
-    logo.innerHTML = svgIcon(SETUP_ICON, 22);
+    logo.innerHTML = svgIcon('/assets/setup.svg', 22);
     brand.append(logo, createEl('span', { textContent: 'NovaByte Setup' }));
     const dots = createEl('div', { className: 'nvsetup-progress', role: 'progressbar', 'aria-label': _t('setup.progressAria') });
     for (let i = 0; i <= LAST_STEP; i++) {

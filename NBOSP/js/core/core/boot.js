@@ -955,11 +955,22 @@ async function startConfiguredHomeApp() {
       }
 
       const stored = registry.find(a => a.id === bundle.id);
+      const systemTrustMetadataCurrent = pkg.manifest.system !== true || (
+        typeof pkg.integrity?.payloadHash === 'string' &&
+        pkg.integrity.payloadHash.length > 0 &&
+        stored?.system === true &&
+        stored?.verified === true &&
+        stored?.signer === 'NovaByte System' &&
+        stored?.source === 'system-bundle' &&
+        stored?.manifest?.system === true &&
+        stored?.integrity?.payloadHash === pkg.integrity?.payloadHash
+      );
       const samePackage = stored &&
         stored.signature === pkg.signature &&
         stored.version === pkg.manifest.version &&
         stored.compiled_at === pkg.compiled_at &&
-        (!pkg.integrity?.payloadHash || stored.integrity?.payloadHash === pkg.integrity.payloadHash);
+        (!pkg.integrity?.payloadHash || stored.integrity?.payloadHash === pkg.integrity.payloadHash) &&
+        systemTrustMetadataCurrent;
       if (samePackage) continue;
 
       try {

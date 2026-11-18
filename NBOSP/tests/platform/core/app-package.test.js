@@ -342,30 +342,42 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
 
     it('preserves package trust metadata on the registered bundled app', async () => {
       const { installPackage } = await import('../../../js/platform/core/app-package.js');
-      const pkg = {
-        novabyte_app: '1.0',
-        compiled_at: 123456789,
-        manifest: { ...validManifest, system: true },
-        files: { 'index.html': '' },
-        signature: null,
-        signing: null,
-        integrity: { method: 'none' },
-      };
+      const previousPackageStore = window.NovaAppPackageStore;
+      const storeInstall = vi.fn(async () => {});
+      window.NovaAppPackageStore = { installApp: storeInstall };
+      try {
+        const pkg = {
+          novabyte_app: '1.0',
+          compiled_at: 123456789,
+          manifest: { ...validManifest, system: true },
+          files: { 'index.html': '' },
+          signature: null,
+          signing: null,
+          integrity: { method: 'none' },
+        };
 
-      await installPackage(pkg, { source: 'system-bundle' });
+        await installPackage(pkg, { source: 'system-bundle' });
 
-      const registeredApp = globalThis.AppRegistry.registerApp.mock.calls[0][0];
-      expect(registeredApp).toMatchObject({
-        source: 'system-bundle',
-        verified: true,
-        signer: 'NovaByte System',
-        system: true,
-        manifest: pkg.manifest,
-        integrity: pkg.integrity,
-        signing: pkg.signing,
-        novabyte_app: pkg.novabyte_app,
-        compiled_at: pkg.compiled_at,
-      });
+        const registeredApp = globalThis.AppRegistry.registerApp.mock.calls[0][0];
+        expect(registeredApp).toMatchObject({
+          source: 'system-bundle',
+          verified: true,
+          signer: 'NovaByte System',
+          system: true,
+          manifest: pkg.manifest,
+          integrity: pkg.integrity,
+          signing: pkg.signing,
+          novabyte_app: pkg.novabyte_app,
+          compiled_at: pkg.compiled_at,
+        });
+        expect(storeInstall).toHaveBeenCalledWith(expect.objectContaining({
+          system: true,
+          source: 'system-bundle',
+        }));
+      } finally {
+        if (previousPackageStore === undefined) delete window.NovaAppPackageStore;
+        else window.NovaAppPackageStore = previousPackageStore;
+      }
     });
 
     describe('close-before-replace (2026-11-16)', () => {

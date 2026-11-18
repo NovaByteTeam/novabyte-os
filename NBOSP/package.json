@@ -51,7 +51,7 @@
     "express-rate-limit": "^8.7.4",
     "express-session": "^1.19.0",
     "helmet": "^8.3.0",
-    "i18next": "^27.1.5",
+    "i18next": "^27.2.0",
     "imapflow": "^2.12.1",
     "multer": "^2.5.0",
     "node-pop3": "^0.15.5",

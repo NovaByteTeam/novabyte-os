@@ -98,6 +98,14 @@ describe('built-in service boundaries', () => {
     expect(setupManifest.unrestrictedEntry).toBe('app.js');
   });
 
+  it('reconciles unchanged system packages when persisted trusted metadata is stale', () => {
+    const bootSource = readWorkspaceFile('../../../js/core/core/boot.js');
+    expect(bootSource).toContain('stored?.system === true');
+    expect(bootSource).toContain("stored?.source === 'system-bundle'");
+    expect(bootSource).toContain("stored?.signer === 'NovaByte System'");
+    expect(bootSource).toContain('systemTrustMetadataCurrent');
+  });
+
   it('preserves the system tray across launcher re-renders (log off → log back in)', () => {
     // Contract: #system-tray-root carries the tray service's listeners and
     // gets moved INSIDE the launcher's taskbar; re-running the launcher

@@ -750,6 +750,7 @@ const AppPackage = (() => {
           signature: appConfig.signature,
           verified,
           signer,
+          system: appConfig.system,
           source: appConfig.source,
           installedDate: appConfig.installedDate,
           manifest: pkg.manifest,
