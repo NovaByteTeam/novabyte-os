@@ -46,7 +46,7 @@ function installRequire({ sudoCandidatesOk = ['sudo'], execResults = [] } = {}) 
       sudo.calls.push({ bin, argv, opts });
       const child = {
         exitCode: null,
-        stdin: { end: (data) => { sudo.calls.at(-1).stdin = data; } },
+        stdin: { on: () => {}, end: (data) => { sudo.calls.at(-1).stdin = data; } },
       };
       const outcome = queue.length ? queue.shift() : { code: 0, stdout: '', stderr: '' };
       if (outcome.spawnError) {

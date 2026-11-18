@@ -40,6 +40,12 @@
         }
         resolve(stdout.trim());
       });
+      // The helper can exit (or fail to spawn) before we finish writing, and Node
+      // then emits EPIPE on stdin. Unhandled, client.js turns that into process.exit(1).
+      // 'close' above already reports the real outcome, so only surface other errors.
+      child.stdin.on('error', (error) => {
+        if (error.code !== 'EPIPE') reject(error);
+      });
       child.stdin.end(input ?? '');
     });
   }

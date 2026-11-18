@@ -221,6 +221,8 @@
         });
       } catch (e) { reject(e); return; }
       if (input != null && child.stdin) {
+        // sudo can bail (no -n permission, bad argv) before reading; the execFile callback reports that.
+        child.stdin.on('error', () => {});
         child.stdin.end(input);
       }
     });
