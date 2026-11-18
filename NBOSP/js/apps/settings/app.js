@@ -625,7 +625,7 @@ registerApp({
 
     function buildSidebar() {
       const brand = createEl('div', { className: 'nook-sidebar-brand' });
-      brand.innerHTML = svgIcon('settings', 18);
+      brand.innerHTML = svgIcon('/assets/settings.svg', 18);
       brand.appendChild(createEl('span', {
         textContent: OS.apps?.['com.nbosp.settings']?.name || 'Settings'
       }));

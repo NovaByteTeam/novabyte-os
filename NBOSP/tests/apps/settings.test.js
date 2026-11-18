@@ -93,7 +93,7 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(app.id).toBe('com.nbosp.settings');
     expect(app.name).toBe('Settings');
     expect(app.version).toBe('3.0.2');
-    expect(app.icon).toBe('settings');
+    expect(app.icon).toBe('/assets/settings.svg');
     expect(app.defaultSize).toEqual([700, 500]);
     expect(app.minSize).toEqual([500, 400]);
     expect(typeof app.init).toBe('function');
@@ -148,6 +148,8 @@ describe("'Settings' app (js/apps/settings)", () => {
     const { content } = await loadSettings();
     const buttons = [...content.querySelectorAll('.nook-section-btn')];
     expect(content.querySelector('.nook-sidebar-brand')).toBeTruthy();
+    expect(content.querySelector('.nook-sidebar-brand img')?.getAttribute('src'))
+      .toBe('/assets/settings.svg');
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
       'Appearance', 'Accessibility', 'Desktop', 'System', 'Date and Region',
       'Connectivity', 'VPN', 'Storage', 'Notifications', 'Privacy', 'Root Access',

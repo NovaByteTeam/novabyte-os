@@ -66,7 +66,6 @@ describe('DefaultApps', () => {
         'com.test.unrelated': { name: 'Unrelated App', handles: { roles: ['home-screen'] } },
       },
     });
-
     expect(DefaultApps.getAppsForCategory('home').map(app => app.id)).toEqual([
       'com.nbosp.launcher',
       'com.test.home',
@@ -74,6 +73,25 @@ describe('DefaultApps', () => {
     expect(DefaultApps.setDefault('home', 'com.test.home')).toBe(true);
     expect(DefaultApps.getDefault('home')).toBe('com.test.home');
     expect(DefaultApps.setDefault('home', 'com.test.unrelated')).toBe(false);
+  });
+
+  it('uses the registered system app name and custom icon for built-in defaults', () => {
+    const { DefaultApps } = loadDefaultApps({
+      apps: {
+        'com.nbosp.browser': {
+          name: 'NovaByte Browser',
+          icon: '/assets/browser.svg',
+        },
+      },
+    });
+
+    expect(DefaultApps.getAppsForCategory('browser')).toEqual([
+      {
+        id: 'com.nbosp.browser',
+        name: 'NovaByte Browser',
+        icon: '/assets/browser.svg',
+      },
+    ]);
   });
 
   it('ignores stale persisted choices and resolves MIME types through installed candidates', () => {

@@ -1298,6 +1298,7 @@ registerApp({
     function resolveIcon(app) {
       if (!app?.icon || typeof app.icon !== 'string') return null;
       if (/^data:|^https?:\/\//i.test(app.icon)) return app.icon;
+      if (/^\/assets\/[A-Za-z0-9._/-]+$/.test(app.icon)) return app.icon;
       const files = app.files || app._files || {};
       const encoded = files[app.icon];
       if (encoded && typeof encoded === 'string') {
@@ -1324,7 +1325,14 @@ registerApp({
         const apps = [
           ...installed.filter(app => !serviceIds.has(app.id) && !isManagedSystemPackage(app)),
           ...services,
-        ];
+        ].map(app => {
+          const registered = OS.apps?.[app.id];
+          if (app.source === 'system-bundle' && registered?.source === 'system-bundle' &&
+              typeof registered.icon === 'string' && registered.icon) {
+            return { ...app, icon: registered.icon };
+          }
+          return app;
+        });
         const knownIds = new Set(apps.map(app => app.id));
         for (const [id, entry] of Object.entries(OS.apps || {})) {
           if (knownIds.has(id) || id.startsWith('wa_') || id.startsWith('webapp_') ||

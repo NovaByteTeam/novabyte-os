@@ -64,43 +64,43 @@ const CATEGORIES = Object.freeze({
   browser: Object.freeze({
     get name() { return t('apps.defaultApps.categoryBrowser', 'Web Browser'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.browser', name: 'Browser', icon: 'globe' }),
+      Object.freeze({ id: 'com.nbosp.browser', name: 'Browser', icon: '/assets/browser.svg' }),
     ]),
   }),
   texteditor: Object.freeze({
     get name() { return t('apps.defaultApps.categoryTexteditor', 'Text Editor'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.textedit', name: 'TextEdit', icon: 'pen-tool' }),
+      Object.freeze({ id: 'com.nbosp.textedit', name: 'TextEdit', icon: '/assets/textedit.svg' }),
     ]),
   }),
   music: Object.freeze({
     get name() { return t('apps.defaultApps.categoryMusic', 'Music Player'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.music', name: 'Music', icon: 'music' }),
+      Object.freeze({ id: 'com.nbosp.music', name: 'Music', icon: '/assets/music.svg' }),
     ]),
   }),
   gallery: Object.freeze({
     get name() { return t('apps.defaultApps.categoryGallery', 'Photo Viewer'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.gallery', name: 'Gallery', icon: 'image' }),
+      Object.freeze({ id: 'com.nbosp.gallery', name: 'Gallery', icon: '/assets/gallery.svg' }),
     ]),
   }),
   email: Object.freeze({
     get name() { return t('apps.defaultApps.categoryEmail', 'Email'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.email', name: 'Email', icon: 'mail' }),
+      Object.freeze({ id: 'com.nbosp.email', name: 'Email', icon: '/assets/email.svg' }),
     ]),
   }),
   calendar: Object.freeze({
     get name() { return t('apps.defaultApps.categoryCalendar', 'Calendar'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.calendar', name: 'Calendar', icon: 'calendar' }),
+      Object.freeze({ id: 'com.nbosp.calendar', name: 'Calendar', icon: '/assets/calendar.svg' }),
     ]),
   }),
   home: Object.freeze({
     get name() { return t('apps.defaultApps.categoryHome', 'Home app'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.launcher', name: 'Launcher', icon: 'home' }),
+      Object.freeze({ id: 'com.nbosp.launcher', name: 'Launcher', icon: '/assets/launcher.svg' }),
     ]),
   }),
 });
@@ -215,7 +215,20 @@ const DefaultApps = {
     // a caller's .push()/.sort() throw or silently no-op depending on
     // strict mode, instead of just working like a normal array.
     if (!hasOSApps) return category.apps.slice();
-    return category.apps.filter(a => !!OS.apps[a.id]);
+    return category.apps
+      .filter(app => !!OS.apps[app.id])
+      .map(app => {
+        const registered = OS.apps[app.id];
+        return {
+          ...app,
+          name: typeof registered.name === 'string' && registered.name.trim()
+            ? registered.name
+            : app.name,
+          icon: typeof registered.icon === 'string' && registered.icon
+            ? registered.icon
+            : app.icon,
+        };
+      });
   },
 
   /**
