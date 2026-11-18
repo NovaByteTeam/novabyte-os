@@ -29,13 +29,12 @@ for (const entry of sqlitePrebuilds) {
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 manifest.window = {
   ...manifest.window,
-  dev_tools: true,
   frame: false,
   fullscreen: true,
   kiosk: true,
   "chromium-args": [
     "--no-first-run",
-    "--disable-extensions",
+    "--disable-devtools",
     "--allow-insecure-localhost",
     "--class=com.novabyte.os",
     "--enable-features=UseOzonePlatform",

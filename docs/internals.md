@@ -88,7 +88,7 @@ Key structural facts:
 |---|---|---|
 | 1 | NW.js entry `client.js`; `prestart` runs `scripts/bootstrap.js` + `build-apps-on-start.js` (builds `.novaapp` bundles into `js/apps/`) | `NBOSP/package.json:8-11` |
 | 2 | `scripts/startup.js` spawns the Express server as a child (sharing the per-launch rate-limit secret), waits for readiness, opens the NW window on `https://localhost:<port>` | `NBOSP/scripts/startup.js:17-27,47-55,158-171` |
-| 3 | Kiosk image rewrites `package.json` window flags (frameless/fullscreen/kiosk), keeps host DevTools available, and disables browser extensions | `NBOSP/os/package/nbosp-kiosk/prepare-kiosk.mjs:20-63` |
+| 3 | Kiosk image rewrites `package.json` window flags (frameless/fullscreen/kiosk) and chromium-args (incl. `--disable-devtools`) | `NBOSP/os/package/nbosp-kiosk/prepare-kiosk.mjs:20-57` |
 
 ### 3.2 Page load order and early guards
 
@@ -532,7 +532,7 @@ Channel model (Android-style v2): 32 channels/app, importance locked at creation
 
 ### 10.2 Kiosk prep (`NBOSP/os/package/nbosp-kiosk/prepare-kiosk.mjs`)
 
-Validates the built NW.js bundle, deletes every non-linux-x64 `.node` prebuild, **replaces** (does not merge) `manifest.window` (frame:false, fullscreen:true, kiosk:true, `dev_tools:true`) and rewrites `chromium-args` wholesale: adds `--no-first-run --disable-extensions --allow-insecure-localhost --class=com.novabyte.os --ozone-platform=x11 --use-gl=angle --use-angle=gl --disable-features=Vulkan,Translate,AutofillServerCommunication --deny-permission-prompts --password-store=basic --user-data-dir=/home/nbosp/.config/novabyte` etc. — no remote-debugging port or `--disable-web-security` (`prepare-kiosk.mjs:18-63`). The dev `NBOSP/package.json` by contrast ships `--remote-debugging-port=9222 --auto-open-devtools-for-tabs --disable-web-security --allow-file-access-from-files` (`NBOSP/package.json:26-31`) — see §12.
+Validates the built NW.js bundle, deletes every non-linux-x64 `.node` prebuild, **replaces** (does not merge) `manifest.window` (frame:false, fullscreen:true, kiosk:true) and rewrites `chromium-args` wholesale: adds `--no-first-run --disable-devtools --allow-insecure-localhost --class=com.novabyte.os --ozone-platform=x11 --use-gl=angle --use-angle=gl --disable-features=Vulkan,Translate,AutofillServerCommunication --deny-permission-prompts --password-store=basic --user-data-dir=/home/nbosp/.config/novabyte` etc. — no remote-debugging port, no `--disable-web-security` (`prepare-kiosk.mjs:18-63`). The dev `NBOSP/package.json` by contrast ships `--remote-debugging-port=9222 --auto-open-devtools-for-tabs --disable-web-security --allow-file-access-from-files` and `"dev_tools": true` (`NBOSP/package.json:26-31`) — see §12.
 
 ### 10.3 What isolation exists TODAY (explicit status)
 
@@ -663,7 +663,7 @@ Grouped from the audit notes. Severity tags are the auditors'. Every item keeps 
 | Item | Ref |
 |---|---|
 | CRITICAL (dev posture) — Dev `package.json` ships `--disable-web-security --allow-file-access-from-files --remote-debugging-port=9222` + `node-remote https://localhost:*`; CDP on 9222 is a full-takeover channel for any local process; kiosk build strips these, but any non-kiosk run is exposed | `NBOSP/package.json:26-32`; `NBOSP/os/package/nbosp-kiosk/prepare-kiosk.mjs:35-62` |
-| MEDIUM — F12/Ctrl+Shift+I opens DevTools on the Node host page without a devMode gate; available in kiosk builds too | `NBOSP/ui-init.js:58-61`; `NBOSP/os/package/nbosp-kiosk/prepare-kiosk.mjs` |
+| MEDIUM — F12/Ctrl+Shift+I unconditionally opens DevTools on the Node host page (no devMode gate; only kiosk `--disable-devtools` neutralizes it) | `NBOSP/ui-init.js:58-61` |
 | HIGH — Unauthenticated SSE log mirror: `GET /api/events/stream` replays the full 500-entry ServerEventLog (email usernames/hosts, blocked proxy hostnames, client IPs/UAs) to any local client | `NBOSP/server/core/events-routes.js:9-29`; `NBOSP/email/controller.js:172-177` |
 | MEDIUM — Push publish vs CSRF contradiction: designed untrusted/token-authenticated, but not CSRF-exempt — external backends get 403 in the real chain; tests never exercise it through the CSRF middleware | `NBOSP/server/core/push-routes.js:91-130`; `NBOSP/security/middleware.js:39-59` |
 | MEDIUM — Input "sanitization" HTML-escapes every request body except three prefixes — email passwords/passphrases with `&<>"'` are silently mutated (auth-breaker for real IMAP/SMTP creds) | `NBOSP/security/middleware.js:336-401` |

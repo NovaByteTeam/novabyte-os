@@ -38,17 +38,6 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(networkScript).toContain('ln -sf /run/resolv.conf /etc/resolv.conf');
   });
 
-  it('disables persisted browser extensions while keeping host DevTools available', () => {
-    const prepare = readFileSync(
-      new URL('../../os/package/nbosp-kiosk/prepare-kiosk.mjs', import.meta.url),
-      'utf8',
-    );
-
-    expect(prepare).toContain('dev_tools: true');
-    expect(prepare).toContain('"--disable-extensions"');
-    expect(prepare).not.toContain('"--disable-devtools"');
-  });
-
   it('includes passwordless sudo in the booted root filesystem for NovaRoot', () => {
     const defconfig = readFileSync(new URL('../../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
     const sudoers = readFileSync(
