@@ -748,6 +748,38 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     }
   });
 
+  it('applies the VPN boundary through NW.js webview.executeScript', async () => {
+    const appId = 'com.example.vpn-boundary';
+    const sandboxId = 'vpn-boundary-execute-script';
+    const webview = {
+      executeScript: vi.fn((_details, callback) => callback([true])),
+    };
+    AppSandbox._internal._activeSandboxes.set(sandboxId, { appId, webview });
+    try {
+      await expect(AppSandbox.enforceVpnBoundary(appId)).resolves.toBe(true);
+      expect(webview.executeScript).toHaveBeenCalledWith(
+        { code: expect.stringContaining('data-nova-vpn-boundary') },
+        expect.any(Function)
+      );
+    } finally {
+      AppSandbox._internal._activeSandboxes.delete(sandboxId);
+    }
+  });
+
+  it('rejects VPN registration when NW.js does not confirm the boundary script', async () => {
+    const appId = 'com.example.vpn-boundary';
+    const sandboxId = 'vpn-boundary-execute-script-rejected';
+    AppSandbox._internal._activeSandboxes.set(sandboxId, {
+      appId,
+      webview: { executeScript: (_details, callback) => callback([]) },
+    });
+    try {
+      await expect(AppSandbox.enforceVpnBoundary(appId)).resolves.toBe(false);
+    } finally {
+      AppSandbox._internal._activeSandboxes.delete(sandboxId);
+    }
+  });
+
   it('lets only the active sandboxed Home app open Home defaults in Settings', async () => {
     const responses = [];
     const createWindow = vi.fn(() => ({ id: 'settings-window' }));
@@ -1857,6 +1889,77 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(responses[0].result.success).toBe(true);
     expect(typeof responses[0].result.data).toBe('string');
     expect(responses[0].result.data).toBe('{"legacy":true,"items":[1,2]}');
+  });
+
+  it('reads UTF-8 text files stored as Node Buffers through the legacy VFS channel', async () => {
+    const responses = [];
+    const textFile = {
+      id: 'legacy-buffer-text',
+      name: 'test.txt',
+      type: 'file',
+      content: Buffer.from('Hello from the old vfs API!'),
+      mimeType: 'application/octet-stream',
+    };
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      files: new Map([['legacy-buffer-text', textFile]]),
+      getPath: id => id === 'root' ? '/home/user' : '/home/user/data/editor_app/test.txt',
+      getByPath: path => path === '/data/editor_app/test.txt' ? textFile : null,
+    });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      await AppSandbox._internal.handleAPICall(
+        'nova:vfs:read',
+        { path: '/data/test.txt' },
+        'legacy-buffer-text-read',
+        { id: 'editor_app' },
+        webview,
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.success).toBe(true);
+    expect(responses[0].result.data).toBe('Hello from the old vfs API!');
+  });
+
+  it('returns binary Buffer reads as base64 with an encoding marker', async () => {
+    const responses = [];
+    const binary = Buffer.from([0, 255, 1, 128]);
+    const binaryFile = {
+      id: 'legacy-buffer-binary',
+      name: 'image.png',
+      type: 'file',
+      content: binary,
+      mimeType: 'image/png',
+    };
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      files: new Map([['legacy-buffer-binary', binaryFile]]),
+      getPath: id => id === 'root' ? '/home/user' : '/home/user/data/editor_app/image.png',
+      getByPath: path => path === '/data/editor_app/image.png' ? binaryFile : null,
+    });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      await AppSandbox._internal.handleAPICall(
+        'nova:fs:read',
+        { path: '/data/image.png' },
+        'legacy-buffer-binary-read',
+        { id: 'editor_app' },
+        webview,
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.data).toBe(binary.toString('base64'));
+    expect(responses[0].result.encoding).toBe('base64');
   });
 
   it('reads string file content through unchanged', async () => {

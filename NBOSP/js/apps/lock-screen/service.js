@@ -127,7 +127,7 @@ async function wallpaperFor(account) {
   // SessionManager mounts hives by username; uid is only the legacy fallback.
   const segment = account.username || account.uname || account.uid;
   const peek = (path) => {
-    try { return NovaRegistry?.peekUserValue?.(segment, path); } catch (_) { return undefined; }
+    try { return window.NovaRegistry?.peekUserValue?.(segment, path); } catch (_) { return undefined; }
   };
   const id = peek('HKNU/shell/lockWallpaper');
   let custom = null;

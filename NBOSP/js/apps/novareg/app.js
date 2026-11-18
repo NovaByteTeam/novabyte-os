@@ -208,6 +208,7 @@ registerApp({
     let filterText = '';
     let auditVisible = false;
     let dwordRadix = 10;               // 10 | 16 — editor radix for DWORD/QWORD
+    let activeTransient = null;
 
     // Editor scratch state (favorites, jump history) lives in the HKND dev
     // hive so it survives restarts but never ships in prod builds.
@@ -379,6 +380,24 @@ registerApp({
 
     content.append(toolbar, main, auditPane, statusBar);
 
+    function dismissTransient(node) {
+      if (activeTransient?.node === node) activeTransient = null;
+      node?.remove();
+    }
+
+    function prepareTransient(trigger) {
+      if (activeTransient?.trigger === trigger) {
+        dismissTransient(activeTransient.node);
+        return false;
+      }
+      if (activeTransient) dismissTransient(activeTransient.node);
+      return true;
+    }
+
+    function trackTransient(trigger, node) {
+      activeTransient = { trigger, node };
+    }
+
     // ── tree rendering (lazy: children load on expand) ─────────────────
     function nodeLabel(path) { return path.split('/').pop(); }
 
@@ -442,7 +461,7 @@ registerApp({
       row.append(nameSpan, typeSpan, dataSpan, modSpan);
       row.title = _t('apps.novareg.rowEditHint', { path: selectedPath + '/' + name });
       row.addEventListener('click', () => { selectedValue = name; renderTree(); refreshValues(); setStatus(_t('apps.novareg.statusSelected', { name: displayName })); }, { signal: ac.signal });
-      row.addEventListener('dblclick', () => openValueEditor(isDefault ? DEFAULT_NAME : name, entry, isDefault), { signal: ac.signal });
+      row.addEventListener('dblclick', () => openValueEditor(isDefault ? DEFAULT_NAME : name, entry, isDefault, row), { signal: ac.signal });
       return row;
     }
 
@@ -523,10 +542,10 @@ registerApp({
           expanded[selectedPath + '/' + name] = true;
           refresh().then(() => setStatus(_t('apps.novareg.statusCreatedKey', { path: selectedPath + '/' + name })));
         } catch (err) { setStatus(errorMessage(err)); }
-      });
+      }, newKeyBtn);
     }, { signal: ac.signal });
 
-    newValueBtn.addEventListener('click', () => openValueEditor(null, null, false), { signal: ac.signal });
+    newValueBtn.addEventListener('click', () => openValueEditor(null, null, false, newValueBtn), { signal: ac.signal });
 
     newLinkBtn.addEventListener('click', () => {
       if (HIVES.includes(selectedPath)) { setStatus(_t('apps.novareg.statusHiveNoLink')); return; }
@@ -537,8 +556,8 @@ registerApp({
             expanded[selectedPath] = true;
             refresh().then(() => setStatus(_t('apps.novareg.statusLinked', { path: selectedPath + '/' + name, target })));
           } catch (err) { setStatus(errorMessage(err)); }
-        });
-      });
+        }, newLinkBtn);
+      }, newLinkBtn);
     }, { signal: ac.signal });
 
     renameBtn.addEventListener('click', () => {
@@ -551,7 +570,7 @@ registerApp({
             selectedValue = name;
             refresh().then(() => setStatus(_t('apps.novareg.statusRenamedTo', { path: result.path })));
           } catch (err) { setStatus(errorMessage(err)); }
-        });
+        }, renameBtn);
         return;
       }
       openPromptDialog(_t('apps.novareg.renameKeyTitle', { path: selectedPath }), _t('apps.novareg.newNameLabel'), (name) => {
@@ -561,7 +580,7 @@ registerApp({
           delete expanded[selectedPath];
           refresh().then(() => setStatus(_t('apps.novareg.statusRenamedKeyTo', { path: result.path })));
         } catch (err) { setStatus(errorMessage(err)); }
-      });
+      }, renameBtn);
     }, { signal: ac.signal });
 
     copyPathBtn.addEventListener('click', async () => {
@@ -603,36 +622,33 @@ registerApp({
 
     // Favorites + Snapshots dropdowns share a tiny popover helper.
     function openPopover(anchor, build) {
-      closePopovers();
+      if (!prepareTransient(anchor)) return null;
       const pop = el('div', 'position:absolute;background:var(--bg-elevated,#161b22);border:1px solid var(--border-subtle,#2a2f3a);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:6px;min-width:220px;max-height:260px;overflow:auto;z-index:20;');
       build(pop);
       content.style.position = 'relative';
       content.appendChild(pop);
+      trackTransient(anchor, pop);
       const rect = anchor.getBoundingClientRect();
       const hostRect = content.getBoundingClientRect();
       pop.style.top = Math.min(rect.bottom - hostRect.top + 4, hostRect.height - 80) + 'px';
       pop.style.left = Math.max(rect.left - hostRect.left, 4) + 'px';
-      pop.__anchor = anchor;
       setTimeout(() => {
         document.addEventListener('click', function close(e) {
-          if (pop.contains(e.target) || (pop.__anchor && pop.__anchor.contains(e.target))) {
+          if (pop.contains(e.target) || anchor.contains(e.target)) {
             document.addEventListener('click', close, { once: true });
             return;
           }
-          pop.remove();
+          dismissTransient(pop);
         }, { once: true });
       }, 0);
       return pop;
-    }
-    function closePopovers() {
-      content.querySelectorAll(':scope > div[style*="z-index:20"]').forEach((n) => n.remove());
     }
 
     function popoverItem(pop, label, onClick, danger) {
       const item = el('div', 'padding:5px 10px;border-radius:4px;cursor:pointer;white-space:nowrap;color:' + (danger ? 'var(--text-danger)' : 'var(--text-primary)') + ';', label);
       item.addEventListener('mouseenter', () => { item.style.background = 'var(--accent-muted,rgba(88,166,255,0.15))'; }, { signal: ac.signal });
       item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; }, { signal: ac.signal });
-      item.addEventListener('click', () => { pop.remove(); onClick(); }, { signal: ac.signal });
+      item.addEventListener('click', () => { dismissTransient(pop); onClick(); }, { signal: ac.signal });
       pop.appendChild(item);
       return item;
     }
@@ -662,7 +678,7 @@ registerApp({
               const snap = Reg.saveSnapshot(hive, label, { actor: SELF });
               setStatus(_t('apps.novareg.snapshotSaved', { id: snap.id, hive }));
             } catch (err) { setStatus(errorMessage(err)); }
-          });
+          }, snapBtn);
         });
         let snaps = [];
         try { snaps = Reg.snapshots(hive); } catch (_) { /* ignore */ }
@@ -673,7 +689,7 @@ registerApp({
           const restoreB = el('button', btnStyle(false), _t('apps.novareg.restoreBtn'));
           const delB = el('button', btnStyle(false), '✕');
           restoreB.addEventListener('click', () => {
-            pop.remove();
+            dismissTransient(pop);
             if (!window.confirm(_t('apps.novareg.confirmRestore', { hive, label: snap.label }))) return;
             try {
               Reg.restoreSnapshot(hive, snap.id, { actor: SELF });
@@ -681,7 +697,7 @@ registerApp({
             } catch (err) { setStatus(errorMessage(err)); }
           }, { signal: ac.signal });
           delB.addEventListener('click', () => {
-            pop.remove();
+            dismissTransient(pop);
             try { Reg.deleteSnapshot(hive, snap.id); setStatus(_t('apps.novareg.snapshotDeleted')); }
             catch (err) { setStatus(errorMessage(err)); }
           }, { signal: ac.signal });
@@ -747,8 +763,10 @@ registerApp({
       return results;
     }
 
-    function openFindDialog() {
-      const { back, box } = dialogShell(_t('apps.novareg.findTitle'));
+    function openFindDialog(trigger = findBtn) {
+      const shell = dialogShell(_t('apps.novareg.findTitle'), trigger);
+      if (!shell) return;
+      const { back, box } = shell;
       const query = el('input', fieldStyle());
       query.placeholder = _t('apps.novareg.searchPlaceholder');
       const scopeRow = el('div', 'display:flex;gap:14px;margin-top:8px;color:var(--text-muted,#9aa4b2);align-items:center;');
@@ -790,7 +808,7 @@ registerApp({
           const finfo = infoOf(keyPath);
           row.title = finfo ? finfo.label + (finfo.description ? ' — ' + finfo.description : '') : keyPath;
           row.addEventListener('click', () => {
-            back.remove();
+            dismissTransient(back);
             jumpInput.value = result.kind === 'key' ? result.path : keyOf(result.path);
             jump();
             if (result.kind !== 'key') {
@@ -809,7 +827,7 @@ registerApp({
       content.appendChild(back);
       query.focus();
     }
-    findBtn.addEventListener('click', openFindDialog, { signal: ac.signal });
+    findBtn.addEventListener('click', () => openFindDialog(findBtn), { signal: ac.signal });
     content.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
@@ -823,7 +841,9 @@ registerApp({
     // ── permissions dialog (engine ACLs) ───────────────────────────────
     permBtn.addEventListener('click', () => {
       if (HIVES.includes(selectedPath)) { setStatus(_t('apps.novareg.statusAclHiveRoot')); return; }
-      const { back, box } = dialogShell(_t('apps.novareg.permissionsTitle', { path: selectedPath }));
+      const shell = dialogShell(_t('apps.novareg.permissionsTitle', { path: selectedPath }), permBtn);
+      if (!shell) return;
+      const { back, box } = shell;
 
       let effective = null;
       try { effective = Reg.effectiveAcl(selectedPath); } catch (_) { /* ignore */ }
@@ -880,7 +900,7 @@ registerApp({
       clearBtn.addEventListener('click', () => {
         try {
           Reg.setAcl(selectedPath, null, { actor: SELF });
-          back.remove();
+          dismissTransient(back);
           refresh().then(() => setStatus(_t('apps.novareg.statusAclCleared', { path: selectedPath })));
         } catch (err) { errorLine.textContent = errorMessage(err); }
       }, { signal: ac.signal });
@@ -893,7 +913,7 @@ registerApp({
         }).filter((entry) => entry.id);
         try {
           Reg.setAcl(selectedPath, { owner: ownerInput.value.trim() || null, entries }, { actor: SELF });
-          back.remove();
+          dismissTransient(back);
           refresh().then(() => setStatus(_t('apps.novareg.statusAclSaved', { path: selectedPath, count: entries.length })));
         } catch (err) { errorLine.textContent = errorMessage(err); }
       }, { signal: ac.signal });
@@ -1006,16 +1026,18 @@ registerApp({
 
     // ── dialogs (value editor + prompt) ────────────────────────────────
     function overlay() {
-      const back = el('div', 'position:absolute;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:30;');
+      const back = el('div', 'position:absolute;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:30;');
       content.style.position = 'relative';
       return back;
     }
 
-    function dialogShell(titleText) {
+    function dialogShell(titleText, trigger) {
+      if (!prepareTransient(trigger)) return null;
       const back = overlay();
       const box = el('div', 'background:var(--bg-elevated,#161b22);border:1px solid var(--border-subtle,#2a2f3a);border-radius:8px;padding:14px;min-width:360px;max-width:560px;box-shadow:0 12px 32px rgba(0,0,0,0.5);max-height:90%;overflow:auto;');
       box.appendChild(el('div', 'font-weight:600;margin-bottom:10px;color:var(--text-primary);', titleText));
       back.appendChild(box);
+      trackTransient(trigger, back);
       return { back, box };
     }
 
@@ -1029,10 +1051,12 @@ registerApp({
       row.append(cancel, save);
       return { row, save };
     }
-    function backClose(box) { if (box && box.parentNode) box.parentNode.remove(); }
+    function backClose(box) { if (box?.parentNode) dismissTransient(box.parentNode); }
 
-    function openPromptDialog(titleText, labelText, onSubmit) {
-      const { back, box } = dialogShell(titleText);
+    function openPromptDialog(titleText, labelText, onSubmit, trigger) {
+      const shell = dialogShell(titleText, trigger);
+      if (!shell) return;
+      const { back, box } = shell;
       const label = el('div', 'margin-bottom:6px;color:var(--text-muted,#9aa4b2);', labelText);
       const input = el('input', fieldStyle());
       input.placeholder = _t('apps.novareg.namePlaceholder');
@@ -1068,10 +1092,12 @@ registerApp({
       }
     }
 
-    function openValueEditor(name, entry, isDefaultRow) {
+    function openValueEditor(name, entry, isDefaultRow, trigger) {
       const isNew = !name;
       const title = isNew ? _t('apps.novareg.newValueTitle', { path: selectedPath }) : _t('apps.novareg.editValueTitle', { path: selectedPath + '/' + name });
-      const { back, box } = dialogShell(title);
+      const shell = dialogShell(title, trigger);
+      if (!shell) return;
+      const { back, box } = shell;
 
       const nameLabel = el('div', 'margin:6px 0 4px;color:var(--text-muted,#9aa4b2);', isDefaultRow ? _t('apps.novareg.nameDefaultLabel') : _t('apps.novareg.nameLabel'));
       const nameInput = el('input', fieldStyle());

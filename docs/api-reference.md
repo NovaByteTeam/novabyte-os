@@ -512,7 +512,7 @@ Caller-relative roots: `appdata:<path>` always resolves into **this app's** `/da
 
 | Method | Channel | Returns (raw handler shape) | Errors |
 |---|---|---|---|
-| `fs.read(path)` | `nova:fs:read {path}` | file `{success, data, mimeType, name, size, id, path, modified, created}`; folder `{success, isFolder:true, name, id, path, children[]}` | `NOT_FOUND`, `PERMISSION_DENIED` |
+| `fs.read(path)` | `nova:fs:read {path}` | file `{success, data, encoding?, mimeType, name, size, id, path, modified, created}`; folder `{success, isFolder:true, name, id, path, children[]}` | `NOT_FOUND`, `PERMISSION_DENIED` |
 | `fs.write(path, content)` | `nova:fs:write {path, content}` | `{success, id, path}` (create); `{success}` (update) | `INVALID_ARGS`, `PERMISSION_DENIED`, `INVALID_OPERATION` (folder), `NOT_FOUND`, `UNAVAILABLE` |
 | `fs.list(path)` | `nova:fs:list {path}` | `{success, path, files[]}` | `NOT_FOUND`, `INVALID_OPERATION`, `PERMISSION_DENIED` |
 | `fs.stat(path)` | `nova:fs:stat {path}` | `{success, stat:{id,name,type,mimeType,size,path,parentId,created,modified,accessed,permissions,sha256,tags}}` | `NOT_FOUND`, `PERMISSION_DENIED` |
@@ -530,6 +530,8 @@ Caller-relative roots: `appdata:<path>` always resolves into **this app's** `/da
 | `fs.shared.read(path)` | `nova:fs:read` (prefix `shared:/`) | as `fs.read` | as `fs.read` |
 
 Non-string `content` is JSON-serialized (never `[object Object]`); cycles/BigInt reject `INVALID_ARGS` (`:2399-2420`). `watch` delivery is **best-effort** — poll if you need guarantees (rate-limited events are silently coalesced, `:7688-7690`).
+
+`fs.read` decodes Buffer-backed text (including clean UTF-8 with an unknown MIME type) as UTF-8. Buffer-backed binary files return base64 in `data` and set `encoding: "base64"`.
 
 ### 4.4 `media` (4 methods)
 
@@ -758,7 +760,7 @@ All `nova:fs:*` MAC rows are `null` (advisory) **by design**: ownership is path-
 
 | Channel | Facade | Permission (MAC) | Rate limit | Payload | Response | Errors |
 |---|---|---|---|---|---|---|
-| `nova:fs:read` **[isolated ok]** | `novaOS.fs.read/appdata.read/shared.read` | advisory | none | `{path}` or `{id}` | file `{success, data, mimeType, name, size, id, path, modified, created}`; folder `{success, isFolder:true, name, id, path, children[]}` | `NOT_FOUND` `File or folder not found`; `PERMISSION_DENIED` (folder listing / file contents variants); ledger `noteBytes(read)` |
+| `nova:fs:read` **[isolated ok]** | `novaOS.fs.read/appdata.read/shared.read` | advisory | none | `{path}` or `{id}` | file `{success, data, encoding?, mimeType, name, size, id, path, modified, created}`; folder `{success, isFolder:true, name, id, path, children[]}` | `NOT_FOUND` `File or folder not found`; `PERMISSION_DENIED` (folder listing / file contents variants); ledger `noteBytes(read)` |
 | `nova:fs:write` **[isolated ok]** | `novaOS.fs.write/appdata.write` | advisory | none | picked: `{id, content}`; path: `{path, content}` (+`mimeType` for create, default `text/plain`) | create `{success, id, path}`; update `{success}` | `INVALID_ARGS` (`content is required`, `path and content are required`, `Content is not JSON-serializable: …`); `INVALID_OPERATION` `Cannot write to a folder`; `PERMISSION_DENIED` (`shared:/media: roots cannot address app data`, write-grant variants); `NOT_FOUND` (`Selected file no longer exists`, `Parent folder not found`); `UNAVAILABLE` (confirm unavailable) |
 | `nova:fs:delete` **[isolated ok]** | `novaOS.fs.remove/appdata.remove` | advisory | none | `{path\|id, permanent?}` (permanent = bypass trash) | `{success:true}`; confirm-cancel resolves `{cancelled:true}` | `NOT_FOUND`; `PROTECTED_LOCATION` `System filesystem roots cannot be deleted` (root, trash, `/data`); `PERMISSION_DENIED`; `UNAVAILABLE` `User confirmation is required to delete a shared file` |
 | `nova:fs:list` **[isolated ok]** | `novaOS.fs.list/appdata.list/shared.list` | advisory | none | `{path}` (folder only) | `{success, path, files[]}` | `NOT_FOUND` `Folder not found`; `INVALID_OPERATION` `Path is not a folder`; `PERMISSION_DENIED` |

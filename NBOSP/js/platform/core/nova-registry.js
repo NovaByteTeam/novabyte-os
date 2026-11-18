@@ -1569,12 +1569,17 @@ const NovaRegistry = (() => {
       if (typeof segment !== 'string' || !USER_DOC_RE.exec(`user:${segment}:HKNU`)) return undefined;
       const parsed = parsePath(path);
       if (parsed.error || !USER_HIVES.includes(parsed.hive)) return undefined;
-      if (!state.storage || typeof state.storage.read !== 'function') return undefined;
-      const raw = state.storage.read(`user:${segment}:${parsed.hive}`);
-      if (raw === null || raw === undefined) return undefined;
-      const decoded = decodeHive(parsed.hive, raw, () => { /* a read-only peek never quarantines */ });
-      if (!decoded) return undefined;
-      const { node, name } = resolveValueTarget({ [parsed.hive]: decoded }, parsed.hive, parsed.segments, false, { boundedTo: parsed.hive });
+      let hive;
+      if (state.userUid === segment) {
+        hive = state.hives[parsed.hive];
+      } else {
+        if (!state.storage || typeof state.storage.read !== 'function') return undefined;
+        const raw = state.storage.read(`user:${segment}:${parsed.hive}`);
+        if (raw === null || raw === undefined) return undefined;
+        hive = decodeHive(parsed.hive, raw, () => { /* a read-only peek never quarantines */ });
+      }
+      if (!hive) return undefined;
+      const { node, name } = resolveValueTarget({ [parsed.hive]: hive }, parsed.hive, parsed.segments, false, { boundedTo: parsed.hive });
       return node && node.values[name] ? node.values[name].data : undefined;
     } catch (_) {
       return undefined;

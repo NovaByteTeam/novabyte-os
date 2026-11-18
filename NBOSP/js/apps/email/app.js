@@ -113,7 +113,7 @@ registerApp({
       .em-row2{display:flex;gap:8px;}
       .em-row2>*{flex:1;}
       /* Compose */
-      .em-compose-overlay{position:fixed;inset:0;background:rgba(0,0,0,.12);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+      .em-compose-overlay{position:fixed;inset:0;background:rgba(0,0,0,.12);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
       .em-compose-win{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(620px,100%);height:min(500px,100%);min-height:min(300px,100%);max-height:100%;box-sizing:border-box;background:color-mix(in srgb,var(--bg-elevated) 78%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-radius:12px;border:1px solid var(--border);box-shadow:0 24px 72px rgba(0,0,0,.45);display:flex;flex-direction:column;overflow:hidden;}
       .em-compose-hdr{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-primary);flex-shrink:0;cursor:move;touch-action:none;user-select:none;}
       .em-compose-hdr button{cursor:pointer;}

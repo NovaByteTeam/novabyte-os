@@ -143,6 +143,30 @@ describe('NovaReg app (js/apps/novareg)', () => {
     expect(registry.set).toHaveBeenCalledTimes(1);
   });
 
+  it('closes the favorites popover when its toolbar button is clicked again', async () => {
+    const { content, window } = await loadEditor();
+    const favoritesList = [...content.querySelectorAll('button')]
+      .find((button) => button.textContent === 'Favorites');
+
+    click(window, favoritesList);
+    expect(content.querySelector(':scope > div[style*="z-index"]')).not.toBeNull();
+
+    click(window, favoritesList);
+    expect(content.querySelector(':scope > div[style*="z-index"]')).toBeNull();
+  });
+
+  it('closes an open toolbar dialog when its button is clicked again', async () => {
+    const { content, window } = await loadEditor();
+    const newKey = [...content.querySelectorAll('button')]
+      .find((button) => button.textContent === '+ Key');
+
+    click(window, newKey);
+    expect(content.querySelector(':scope > div[style*="z-index"]')).not.toBeNull();
+
+    click(window, newKey);
+    expect(content.querySelector(':scope > div[style*="z-index"]')).toBeNull();
+  });
+
   it('imports a file opened from Files at the root declared by its .nvreg content', async () => {
     const registry = makeRegistryStub();
     const confirmImport = vi.fn(() => true);

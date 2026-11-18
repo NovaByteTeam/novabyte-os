@@ -2321,12 +2321,14 @@ const AppSandbox = (() => {
         if (!(sandbox.pickedFileIds instanceof Set)) sandbox.pickedFileIds = new Set();
         sandbox.pickedFileIds.add(node.id);
         closeDialog();
+        const readContent = normalizeFsReadContent(node.content, node.mimeType);
         respond(webview, type, requestId, {
           success: true,
           file: {
             id: node.id,
             name: node.name,
-            content: coerceFsReadContent(node.content) || '',
+            content: readContent.content || '',
+            ...(readContent.encoding ? { encoding: readContent.encoding } : {}),
             mimeType: node.mimeType || 'text/plain',
             size: node.size || 0,
             path: FS.getPath(node.id),
@@ -2470,9 +2472,11 @@ const AppSandbox = (() => {
         detail: FS.getPath(node.id),
       });
     }
+    const readContent = normalizeFsReadContent(node.content, node.mimeType);
     return respond(webview, 'nova:fs:read', requestId, {
       success: true,
-      data: coerceFsReadContent(node.content),
+      data: readContent.content,
+      ...(readContent.encoding ? { encoding: readContent.encoding } : {}),
       mimeType: node.mimeType,
       name: node.name,
       size: node.size,
@@ -2508,15 +2512,25 @@ const AppSandbox = (() => {
     return JSON.stringify(content);
   }
 
-  // Read-side twin of coerceFsWriteContent: whatever reaches the VFS —
-  // including content stored by pre-fix builds or any non-IPC writer — an app
-  // reading a file gets text it can display, never a live object that string
-  // concatenation turns into "[object Object]". Strings pass through
-  // untouched; null/undefined stay null so "absent" remains distinguishable;
-  // everything else becomes its JSON text, exactly what the write path would
-  // have stored for the same value.
-  function coerceFsReadContent(content) {
-    return coerceFsWriteContent(content);
+  // Normalize legacy VFS values into text or marked base64 without exposing
+  // Buffer's JSON object shape to apps.
+  function normalizeFsReadContent(content, mimeType) {
+    const mime = typeof mimeType === 'string' ? mimeType.split(';', 1)[0].toLowerCase() : '';
+    const bytes = Buffer.isBuffer(content)
+      ? content
+      : (content?.type === 'Buffer' && Array.isArray(content.data) ? Buffer.from(content.data) : null);
+    const declaredText = mime.startsWith('text/')
+      || mime === 'application/json'
+      || mime.endsWith('+json')
+      || mime === 'application/xml'
+      || mime.endsWith('+xml')
+      || mime === 'application/javascript'
+      || mime === 'application/x-javascript'
+      || mime === 'image/svg+xml';
+    const sniffedText = bytes && (!mime || mime === 'application/octet-stream') && looksLikeUtf8Text(bytes);
+    if (bytes && (declaredText || sniffedText)) return { content: bytes.toString('utf8') };
+    if (bytes) return { content: bytes.toString('base64'), encoding: 'base64' };
+    return { content: coerceFsWriteContent(content) };
   }
 
   async function handleFsWrite({ payload, requestId, app, webview, sandbox }) {
@@ -4257,7 +4271,7 @@ const AppSandbox = (() => {
     const overlay = document.createElement('div');
     const sandboxId = webview?.dataset?.sandboxId;
     overlay.setAttribute('role', 'presentation');
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:20px;';
     const dialog = document.createElement('section');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
@@ -9184,10 +9198,12 @@ const AppSandbox = (() => {
           }
           if (!(sandbox.pickedFileIds instanceof Set)) sandbox.pickedFileIds = new Set();
           sandbox.pickedFileIds.add(entry.id);
+          const readContent = normalizeFsReadContent(entry.content, entry.mimeType);
           files.push({
             id: entry.id,
             name: entry.name,
-            content: coerceFsReadContent(entry.content) || '',
+            content: readContent.content || '',
+            ...(readContent.encoding ? { encoding: readContent.encoding } : {}),
             mimeType: entry.mimeType || 'text/plain',
             size: entry.size || 0,
             path: FS.getPath(entry.id),
@@ -13870,7 +13886,7 @@ const AppSandbox = (() => {
         const popupHeight = Math.min(Math.max(Number(event.initialHeight) || 620, 300), Math.round(hostHeight * 0.85));
 
         backdrop = document.createElement('div');
-        backdrop.style.cssText = 'position:absolute;inset:0;z-index:9999;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+        backdrop.style.cssText = 'position:absolute;inset:0;z-index:9999;background:rgba(0,0,0,0.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;';
 
         const card = document.createElement('div');
         card.style.cssText = `width:${popupWidth}px;height:${popupHeight}px;background:var(--bg,#1e1e2e);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);`;
@@ -14694,12 +14710,24 @@ const AppSandbox = (() => {
       return true;
     })()`;
     for (const sandbox of targets) {
-      if (typeof sandbox.webview?.executeJavaScript !== 'function') {
+      if (typeof sandbox.webview?.executeScript !== 'function') {
         log('error', `Cannot enforce VPN boundary for ${appId}: webview execution is unavailable`);
         return false;
       }
       try {
-        await sandbox.webview.executeJavaScript(source);
+        const applied = await new Promise((resolve, reject) => {
+          try {
+            sandbox.webview.executeScript({ code: source }, (results) => {
+              resolve(Array.isArray(results) && results[0] === true);
+            });
+          } catch (error) {
+            reject(error);
+          }
+        });
+        if (!applied) {
+          log('error', `Could not enforce VPN boundary for ${appId}: webview rejected the policy`);
+          return false;
+        }
       } catch (error) {
         log('error', `Could not enforce VPN boundary for ${appId}`, error);
         return false;

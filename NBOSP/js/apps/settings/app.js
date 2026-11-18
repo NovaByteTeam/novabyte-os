@@ -3723,7 +3723,7 @@ registerApp({
     function showRootModeWarning() {
       return new Promise(resolve => {
         const overlay = createEl('div', {
-          style: 'position:fixed;inset:0;z-index:99001;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px;'
+          style: 'position:fixed;inset:0;z-index:99001;background:rgba(0,0,0,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;padding:16px;'
         });
         const ac = mountOverlay(overlay);
         let settled = false;
@@ -3793,7 +3793,7 @@ registerApp({
         return new Promise(resolve => {
           const overlay = createEl('div', {
             tabIndex: -1,
-            style: 'position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:9999;outline:none'
+            style: 'position:fixed;inset:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;z-index:9999;outline:none'
           });
           const ac = mountOverlay(overlay);
           let settled = false;

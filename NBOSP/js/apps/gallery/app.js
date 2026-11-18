@@ -50,7 +50,7 @@ registerApp({
 
     // ── Lightbox ────────────────────────────────────────────────────────────
     const lb = createEl('div', {
-      style: 'display:none;position:absolute;inset:0;background:var(--bg-base);color:var(--text-primary);z-index:200;align-items:center;justify-content:center;flex-direction:column;',
+      style: 'display:none;position:absolute;inset:0;background:var(--bg-overlay);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:var(--text-primary);z-index:200;align-items:center;justify-content:center;flex-direction:column;',
       role: 'dialog',
       'aria-modal': 'true',
       'aria-label': _t('apps.gallery.viewerAria'),

@@ -458,7 +458,7 @@ registerApp({
     function promptPasswordFields(title, message, fields, submitLabel) {
       return new Promise(resolve => {
         const overlay = createEl('div', {
-          style: 'position:absolute;inset:0;z-index:100000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px;'
+          style: 'position:absolute;inset:0;z-index:100000;background:rgba(0,0,0,.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:20px;'
         });
         const dialog = createEl('form', {
           style: 'width:min(420px,100%);padding:22px;border-radius:12px;background:var(--bg-elevated,#141a28);border:1px solid var(--border-default,rgba(255,255,255,.14));box-shadow:0 24px 70px rgba(0,0,0,.6);'
@@ -727,7 +727,7 @@ registerApp({
         if (!unlocked) return;
         const overlay = createEl('div', {
           className: 'browser-password-manager',
-          style: 'position:absolute;inset:0;z-index:100000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px;'
+          style: 'position:absolute;inset:0;z-index:100000;background:rgba(0,0,0,.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:20px;'
         });
         const dialog = createEl('div', {
           style: 'width:min(620px,100%);max-height:85%;overflow:auto;padding:22px;border-radius:12px;background:var(--bg-elevated,#141a28);border:1px solid var(--border-default,rgba(255,255,255,.14));box-shadow:0 24px 70px rgba(0,0,0,.6);'
@@ -2763,7 +2763,7 @@ registerApp({
           const ph = Math.min(Math.max(e.initialHeight || 620, 300), Math.round(window.innerHeight * 0.85));
 
           const backdrop = document.createElement('div');
-          backdrop.style.cssText = 'position:absolute;inset:0;z-index:9999;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+          backdrop.style.cssText = 'position:absolute;inset:0;z-index:9999;background:rgba(0,0,0,0.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;';
 
           const card = document.createElement('div');
           card.style.cssText = `width:${pw}px;height:${ph}px;background:var(--bg-elevated);color:var(--text-primary);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6);border:1px solid var(--border-subtle);`;

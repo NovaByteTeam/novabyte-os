@@ -182,6 +182,14 @@ describe('NovaRegistry.peekUserValue (read another account without mounting it)'
     expect(NovaRegistry.peekUserValue('ghost', 'HKNU/shell/wallpaper')).toBeUndefined();
   });
 
+  it('reads the live hive for the mounted account when its persisted copy is unavailable', () => {
+    NovaRegistry.mountUserHives('ada');
+    NovaRegistry.set('HKNU/shell/lockWallpaper', 'stock-red', { source: 'test' });
+    storage._map.delete('user:ada:HKNU');
+
+    expect(NovaRegistry.peekUserValue('ada', 'HKNU/shell/lockWallpaper')).toBe('stock-red');
+  });
+
   it('only exposes per-account hives, never the machine hive or malformed segments', () => {
     NovaRegistry.set('HKNS/shell/wallpaper', 'stock-teal', { source: 'test' });
     expect(NovaRegistry.peekUserValue('ada', 'HKNS/shell/wallpaper')).toBeUndefined();

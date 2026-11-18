@@ -217,11 +217,12 @@ describe('Terminal app (js/apps/terminal)', () => {
 
   it('starts the Linux shell in the mounted user home and sets HOME', async () => {
     const calls = [];
+    const stdinWrites = [];
     const child = new EventEmitter();
     child.pid = 123;
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
-    child.stdin = { on() {}, write() {} };
+    child.stdin = { on() {}, write: (text) => stdinWrites.push(text) };
     const processStub = { platform: 'linux', env: {}, kill() {} };
     const { app, window } = await loadWindowApp('terminal', {
       stubs: terminalStubs({
@@ -243,6 +244,9 @@ describe('Terminal app (js/apps/terminal)', () => {
       cwd: '/home/nbosp/users/sam',
       env: { HOME: '/home/nbosp/users/sam' },
     });
+    expect(stdinWrites[0]).toContain('Common commands: ls cd pwd mkdir rm cp mv cat grep find echo printf');
+    expect(stdinWrites[0]).not.toContain('compgen -c');
+    expect(stdinWrites[0]).not.toContain('for dir in $PATH');
     state.cleanups.forEach(cleanup => cleanup());
   });
 
