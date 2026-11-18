@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-labelledby="sys-net-title">
+  <title id="sys-net-title">Network and System Trust Icon</title>
+  <defs>
+    <linearGradient id="sys-body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#93c5fd"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="sys-base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="sys-shield" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="48" cy="84" rx="30" ry="5" fill="#000" opacity="0.18"/>
+  <rect x="18" y="54" width="60" height="22" rx="8" fill="url(#sys-base)"/>
+  <path d="M26 54h44a8 8 0 0 1 8 8v1H18v-1a8 8 0 0 1 8-8z" fill="#fff" opacity="0.18"/>
+  <circle cx="27" cy="65" r="2.5" fill="#93c5fd"/>
+  <circle cx="35" cy="65" r="2.5" fill="#93c5fd" opacity="0.6"/>
+  <line x1="48" y1="48" x2="48" y2="54" stroke="#1d4ed8" stroke-width="4"/>
+  <circle cx="48" cy="34" r="14" fill="url(#sys-body)"/>
+  <circle cx="48" cy="34" r="4" fill="#eff6ff"/>
+  <path d="M39 34a9 9 0 0 1 18 0" fill="none" stroke="#eff6ff" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>
+  <path d="M31 23a20 20 0 0 1 34 0" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>
+  <path d="M24 16a29 29 0 0 1 48 0" fill="none" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" opacity="0.65"/>
+  <path d="M70 57 L80 60 V67 C80 73 76 77 70 79 C64 77 60 73 60 67 V60 Z" fill="url(#sys-shield)" stroke="#eff6ff" stroke-width="1.5" stroke-linejoin="round"/>
+  <polyline points="65,68 68,71 74,64" fill="none" stroke="#78350f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

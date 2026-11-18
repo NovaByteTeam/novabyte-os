@@ -131,7 +131,7 @@ function initLinuxTextEdit(content, state, options = {}) {
 registerApp({
   id: 'com.nbosp.textedit',
   name: 'TextEdit',
-  icon: 'pen-tool',
+  icon: '/assets/textedit.svg',
   version: '3.0.2',
   description: 'Text Editor',
   defaultSize: [680, 500],

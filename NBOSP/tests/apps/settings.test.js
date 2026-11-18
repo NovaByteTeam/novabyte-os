@@ -339,7 +339,7 @@ describe("'Settings' app (js/apps/settings)", () => {
   it('saves desktop icon size through the desktopIconSize setting', async () => {
     const { content, nbs } = await loadSettings();
     expect(sidebarBtn(content, 'VPN').querySelector('img').getAttribute('src'))
-      .toBe('/js/apps/settings/icons/icons8-vpn-icon-94.png');
+      .toBe('/assets/icons8-vpn-icon-94.png');
     sidebarBtn(content, 'Accessibility').click();
 
     const iconSizeGroup = [...content.querySelectorAll('.nook-group')]

@@ -37,13 +37,11 @@
 // offline entirely, which the boot log surfaces loudly.
 var _t = window.NovaI18n?.t?.bind(window.NovaI18n) ?? ((key, vars) => window.NovaI18n?.t ? window.NovaI18n.t(key, vars) : key);
 
-const SETUP_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA5NiIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0Ij48Y2lyY2xlIGN4PSI0OCIgY3k9IjQ4IiByPSIzOCIgZmlsbD0iIzkzYzVmZCIvPjxjaXJjbGUgY3g9IjQ4IiBjeT0iNDgiIHI9IjMwIiBmaWxsPSIjMjU2M2ViIi8+PHBhdGggZD0iTTQwIDM2IEw0OCA1MCA1NiAzNiIgc3Ryb2tlPSIjZmRlNjhhIiBzdHJva2Utd2lkdGg9IjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSIvPjxyZWN0IHg9IjM2IiB5PSI1NiIgd2lkdGg9IjI0IiBoZWlnaHQ9IjUiIHJ4PSIyLjUiIGZpbGw9IiNmZGU2OGEiLz48L3N2Zz4=';
-
 registerApp({
   id: 'com.nbosp.setup',
   name: 'NovaByte Setup',
   version: '3.0.2',
-  icon: SETUP_ICON,
+  icon: '/assets/setup.svg',
   description: 'First-boot setup wizard: keyboard layout, date and region, owner account, and appearance.',
   category: 'system',
   permissions: [],

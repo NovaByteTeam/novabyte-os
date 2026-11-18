@@ -6,7 +6,7 @@
   "description": "Install NovaByte OS to a selected disk.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "hard-drive",
+  "icon": "/assets/install-nbosp.svg",
   "type": "blank",
   "defaultSize": [
     680,

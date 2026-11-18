@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-labelledby="prm-shield-title">
+  <title id="prm-shield-title">Permissions Verified Shield Icon</title>
+  <defs>
+    <linearGradient id="prm-shield" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6ee7b7"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="prm-face" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ecfdf5"/>
+      <stop offset="100%" stop-color="#a7f3d0"/>
+    </linearGradient>
+    <linearGradient id="prm-badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#86efac"/>
+      <stop offset="100%" stop-color="#16a34a"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="48" cy="88" rx="28" ry="5" fill="#000" opacity="0.18"/>
+  <path d="M48 10 L76 20 V44 C76 62 64 76 48 84 C32 76 20 62 20 44 V20 Z" fill="url(#prm-shield)"/>
+  <path d="M48 18 L69 26 V44 C69 58 60 69 48 75 C36 69 27 58 27 44 V26 Z" fill="url(#prm-face)"/>
+  <circle cx="48" cy="39" r="6.5" fill="#059669"/>
+  <polygon points="45.5,43 50.5,43 52,55 44,55" fill="#059669"/>
+  <ellipse cx="41" cy="27" rx="8" ry="3.5" fill="#fff" opacity="0.55" transform="rotate(-20 41 27)"/>
+  <circle cx="68" cy="66" r="14" fill="url(#prm-badge)" stroke="#ecfdf5" stroke-width="2"/>
+  <polyline points="61,66 66,71 76,58" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

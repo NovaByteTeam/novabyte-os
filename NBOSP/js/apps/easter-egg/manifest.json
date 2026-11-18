@@ -1,6 +1,7 @@
 {
   "id": "com.nbosp.service.easteregg",
   "name": "NovaByte Easter Egg",
+  "icon": "/assets/service-easter-egg.svg",
   "author": "DirazCoder",
   "description": "Provides the hidden, full-screen NovaByte Snake Easter egg.",
   "version": "3.0.2",

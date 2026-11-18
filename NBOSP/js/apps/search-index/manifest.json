@@ -1,6 +1,7 @@
 {
   "id": "com.nbosp.service.search-index",
   "name": "Search Index Service",
+  "icon": "/assets/service-search-index.svg",
   "author": "DirazCoder",
   "description": "Provides reusable trigram indexing and search for system apps.",
   "version": "3.0.2",

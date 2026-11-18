@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#cffafe"/><stop offset="1" stop-color="#0891b2"/></linearGradient>
+    <linearGradient id="side" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#0e7490"/><stop offset="1" stop-color="#164e63"/></linearGradient>
+  </defs>
+  <ellipse cx="48" cy="80" rx="29" ry="5" fill="#000" opacity=".18"/>
+  <!-- back box -->
+  <path d="M27 26v28l24 13V39z" fill="#0e7490"/>
+  <path d="M51 39v28l34-13V26z" fill="url(#side)"/>
+  <path d="m27 26 34-13 24 13-34 13z" fill="#155e75"/>
+  <!-- front box -->
+  <path d="M17 34v27l24 13V47z" fill="#0891b2"/>
+  <path d="M41 47v27l34-13V34z" fill="#155e75"/>
+  <path d="m17 34 34-13 24 13-34 13z" fill="url(#panel)"/>
+  <g transform="matrix(34 -13 24 13 17 34)">
+    <ellipse cx=".4" cy=".22" rx=".26" ry=".09" fill="#fff" opacity=".4"/>
+    <path d="M.38 .55H.88M.38 .78H.7" stroke="#fff" stroke-width=".1" stroke-linecap="round"/>
+  </g>
+  <g transform="matrix(34 -13 0 27 41 47)">
+    <path d="M.2 .5H.75" stroke="#fff" stroke-width=".1" stroke-linecap="round"/>
+  </g>
+</svg>

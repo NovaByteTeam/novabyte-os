@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Settings icon">
+  <defs>
+    <linearGradient id="st-gear" x2="0" y2="1"><stop stop-color="#8ba1ec"/><stop offset="1" stop-color="#455bb6"/></linearGradient>
+    <linearGradient id="st-center" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#c7d2fe"/></linearGradient>
+    <g id="st-gear-shape">
+      <circle cx="48" cy="44" r="26"/>
+      <rect x="43.5" y="10" width="9" height="68" rx="3"/>
+      <rect x="43.5" y="10" width="9" height="68" rx="3" transform="rotate(45 48 44)"/>
+      <rect x="43.5" y="10" width="9" height="68" rx="3" transform="rotate(90 48 44)"/>
+      <rect x="43.5" y="10" width="9" height="68" rx="3" transform="rotate(135 48 44)"/>
+    </g>
+  </defs>
+  <ellipse cx="48" cy="82" rx="31" ry="6" fill="#1e3a8a" opacity=".2"/>
+  
+  <!-- Gear drop shadow & main body (using +2px X, +3px Y offset) -->
+  <use href="#st-gear-shape" x="2" y="3" fill="#273c91"/>
+  <use href="#st-gear-shape" fill="url(#st-gear)"/>
+  
+  <!-- Concentric highlight arc -->
+  <path d="M31 32a21 21 0 0 1 24-8" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".55"/>
+  
+  <!-- Inner ring & recessed centre hole -->
+  <circle cx="48" cy="46" r="16" fill="#31498f"/>
+  <circle cx="48" cy="44" r="16" fill="url(#st-center)"/>
+  <circle cx="48" cy="44" r="7.5" fill="#31498f"/>
+  <circle cx="48" cy="45" r="7" fill="#5b73c7"/>
+</svg>

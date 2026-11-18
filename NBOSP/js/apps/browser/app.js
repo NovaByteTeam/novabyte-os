@@ -22,7 +22,7 @@
   }
 
 registerApp({
-  id: BROWSER_APP_ID, name: 'Browser', icon: 'globe',
+  id: BROWSER_APP_ID, name: 'Browser', icon: '/assets/browser.svg',
   version: '3.0.2',
   description: 'Web Browser',
   defaultSize: [900, 600], minSize: [500, 350],

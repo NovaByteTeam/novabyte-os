@@ -6,7 +6,7 @@
   "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "home",
+  "icon": "/assets/launcher.svg",
   "type": "blank",
   "handles": {
     "roles": [

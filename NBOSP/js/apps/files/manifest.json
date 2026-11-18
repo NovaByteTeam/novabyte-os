@@ -6,7 +6,7 @@
   "description": "Browse, organize, and manage files in NovaByte OS.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "folder-open",
+  "icon": "/assets/files.svg",
   "type": "blank",
   "defaultSize": [
     780,

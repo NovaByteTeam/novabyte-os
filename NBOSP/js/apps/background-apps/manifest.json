@@ -1,6 +1,7 @@
 {
   "id": "com.nbosp.service.background-apps",
   "name": "Background Apps",
+  "icon": "/assets/service-background-apps.svg",
   "author": "DirazCoder",
   "description": "Keeps clock alarms and email notifications active while their apps are closed.",
   "version": "3.0.2",

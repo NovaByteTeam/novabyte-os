@@ -1,6 +1,7 @@
 {
   "id": "com.nbosp.service.screenshots",
   "name": "Screenshots",
+  "icon": "/assets/service-screenshots.svg",
   "author": "DirazCoder",
   "description": "Captures the desktop, windows, or a selected screen region into Pictures.",
   "version": "3.0.2",

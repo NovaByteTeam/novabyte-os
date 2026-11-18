@@ -1,6 +1,7 @@
 {
   "id": "com.nbosp.service.media-store",
   "name": "NovaByte MediaStore",
+  "icon": "/assets/service-media-store.svg",
   "author": "DirazCoder",
   "description": "Indexes shared image, audio, and video files for permission-scoped media libraries.",
   "version": "3.0.2",

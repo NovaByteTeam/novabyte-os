@@ -6,7 +6,7 @@
   "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "package",
+  "icon": "/assets/appmanager.svg",
   "type": "blank",
   "permissions": [],
   "optionalPermissions": [],

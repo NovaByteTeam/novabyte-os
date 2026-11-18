@@ -6,7 +6,7 @@
   "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "globe",
+  "icon": "/assets/browser.svg",
   "type": "blank",
   "defaultSize": [900, 600],
   "minSize": [500, 350],

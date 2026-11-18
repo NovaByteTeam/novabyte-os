@@ -161,7 +161,7 @@
     id: 'com.nbosp.music',
     name: 'Music',
     version: '3.0.2',
-    icon: 'music',
+    icon: '/assets/music.svg',
     description: 'Music Player',
     defaultSize: [520, 520],
     minSize: [360, 380],

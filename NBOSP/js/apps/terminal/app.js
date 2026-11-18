@@ -1550,7 +1550,7 @@ registerApp({
   id: 'com.nbosp.terminal',
   name: 'Terminal',
   version: '3.0.2',
-  icon: 'terminal',
+  icon: '/assets/terminal.svg',
   description: 'Terminal',
   defaultSize: [700, 460],
   minSize: [420, 260],

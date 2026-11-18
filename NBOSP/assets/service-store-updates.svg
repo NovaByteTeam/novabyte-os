@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#4ade80"/><stop offset="1" stop-color="#15803d"/></linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#dcfce7"/><stop offset="1" stop-color="#4ade80"/></linearGradient>
+  </defs>
+  <ellipse cx="48" cy="86" rx="29" ry="5" fill="#000" opacity=".18"/>
+  <path d="M18 32v34l30 15V47z" fill="url(#front)"/>
+  <path d="M48 47v34l30-15V32z" fill="#166534"/>
+  <path d="m18 32 30-15 30 15-30 15z" fill="url(#top)"/>
+  <g transform="matrix(30 -15 30 15 18 32)">
+    <!-- rim highlight along the two back edges -->
+    <path d="M.1 .1H.9V.9" fill="none" stroke="#fff" stroke-width=".06" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
+    <!-- arrow, rotated so it points at the back corner -->
+    <path transform="translate(.5 .5) rotate(45)" d="M0 .44V-.44M-.22 -.08L0 -.44L.22 -.08" fill="none" stroke="#14532d" stroke-width=".09" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

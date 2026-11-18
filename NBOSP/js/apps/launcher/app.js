@@ -6,13 +6,6 @@
   // evaluated long before the launcher mounts; the identity fallback keeps
   // this file safe when the engine is absent (stripped-down test hosts).
   const _t = (typeof window._t === 'function') ? window._t : (key, vars) => key;
-  function launcherSvgIcon(name, size) {
-    if (typeof name !== 'string' || !name) {
-      return `<img src="/js/apps/launcher/icons/no_app_icon.svg" width="${size}" height="${size}" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" aria-hidden="true">`;
-    }
-    return svgIcon(name, size)
-      .replace(/src="\/assets\/no_app_icon\.svg"/g, 'src="/js/apps/launcher/icons/no_app_icon.svg"');
-  }
   function getLauncherDeveloperMode() {
     const settings = window.NovaByteSystem?.settings;
     if (!settings || typeof settings.get !== 'function') {
@@ -261,7 +254,7 @@ function appendAppItem(app, grid) {
     draggable: 'true'
   });
   const icon = createEl('div', { className: 'launchpad-icon' });
-  icon.innerHTML = launcherSvgIcon(app.icon, 28);
+  icon.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 28);
   item.appendChild(icon);
   item.appendChild(createEl('div', { className: 'launchpad-name', textContent: app.name }));
 
@@ -1270,7 +1263,7 @@ function renderDesktopIcons() {
       style: _getInitialIconPosition(key, idx, iconPositions, desktop)
     });
     const img = createEl('div', { className: 'desktop-icon-img' });
-    img.innerHTML = launcherSvgIcon(app.icon, 40);
+    img.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 40);
     const label = createEl('div', { className: 'desktop-icon-label', textContent: app.name });
     icon.appendChild(img);
     icon.appendChild(label);
@@ -1366,13 +1359,14 @@ function renderDesktopIcons() {
     const img = createEl('div', { className: 'desktop-icon-img' });
 
     if (isShortcut && shortcutData) {
+      const isWebShortcut = shortcutData.target && shortcutData.target.startsWith('webapp_');
       // Prefer the live icon from OS.apps over the snapshot baked into the
       // .lnk file at pin-time — the target app's icon can change (e.g. a
       // replace/reinstall with new artwork) without anything ever updating
       // this file, since it's stored on disk and only ever written once.
       const liveIcon = targetApp?.icon;
-      const iconToUse = liveIcon || shortcutData.icon;
-      img.innerHTML = launcherSvgIcon(iconToUse, 40);
+      const iconToUse = isWebShortcut ? (liveIcon || shortcutData.icon) : (liveIcon || shortcutData.icon || '/assets/no_app_icon.svg');
+      img.innerHTML = svgIcon(iconToUse, 40);
       const arrow = createEl('div', {
         style: 'position:absolute;bottom:0;right:0;width:16px;height:16px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:white;font-weight:bold;'
       });
@@ -1642,7 +1636,7 @@ function updateTaskbar() {
           'aria-label': app.name + (hasMultipleWindows ? _t('shell.window.windowsSuffix', { count: windows.length }) : ''),
         });
 
-        btn.innerHTML = launcherSvgIcon(app.icon, 20);
+        btn.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 20);
         btn.appendChild(createEl('span', { className: 'indicator' }));
         if (hasMultipleWindows) {
           btn.appendChild(createEl('span', {
@@ -2213,7 +2207,7 @@ function showAppSwitcher() {
     if (!app) return;
     const item = createEl('div', { className: 'app-switcher-item' + (i === 0 ? ' active' : '') });
     const icon = createEl('div', { className: 'app-switcher-icon' });
-    icon.innerHTML = launcherSvgIcon(app.icon, 32);
+    icon.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 32);
     item.appendChild(icon);
     item.appendChild(createEl('div', { className: 'app-switcher-name', textContent: app.name }));
     list.appendChild(item);

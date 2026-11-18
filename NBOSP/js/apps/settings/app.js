@@ -3,7 +3,7 @@
 registerApp({
   id: 'com.nbosp.settings',
   name: 'Settings',
-  icon: 'settings',
+  icon: '/assets/settings.svg',
   version: '3.0.2',
   description: 'System Settings',
   defaultSize: [700, 500],
@@ -17,18 +17,13 @@ registerApp({
       content.textContent = _t('settings.shared.systemUnavailable');
       return;
     }
-    const packageFiles = window.__novaUnrestrictedPackage?.files || {};
-
     function renderSectionIcon(container, sectionId, icon, size) {
       if (sectionId !== 'vpn') {
         container.innerHTML = svgIcon(icon, size);
         return;
       }
-      const encoded = packageFiles['icons/icons8-vpn-icon-94.png'];
       const image = createEl('img', {
-        src: encoded
-          ? `data:image/png;base64,${encoded}`
-          : '/js/apps/settings/icons/icons8-vpn-icon-94.png',
+        src: '/assets/icons8-vpn-icon-94.png',
         width: String(size),
         height: String(size),
         alt: '',

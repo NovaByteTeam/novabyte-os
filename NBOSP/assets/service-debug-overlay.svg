@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-labelledby="debug-cube-title">
+  <title id="debug-cube-title">System Diagnostics Cube Icon</title>
+  <defs>
+    <linearGradient id="debug-cube-top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f0abfc"/>
+      <stop offset="1" stop-color="#a21caf"/>
+    </linearGradient>
+    <linearGradient id="debug-cube-left" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e879f9"/>
+      <stop offset="1" stop-color="#701a75"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="48" cy="86" rx="29" ry="5" fill="#000" opacity=".18"/>
+  <path d="m18 28 30-14 30 14-30 14z" fill="url(#debug-cube-top)"/>
+  <path d="M18 28v43l30 14V42z" fill="url(#debug-cube-left)"/>
+  <path d="M48 42v43l30-14V28z" fill="#701a75"/>
+  <path d="m25 28 23-11 23 11-23 11z" fill="#1f1235"/>
+  <path d="M23 36v20l21 10V46z" fill="#170c2a"/>
+  <path d="M26 48v-5l4 2 3 4 3-5 3 9 2-3 2 1" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m24 62 4 1.9m4 1.9 4 1.9m4 1.9 4 1.9" stroke="#f5d0fe" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="m53 50 19-9m-19 16 19-9m-19 16 12-5.7" stroke="#f5d0fe" stroke-width="2.5" stroke-linecap="round" opacity=".85"/>
+  <path d="M18 28 48 14m0 28 30-14" fill="none" stroke="#fff" stroke-width="1.5" opacity=".35"/>
+</svg>

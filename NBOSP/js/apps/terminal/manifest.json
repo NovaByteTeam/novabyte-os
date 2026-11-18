@@ -6,7 +6,7 @@
   "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "terminal",
+  "icon": "/assets/terminal.svg",
   "type": "blank",
   "defaultSize": [700, 460],
   "minSize": [420, 260],

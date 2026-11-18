@@ -1,14 +1,5 @@
-const contactsPackageFiles = window.__novaUnrestrictedPackage?.files || {};
-
-function contactsCallIconSrc() {
-  const encoded = contactsPackageFiles['icons/icons8-call-94.png'];
-  return encoded
-    ? `data:image/png;base64,${encoded}`
-    : '/js/apps/contacts/icons/icons8-call-94.png';
-}
-
 registerApp({
-  id: 'com.nbosp.contacts', name: 'Contacts', icon: 'users',
+  id: 'com.nbosp.contacts', name: 'Contacts', icon: '/assets/contacts.svg',
   version: '3.0.2',
   description: 'Contact Book',
   defaultSize: [640, 500], minSize: [440, 320],
@@ -405,7 +396,7 @@ registerApp({
         } : null);
         buildInfoRow('phone', _t('apps.contacts.phone'), selected.phone, selected.phone ? () => {
           navigator.clipboard.writeText(selected.phone).then(() => Notify.show({ title: _t('apps.contacts.copied'), body: selected.phone, type: 'info', appName: 'Contacts' }));
-        } : null, contactsCallIconSrc());
+        } : null, '/assets/icons8-call-94.png');
         buildInfoRow('file',  _t('apps.contacts.notes'), selected.notes, null);
 
         const editBtn = createEl('button', { className: 'btn btn-sm btn-primary' });

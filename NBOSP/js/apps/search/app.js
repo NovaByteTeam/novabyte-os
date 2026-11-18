@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.search',
   name: 'Search',
   version: '3.0.2',
-  icon: 'search',
+  icon: '/assets/search.svg',
   description: 'System Search',
   defaultSize: [640, 500],
   minSize: [420, 300],

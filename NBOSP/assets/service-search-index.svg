@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c7d2fe"/><stop offset="1" stop-color="#4338ca"/></linearGradient>
+    <linearGradient id="lens" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eff6ff"/><stop offset="1" stop-color="#93c5fd"/></linearGradient>
+    <linearGradient id="handle" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#312e81"/></linearGradient>
+  </defs>
+  <ellipse cx="49" cy="89" rx="29" ry="4" fill="#000" opacity=".18"/>
+  <rect x="63.3" y="54.8" width="14" height="31" rx="6" fill="url(#handle)" transform="rotate(-45 70.3 70.3)"/>
+  <circle cx="41" cy="41" r="28" fill="url(#rim)"/><circle cx="41" cy="41" r="20" fill="url(#lens)"/>
+  <path d="M30 38h18m-18 7h15m-15 7h10" stroke="#4338ca" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M50 25.5 51.4 28.6 54.5 30 51.4 31.4 50 34.5 48.6 31.4 45.5 30 48.6 28.6z" fill="#fbbf24"/>
+  <ellipse cx="34" cy="29" rx="10" ry="5" fill="#fff" opacity=".48" transform="rotate(-25 34 29)"/>
+</svg>

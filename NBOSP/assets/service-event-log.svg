@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e0e7ff"/>
+      <stop offset="1" stop-color="#a5b4fc"/>
+    </linearGradient>
+    <linearGradient id="clip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#3730a3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Ground Shadow -->
+  <ellipse cx="48" cy="86" rx="26" ry="5" fill="#000" opacity=".2"/>
+
+  <!-- 3D Extruded Backing Board (Parallel -7px Rise Across 44px Width) -->
+  <path d="M24 24 L68 17 L75 24 V73 L31 80 L24 73 Z" fill="#312e81"/>
+  <path d="M24 24 L31 31 V80 L24 73 Z" fill="#4338ca"/>
+
+  <!-- Tilted Paper Sheet (Parallel Top & Bottom Edges) -->
+  <path d="M31 31 L75 24 V73 L31 80 Z" fill="url(#paper)"/>
+
+  <!-- Parallel Document Text Lines Centered on Paper -->
+  <g stroke="#4f46e5" stroke-width="3" stroke-linecap="round">
+    <path d="M40 42 L66 37.9"/>
+    <path d="M40 52 L66 47.9"/>
+    <path d="M40 62 L58 59.1"/>
+  </g>
+
+  <!-- Top Metal Clip Skewed to Match the Board's Exact -9.04° Slope -->
+  <g transform="translate(51.5 22.5) skewY(-9.04)">
+    <path d="M-11 4 V-3 Q-11 -8 -6 -8 H6 Q11 -8 11 -3 V4 Z" fill="url(#clip)"/>
+    <path d="M-6 -2.5 H6" stroke="#e0e7ff" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Specular Paper Highlight -->
+  <ellipse cx="44" cy="36" rx="10" ry="3" fill="#fff" opacity=".42" transform="rotate(-9.04 44 36)"/>
+</svg>

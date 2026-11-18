@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Files icon">
+  <defs>
+    <linearGradient id="fi-folder" x2="0" y2="1"><stop stop-color="#facc63"/><stop offset="1" stop-color="#d97706"/></linearGradient>
+    <linearGradient id="fi-paper" x2="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#dbeafe"/></linearGradient>
+  </defs>
+  <ellipse cx="48" cy="82" rx="33" ry="6" fill="#78350f" opacity=".2"/>
+  
+  <!-- Folder back shadow & main back -->
+  <path d="M13 25a8 8 0 0 1 8-8h19l9 9h27a8 8 0 0 1 8 8v34a8 8 0 0 1-8 8H21a8 8 0 0 1-8-8z" fill="#b45309"/>
+  <path d="M12 22a8 8 0 0 1 8-8h19l9 9h27a8 8 0 0 1 8 8v34a8 8 0 0 1-8 8H20a8 8 0 0 1-8-8z" fill="url(#fi-folder)"/>
+  
+  <!-- Paper & text lines (placed behind front flap) -->
+  <path d="M28 31h37a5 5 0 0 1 5 5v26H28a6 6 0 0 1-6-6V37a6 6 0 0 1 6-6z" fill="url(#fi-paper)"/>
+  <path d="M34 39h24m-24 6h20" stroke="#8ba4cf" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Front folder flap & highlight -->
+  <path d="M22 46h57l-6 22a8 8 0 0 1-8 6H20a8 8 0 0 1-8-8z" fill="#f59e0b"/>
+  <path d="M25 51h50" stroke="#fff4c2" stroke-width="2" stroke-linecap="round" opacity=".6"/>
+</svg>

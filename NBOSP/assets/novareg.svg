@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="NovaReg icon">
+  <defs>
+    <linearGradient id="nr-db" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="0.55" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="nr-db-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bae6fd"/>
+      <stop offset="1" stop-color="#7dd3fc"/>
+    </linearGradient>
+    <linearGradient id="nr-key" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="nr-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- registry database cylinder -->
+  <g filter="url(#nr-ds)">
+    <path d="M98 156 v188 a126 46 0 0 0 252 0 v-188 z" fill="url(#nr-db)"/>
+    <path d="M98 244 a126 46 0 0 0 252 0" fill="none" stroke="#1e3a8a" stroke-width="10" opacity="0.45"/>
+    <path d="M98 318 a126 46 0 0 0 252 0" fill="none" stroke="#1e3a8a" stroke-width="10" opacity="0.45"/>
+    <ellipse cx="224" cy="156" rx="126" ry="46" fill="url(#nr-db-top)"/>
+    <ellipse cx="224" cy="156" rx="86" ry="28" fill="none" stroke="#2563eb" stroke-width="8" opacity="0.55"/>
+  </g>
+
+  <!-- key -->
+  <g filter="url(#nr-ds)" transform="translate(324 344) rotate(-42)">
+    <circle cx="0" cy="0" r="34" fill="none" stroke="url(#nr-key)" stroke-width="24"/>
+    <rect x="42" y="-12" width="146" height="24" rx="12" fill="url(#nr-key)"/>
+    <rect x="130" y="6" width="22" height="40" rx="7" fill="url(#nr-key)"/>
+    <rect x="166" y="6" width="22" height="32" rx="7" fill="url(#nr-key)"/>
+  </g>
+</svg>

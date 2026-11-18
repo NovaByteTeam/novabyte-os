@@ -6,7 +6,7 @@
   "description": "Keep time, set alarms, and use the timer and stopwatch.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "alarm-clock",
+  "icon": "/assets/clock.svg",
   "type": "blank",
   "defaultSize": [
     400,

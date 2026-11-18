@@ -4,7 +4,7 @@
   "version": "3.0.2",
   "description": "Manages WireGuard VPN providers and app network routing.",
   "author": "DirazCoder",
-  "icon": "vpn",
+  "icon": "/assets/service-vpn.svg",
   "system": true,
   "systemService": true,
   "headless": true,

@@ -6,7 +6,7 @@
   "description": "Play and manage your music in NovaByte OS.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "music",
+  "icon": "/assets/music.svg",
   "type": "blank",
   "defaultSize": [
     520,

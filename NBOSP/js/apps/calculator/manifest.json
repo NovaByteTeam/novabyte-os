@@ -6,7 +6,7 @@
   "description": "Perform everyday calculations with NovaByte's built-in calculator.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "calculator",
+  "icon": "/assets/calculator.svg",
   "type": "blank",
   "defaultSize": [
     320,

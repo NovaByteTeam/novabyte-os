@@ -299,7 +299,7 @@
       id: 'com.nbosp.calculator',
       name: 'Calculator',
       version: '3.0.2',
-      icon: 'calculator',
+      icon: '/assets/calculator.svg',
       category: 'utilities',
       permissions: [],
       defaultSize: [320, 440],

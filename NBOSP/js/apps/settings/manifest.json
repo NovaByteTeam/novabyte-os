@@ -6,7 +6,7 @@
   "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "settings",
+  "icon": "/assets/settings.svg",
   "type": "blank",
   "defaultSize": [
     700,

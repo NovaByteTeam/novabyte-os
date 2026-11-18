@@ -1,6 +1,7 @@
 {
   "id": "com.nbosp.service.network-activity-log",
   "name": "Network Activity Log Service",
+  "icon": "/assets/service-network-activity-log.svg",
   "author": "DirazCoder",
   "description": "Keeps a bounded in-memory log of Browser network activity for system diagnostics.",
   "version": "3.0.2",

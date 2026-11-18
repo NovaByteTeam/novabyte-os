@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Calculator icon">
+  <defs>
+    <linearGradient id="ca-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#40527f"/>
+      <stop offset="1" stop-color="#111b3a"/>
+    </linearGradient>
+    <linearGradient id="ca-screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9fff1"/>
+      <stop offset="1" stop-color="#74d6be"/>
+    </linearGradient>
+    <linearGradient id="ca-key" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7184b4"/>
+      <stop offset="1" stop-color="#35456f"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="48" cy="85" rx="25" ry="4.5" fill="#10182d" opacity=".24"/>
+  <g transform="rotate(-7 48 46)">
+    <rect x="25" y="10" width="49" height="72" rx="9" fill="#111a33"/>
+    <rect x="22" y="8" width="49" height="72" rx="9" fill="url(#ca-body)"/>
+    <rect x="28" y="15" width="37" height="17" rx="4" fill="url(#ca-screen)"/>
+    <path d="M55 20h5M51 26h9" stroke="#176c67" stroke-width="2" stroke-linecap="round"/>
+    <g fill="url(#ca-key)">
+      <rect x="28" y="38" width="9" height="9" rx="2.5"/><rect x="41" y="38" width="9" height="9" rx="2.5"/><rect x="54" y="38" width="11" height="9" rx="2.5"/>
+      <rect x="28" y="51" width="9" height="9" rx="2.5"/><rect x="41" y="51" width="9" height="9" rx="2.5"/><rect x="54" y="51" width="11" height="9" rx="2.5"/>
+      <rect x="28" y="64" width="9" height="9" rx="2.5"/><rect x="41" y="64" width="9" height="9" rx="2.5"/>
+    </g>
+    <rect x="54" y="64" width="11" height="9" rx="2.5" fill="#f4a842"/>
+    <path d="M31 41h3M44 41h3M57 41h3.5M31 54h3M44 54h3M57 54h3.5M31 67h3M44 67h3" stroke="#eff6ff" stroke-width="1.5" stroke-linecap="round" opacity=".85"/>
+    <path d="M57.5 67.2h4m-4 2.6h4" stroke="#fffbeb" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+</svg>

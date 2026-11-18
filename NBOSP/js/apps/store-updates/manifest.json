@@ -1,6 +1,7 @@
 {
   "id": "com.nbosp.service.store-updates",
   "name": "Store Update Service",
+  "icon": "/assets/service-store-updates.svg",
   "author": "DirazCoder",
   "description": "Checks installed apps for updates and notifies the user.",
   "version": "3.0.2",

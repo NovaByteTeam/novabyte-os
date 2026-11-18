@@ -6,7 +6,7 @@
   "description": "Create and manage calendar events and schedules.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "calendar",
+  "icon": "/assets/calendar.svg",
   "type": "blank",
   "defaultSize": [
     860,
