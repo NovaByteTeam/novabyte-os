@@ -22,7 +22,7 @@
     'br', 'nl', 'se', 'no', 'dk', 'fi', 'pl', 'tr', 'ru', 'ua', 'jp',
   ]);
   const readableKeys = new Set([
-    'accentColor', 'autoLock', 'clockFormat', 'cursorSize', 'devMode',
+    'accentColor', 'autoLock', 'clockFormat', 'cursorSize', 'desktopIconSize', 'devMode',
     'highContrast', 'keyboardLayout', 'language', 'osVersion', 'prohibitWallpaperChange',
     'reduceMotion', 'region', 'removeTransparency', 'rootAccessEnabled',
     'showTaskbarClock', 'taskbarSize', 'theme', 'timezone', 'username',
@@ -103,6 +103,7 @@
     ['cursorSize', value => {
       return value === 'normal' || value === 'large' || value === 'xlarge';
     }],
+    ['desktopIconSize', value => Number.isInteger(value) && value >= 56 && value <= 160],
     ['volume', value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100],
   ]);
 

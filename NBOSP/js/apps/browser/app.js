@@ -2107,13 +2107,30 @@ registerApp({
       return cleaned.length > MAX_DL_NAME_LEN ? cleaned.slice(0, MAX_DL_NAME_LEN) : cleaned;
     }
 
-    // Pick a non-colliding filename in the downloads folder by appending
-    // " (N)" before the extension if the proposed name already exists.
-    function pickUniqueDownloadName(folderId, name, ext) {
-      const existing = FS.listDir(folderId).map(f => f.name);
-      if (!existing.includes(name + ext)) return name;
-      const prefixCount = existing.filter(n => n.startsWith(name)).length;
-      return name.replace(/(\.\w+)?$/, ' (' + prefixCount + ')$1');
+    function getDownloadsFolderInfo() {
+      const path = require('path');
+      const folderId = FS.specialFolders?.downloads;
+      if (!folderId) throw new Error('The Downloads folder is unavailable.');
+      const rootPath = FS.getPath(FS.rootId);
+      const folderPath = path.isAbsolute(folderId) ? folderId : FS.getPath(folderId);
+      const relative = path.relative(rootPath, folderPath);
+      if (!path.isAbsolute(rootPath) || rootPath === path.parse(rootPath).root ||
+          !path.isAbsolute(folderPath) || !relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error('Could not resolve the account Downloads folder.');
+      }
+      return { folderId, folderPath };
+    }
+
+    // Keep repeated downloads instead of overwriting an existing file.
+    function pickUniqueDownloadName(folderId, name) {
+      const existing = new Set(FS.listDir(folderId).map(file => file.name));
+      if (!existing.has(name)) return name;
+      const dot = name.lastIndexOf('.');
+      const extension = dot > 0 ? name.slice(dot) : '';
+      const base = dot > 0 ? name.slice(0, dot) : name;
+      let suffix = 1;
+      while (existing.has(`${base} (${suffix})${extension}`)) suffix++;
+      return `${base} (${suffix})${extension}`;
     }
 
     // Streams a URL to disk with Node's http(s), so there's no CORS and no
@@ -2235,10 +2252,23 @@ registerApp({
       }
       const rawName = sanitizeDownloadName(requestedName || url);
       const suggestedName = rawName.includes('.') ? rawName : rawName + '.bin';
-      const picked = await SystemDialogs.save({ title, suggestedName });
-      if (!picked) return;
-      if (!picked.path) {
-        Notify.show({ title: _t('apps.browser.downloads.failed'), body: _t('apps.browser.downloads.noPathBody'), type: 'error', appName: 'Downloads' });
+      let picked;
+      try {
+        const { folderId, folderPath } = getDownloadsFolderInfo();
+        if (getSetting('ask_where_to_save_downloads', false)) {
+          picked = await SystemDialogs.save({ title, suggestedName, startPath: folderPath });
+          if (!picked) return;
+          if (!picked.path) {
+            Notify.show({ title: _t('apps.browser.downloads.failed'), body: _t('apps.browser.downloads.noPathBody'), type: 'error', appName: 'Downloads' });
+            return;
+          }
+        } else {
+          const path = require('path');
+          const name = pickUniqueDownloadName(folderId, suggestedName);
+          picked = { name, path: path.join(folderPath, name) };
+        }
+      } catch (error) {
+        Notify.show({ title: _t('apps.browser.downloads.failed'), body: String(error?.message || error), type: 'error', appName: 'Downloads' });
         return;
       }
       const entry = window.Downloads?.add(picked.name, isDataUrl ? '' : url, 0, '');
@@ -4493,6 +4523,11 @@ registerApp({
           mkToggle('autofill_enabled', true, enabled => {
             if (enabled && passwordVaultEntries) for (const wv of tabWebviews.values()) fillSavedLogin(wv);
           })));
+        panelInner.appendChild(mkRow(
+          'Ask where to save each download',
+          'When off, downloads are saved automatically to your Downloads folder.',
+          mkToggle('ask_where_to_save_downloads', false)
+        ));
 
       } else if (activeCategory === 'search') {
         panelTitle(_t('apps.browser.settings.searchEngine'), _t('apps.browser.settings.searchEngineDesc'));

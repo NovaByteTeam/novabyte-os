@@ -348,7 +348,7 @@ describe('Contacts app (js/apps/contacts/app.js) — e2e coverage', () => {
       const phoneRow = infoRow(content, '+1 555 0100');
       expect(phoneRow.style.cursor).toBe('pointer');
       const img = phoneRow.querySelector('img');
-      expect(img.getAttribute('src')).toBe('/assets/icons8-call-94.png');
+      expect(img.getAttribute('src')).toBe('/js/apps/contacts/icons/icons8-call-94.png');
       expect(img.width).toBe(15);
       expect(img.draggable).toBe(false);
       img.dispatchEvent(new window.Event('error'));

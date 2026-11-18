@@ -260,6 +260,19 @@ describe('settings shim (js/platform/core/settings-shim.js)', () => {
   });
 
   describe('load() — hydration & legacy adoption', () => {
+    it('moves the legacy machine lock wallpaper preset into the first mounted user hive', async () => {
+      const { OS } = freshOS({ legacyStore: {} });
+      const Reg = attachAll(OS);
+      Reg.set('HKNS/shell/lockWallpaper', 'stock-red', { type: 'REG_SZ' });
+      Reg.mountUserHives('ada');
+
+      await OS.settings.load();
+
+      expect(Reg.get('HKNU/shell/lockWallpaper')).toBe('stock-red');
+      expect(Reg.get('HKNS/shell/lockWallpaper')).toBeUndefined();
+      expect(OS.settings.get('lockWallpaperId')).toBe('stock-red');
+    });
+
     it('hydrates the cache from the registry and adopts the legacy store exactly once', async () => {
       const legacy = { theme: 'dracula', clockFormat: '24h', autoLock: '30', customWallpaper: 'data:image/png;base64,xyz' };
       const { OS } = freshOS({ legacyStore: legacy });

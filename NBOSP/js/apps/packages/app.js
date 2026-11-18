@@ -753,8 +753,6 @@ registerApp({
           }
 
           const registered = result.app || OS.apps[appData.id];
-          const resolvedIcon = appData.icon || registered?.icon || '/assets/no_app_icon.svg';
-
           if (appData.icon && !/^data:|^https?:\/\//i.test(appData.icon) && appData.files[appData.icon]) {
             const encoded = appData.files[appData.icon];
             const ext = (appData.icon.split('.').pop() || '').toLowerCase();

@@ -17,6 +17,26 @@ registerApp({
       content.textContent = _t('settings.shared.systemUnavailable');
       return;
     }
+    const packageFiles = window.__novaUnrestrictedPackage?.files || {};
+
+    function renderSectionIcon(container, sectionId, icon, size) {
+      if (sectionId !== 'vpn') {
+        container.innerHTML = svgIcon(icon, size);
+        return;
+      }
+      const encoded = packageFiles['icons/icons8-vpn-icon-94.png'];
+      const image = createEl('img', {
+        src: encoded
+          ? `data:image/png;base64,${encoded}`
+          : '/js/apps/settings/icons/icons8-vpn-icon-94.png',
+        width: String(size),
+        height: String(size),
+        alt: '',
+        draggable: 'false',
+      });
+      image.style.cssText = 'display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;';
+      container.replaceChildren(image);
+    }
 
     // Runtime guard — this app needs NovaByte's filesystem services
     if ((typeof process === 'undefined' || process.platform !== 'linux')
@@ -41,7 +61,7 @@ registerApp({
       { id: 'system',          nameKey: 'settings.sidebar.system',         icon: 'processor'     },
       { id: 'date-and-region', nameKey: 'settings.sidebar.dateAndRegion',  icon: 'calendar'      },
       { id: 'connectivity',    nameKey: 'settings.sidebar.connectivity',   icon: 'globe'         },
-      { id: 'vpn',             nameKey: 'settings.sidebar.vpn',            icon: 'shield'        },
+      { id: 'vpn',             nameKey: 'settings.sidebar.vpn',            icon: 'vpn'           },
       { id: 'storage',         nameKey: 'settings.sidebar.storage',        icon: 'database'      },
       { id: 'notifications',   nameKey: 'settings.sidebar.notifications',  icon: 'bell'          },
       { id: 'privacy',         nameKey: 'settings.sidebar.privacy',        icon: 'lock'          },
@@ -64,9 +84,9 @@ registerApp({
     ];
 
     const ICON_SIZES = [
-      { value: 'normal', labelKey: 'settings.desktop.sizeNormal',  transform: 'scale(1)'   },
-      { value: 'large',  labelKey: 'settings.desktop.sizeLarge',   transform: 'scale(1.5)' },
-      { value: 'xlarge', labelKey: 'settings.desktop.sizeXLarge',  transform: 'scale(2)'   }
+      { value: 84,  labelKey: 'settings.desktop.sizeNormal' },
+      { value: 108, labelKey: 'settings.desktop.sizeLarge' },
+      { value: 132, labelKey: 'settings.desktop.sizeXLarge' }
     ];
 
     const KEYBOARD_LAYOUTS = [
@@ -624,7 +644,7 @@ registerApp({
           'aria-current': currentSection === s.id ? 'true' : 'false'
         });
         const iconSpan = createEl('span', { 'aria-hidden': 'true' });
-        iconSpan.innerHTML = svgIcon(s.icon, 16);
+        renderSectionIcon(iconSpan, s.id, s.icon, 16);
         btn.append(iconSpan, createEl('span', { textContent: _t(s.nameKey) }));
         // 2026-11-15: admin-only sections show a lock glyph for standard
         // accounts so the gating is visible from the sidebar itself.
@@ -666,7 +686,7 @@ registerApp({
       if (section) {
         const pageHeader = createEl('header', { className: 'nook-page-header' });
         const pageIcon = createEl('div', { className: 'nook-page-icon', 'aria-hidden': 'true' });
-        pageIcon.innerHTML = svgIcon(section.icon, 22);
+        renderSectionIcon(pageIcon, section.id, section.icon, 22);
         const pageTitle = createEl('h2', {
           className: 'nook-page-title',
           textContent: _t(section.nameKey),
@@ -2369,7 +2389,7 @@ registerApp({
       // Icon Size
       const iconSizeGroup = createEl('div', { className: 'nook-group' });
       iconSizeGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: _t('settings.accessibility.iconSize') }));
-      const currentIconSize = systemSettings.get('cursorSize') || 'normal';
+      const currentIconSize = Number(systemSettings.get('desktopIconSize')) || 84;
       for (const opt of ICON_SIZES) {
         const row = createEl('div', { className: 'nook-row' });
         row.appendChild(createEl('span', { textContent: _t(opt.labelKey) }));
@@ -2380,14 +2400,7 @@ registerApp({
           'aria-pressed': String(active)
         });
         btn.addEventListener('click', () => {
-          systemSettings.set('cursorSize', opt.value);
-          let cursorStyles = document.getElementById('cursor-custom-styles');
-          if (!cursorStyles) {
-            cursorStyles = document.createElement('style');
-            cursorStyles.id = 'cursor-custom-styles';
-            document.head.appendChild(cursorStyles);
-          }
-          cursorStyles.textContent = '#desktop .desktop-icon { transform: ' + opt.transform + ' }';
+          systemSettings.set('desktopIconSize', opt.value);
           renderContent();
         }, { signal: lifecycle.signal });
         row.appendChild(btn);

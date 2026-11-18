@@ -192,7 +192,7 @@ describe("'Settings' app (js/apps/settings)", () => {
     const providerSelect = content.querySelector('select[aria-label="VPN provider app"]');
     expect(providerSelect.options).toHaveLength(1);
     const deviceButton = [...content.querySelectorAll('.nook-group button')]
-      .find((button) => button.textContent === 'Connect');
+      .find((button) => button.textContent === 'Connect' && !button.disabled);
     deviceButton.click();
     await settle();
     expect(vpn.activate).toHaveBeenCalledWith('com.test.vpn');
@@ -314,6 +314,7 @@ describe("'Settings' app (js/apps/settings)", () => {
     const { content, nbs } = await loadSettings({
       extra: { SystemDialogs: { open: vi.fn(async () => file) } },
     });
+
     sidebarBtn(content, 'Desktop').click();
 
     const lockUpload = content.querySelector('.nook-lock-wallpaper-custom button');
@@ -333,6 +334,23 @@ describe("'Settings' app (js/apps/settings)", () => {
     resetLock.click();
     expect(nbs.sets).toContainEqual(['lockCustomWallpaper', null]);
     expect(nbs.sets).toContainEqual(['lockWallpaperId', 'stock-blue']);
+  });
+
+  it('saves desktop icon size through the desktopIconSize setting', async () => {
+    const { content, nbs } = await loadSettings();
+    expect(sidebarBtn(content, 'VPN').querySelector('img').getAttribute('src'))
+      .toBe('/js/apps/settings/icons/icons8-vpn-icon-94.png');
+    sidebarBtn(content, 'Accessibility').click();
+
+    const iconSizeGroup = [...content.querySelectorAll('.nook-group')]
+      .find((group) => group.querySelector('.nook-group-title')?.textContent === 'Icon Size');
+    expect(iconSizeGroup).toBeTruthy();
+    const largeRow = [...iconSizeGroup.querySelectorAll('.nook-row')]
+      .find((row) => row.textContent.includes('Large'));
+    largeRow.querySelector('button').click();
+
+    expect(nbs.sets).toContainEqual(['desktopIconSize', 108]);
+    expect(nbs.sets.some(([key]) => key === 'cursorSize')).toBe(false);
   });
 
   it('guards enabling Developer Mode behind the security warning dialog', async () => {

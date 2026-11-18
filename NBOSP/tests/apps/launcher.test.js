@@ -97,6 +97,14 @@ describe('Launcher shell (js/apps/launcher)', () => {
 
     expect(document.getElementById('taskbar').classList.contains('taskbar-compact')).toBe(true);
     expect(document.documentElement.style.getPropertyValue('--taskbar-height')).toBe('36px');
+
+    window.configureLauncherTaskbar((key) => ({
+      taskbarSize: 'large',
+      taskbarPosition: 'left',
+    })[key]);
+    expect(document.getElementById('taskbar').classList.contains('taskbar-large')).toBe(true);
+    expect(document.getElementById('taskbar').classList.contains('taskbar-left')).toBe(true);
+    expect(document.getElementById('taskbar').classList.contains('taskbar-compact')).toBe(false);
   });
 
   it('opens the launchpad from the Start button and closes it again', async () => {

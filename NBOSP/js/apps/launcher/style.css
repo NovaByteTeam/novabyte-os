@@ -92,6 +92,12 @@
     margin-bottom: 4px;
     color: var(--accent);
   }
+  .desktop-icon-img > svg,
+  .desktop-icon-img > img,
+  .desktop-icon-img > span {
+    width: clamp(32px, calc(var(--desktop-icon-size, 84px) * 0.48), 64px) !important;
+    height: clamp(32px, calc(var(--desktop-icon-size, 84px) * 0.48), 64px) !important;
+  }
   .desktop-icon-label {
     font-size: 11px;
     text-align: center;
@@ -124,6 +130,8 @@
 /* transparent and let backdrop-filter reach the desktop wallpaper. */
 @layer taskbar {
   #taskbar {
+    --taskbar-hover-x: 0px;
+    --taskbar-hover-y: -3px;
     position: fixed;
     bottom: 0;
     left: 0;
@@ -166,6 +174,7 @@
     pointer-events: none;
   }
   #taskbar.taskbar-top {
+    --taskbar-hover-y: 3px;
     top: 0;
     bottom: auto;
     border-top: none;
@@ -204,7 +213,7 @@
   }
   .taskbar-start-btn:hover {
     background: var(--accent-muted);
-    transform: scale(1.05);
+    transform: translate(var(--taskbar-hover-x), var(--taskbar-hover-y));
   }
   .taskbar-start-btn:active {
     transform: scale(0.95);
@@ -226,6 +235,8 @@
     overflow-x: auto;
     padding: 0 8px;
   }
+  #taskbar.taskbar-left { --taskbar-hover-x: 2px; --taskbar-hover-y: 0px; }
+  #taskbar.taskbar-right { --taskbar-hover-x: -2px; --taskbar-hover-y: 0px; }
   /* Hide the scrollbar inside the apps strip — the dock shouldn't look */
   /* scrollable even when it is. */
   .taskbar-apps::-webkit-scrollbar {
@@ -249,7 +260,7 @@
   }
   .taskbar-app-btn:hover {
     background: var(--bg-hover);
-    transform: scale(1.08);
+    transform: translate(var(--taskbar-hover-x), var(--taskbar-hover-y));
   }
   .taskbar-app-btn:active {
     transform: scale(0.95);
@@ -284,6 +295,22 @@
   #taskbar.taskbar-compact .taskbar-app-btn .indicator {
     bottom: 1px;
   }
+  #taskbar.taskbar-compact { --taskbar-hover-y: -1px; }
+  #taskbar.taskbar-large { --taskbar-hover-y: -6px; }
+  #taskbar.taskbar-compact.taskbar-top { --taskbar-hover-y: 1px; }
+  #taskbar.taskbar-large.taskbar-top { --taskbar-hover-y: 6px; }
+  #taskbar.taskbar-left .taskbar-app-btn:hover,
+  #taskbar.taskbar-right .taskbar-app-btn:hover {
+    transform: translate(var(--taskbar-hover-x), 0);
+  }
+  #taskbar.taskbar-left .taskbar-start-btn:hover,
+  #taskbar.taskbar-right .taskbar-start-btn:hover {
+    transform: translate(var(--taskbar-hover-x), 0);
+  }
+  #taskbar.taskbar-left.taskbar-compact { --taskbar-hover-x: 1px; }
+  #taskbar.taskbar-right.taskbar-compact { --taskbar-hover-x: -1px; }
+  #taskbar.taskbar-left.taskbar-large { --taskbar-hover-x: 6px; }
+  #taskbar.taskbar-right.taskbar-large { --taskbar-hover-x: -6px; }
 
   /* macOS-like bounce — fires once on app launch. */
   @keyframes dockBounce {

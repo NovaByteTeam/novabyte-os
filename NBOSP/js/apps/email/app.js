@@ -1,5 +1,13 @@
 (function () {
 'use strict';
+const emailPackageFiles = window.__novaUnrestrictedPackage?.files || {};
+
+function emailNotificationIconSrc() {
+  const encoded = emailPackageFiles['icons/apple-touch-icon.svg'];
+  return encoded
+    ? `data:image/svg+xml;base64,${encoded}`
+    : '/js/apps/email/icons/apple-touch-icon.svg';
+}
 registerApp({
   id: 'com.nbosp.email',
   name: 'Email',
@@ -1744,7 +1752,7 @@ registerApp({
       if (Notification.permission === 'granted') {
         new Notification(acct.name || _t('apps.email.notify.newMailTitle', { email: acct.email, count: newUnread.length }), {
           body: decodeEntities(newUnread[0].subject),
-          icon: '/assets/apple-touch-icon.svg',
+          icon: emailNotificationIconSrc(),
         });
       }
       notify(_t('apps.email.notify.newIn', { count: newUnread.length, account: acct.name || acct.email }));

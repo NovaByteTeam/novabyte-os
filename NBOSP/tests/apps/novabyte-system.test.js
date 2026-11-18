@@ -77,6 +77,9 @@ describe('NovaByte System settings coordinator', () => {
     expect(api.settings.set('lockCustomWallpaperName', 'lock.png')).toBe(true);
     expect(api.settings.get('lockCustomWallpaperName')).toBe('lock.png');
     expect(api.settings.set('lockWallpaperId', null)).toBe(true);
+    expect(api.settings.set('desktopIconSize', 108)).toBe(true);
+    expect(api.settings.get('desktopIconSize')).toBe(108);
+    expect(() => api.settings.set('desktopIconSize', 1000)).toThrow(/Invalid value/);
     expect(() => api.settings.set('lockCustomWallpaper', 'data:image/tiff;base64,AQID')).toThrow(/Invalid value/);
     expect(() => api.settings.set('lockCustomWallpaperName', 'bad\u0001name')).toThrow(/Invalid value/);
     expect(() => api.settings.set('doNotDisturb', 'true')).toThrow(/Invalid value/);

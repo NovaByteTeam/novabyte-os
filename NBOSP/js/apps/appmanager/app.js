@@ -20,10 +20,16 @@
 
     return osSvgIcon(name, size).replace(/src="\/assets\/([^"]+)"/g, (attribute, fileName) => {
       const encoded = appManagerPackageFiles[`icons/${fileName}`];
-      if (!encoded) return attribute;
+      if (!encoded) return `src="/js/apps/appmanager/icons/${fileName}"`;
       const mime = fileName.toLowerCase().endsWith('.svg') ? 'image/svg+xml' : 'image/png';
       return `src="data:${mime};base64,${encoded}"`;
     });
+  }
+
+  function fallbackAppIcon() {
+    const encoded = appManagerPackageFiles['icons/no_app_icon.svg'];
+    if (!encoded) throw new Error('App Manager is missing icons/no_app_icon.svg');
+    return `data:image/svg+xml;base64,${encoded}`;
   }
 
   // Used only by the legacy launch fallback below. Keep its v2 storage
@@ -60,8 +66,9 @@
 
   function resolvePackageIcon(appData) {
     const icon = appData?.icon;
+    if (icon === '/assets/no_app_icon.svg') return fallbackAppIcon();
     if (typeof icon !== 'string' || !icon || /^(?:data:|https?:\/\/|\/)/i.test(icon)) {
-      return icon || '/assets/no_app_icon.svg';
+      return icon || fallbackAppIcon();
     }
 
     const encoded = appData.files?.[icon];
@@ -1035,7 +1042,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               appData.manifest = pkgData;
               appData.name = appData.name || pkgData.name || appData.id;
               appData.description = appData.description || pkgData.description || '';
-              appData.icon = appData.icon || pkgData.icon || '/assets/no_app_icon.svg';
+              appData.icon = appData.icon || pkgData.icon || fallbackAppIcon();
               appData.defaultSize = appData.defaultSize || pkgData.defaultSize || [800, 560];
               appData.minSize = appData.minSize || pkgData.minSize || [400, 300];
             }
@@ -1757,10 +1764,10 @@ registerApp({
           const iconSrc = resolveIcon(app);
           if (iconSrc) {
             const _img = createEl('img', { src: iconSrc, draggable: 'false', style: 'width:100%;height:100%;object-fit:cover;border-radius:8px;pointer-events:none;' });
-            _img.onerror = () => { iconWrap.innerHTML = svgIcon('/assets/no_app_icon.svg', 17); };
+            _img.onerror = () => { iconWrap.innerHTML = svgIcon(fallbackAppIcon(), 17); };
             iconWrap.appendChild(_img);
           } else {
-            iconWrap.innerHTML = svgIcon(app.icon || '/assets/no_app_icon.svg', 17);
+            iconWrap.innerHTML = svgIcon(app.icon || fallbackAppIcon(), 17);
           }
           const meta = createEl('div', { className: `app-manager-package-meta${isDis ? ' is-disabled' : ''}` });
           // SECURITY: Use escapeHtml for user-controlled app.name
@@ -1899,10 +1906,10 @@ registerApp({
         const iconSrc = resolveIcon(app);
         if (iconSrc) {
           const _img = createEl('img', { src: iconSrc, draggable: 'false', style: 'width:100%;height:100%;object-fit:cover;border-radius:13px;pointer-events:none;' });
-          _img.onerror = () => { hIcon.innerHTML = svgIcon('/assets/no_app_icon.svg', 28); };
+          _img.onerror = () => { hIcon.innerHTML = svgIcon(fallbackAppIcon(), 28); };
           hIcon.appendChild(_img);
         } else {
-          hIcon.innerHTML = svgIcon(app.icon || '/assets/no_app_icon.svg', 28);
+          hIcon.innerHTML = svgIcon(app.icon || fallbackAppIcon(), 28);
         }
         const hMeta = createEl('div', { className: 'app-manager-detail-meta' });
         // SECURITY: escapeHtml for app.name and app.author (user-controlled)

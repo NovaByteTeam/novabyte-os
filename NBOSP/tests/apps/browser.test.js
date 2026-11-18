@@ -257,6 +257,7 @@ describe('Browser app (js/apps/browser)', () => {
 
   it('uses the captured request headers for ordinary downloads and saves data downloads', async () => {
     const savedPaths = new Map();
+    const dialogStartPaths = [];
     const statuses = [];
     const notifications = makeNotify();
     const downloads = {
@@ -294,6 +295,7 @@ describe('Browser app (js/apps/browser)', () => {
     const outputFor = (name) => nodePath.join(process.cwd(), 'tests', outputPrefix + '-' + name);
     const httpFile = outputFor('http.bin');
     const dataFile = outputFor('data.txt');
+    const downloadsPath = nodePath.join(process.cwd(), 'tests');
     await Promise.all([fsPromises.rm(httpFile, { force: true }), fsPromises.rm(dataFile, { force: true })]);
 
     try {
@@ -302,6 +304,12 @@ describe('Browser app (js/apps/browser)', () => {
           extra: {
             Notify: notifications,
             Downloads: downloads,
+            FS: {
+              rootId: process.cwd(),
+              specialFolders: { downloads: downloadsPath },
+              getPath: (path) => path,
+              listDir: () => [],
+            },
             Buffer: { from: (...args) => Buffer.from(...args) },
             require: (name) => {
               if (name === 'https' || name === 'http') return transport;
@@ -312,7 +320,8 @@ describe('Browser app (js/apps/browser)', () => {
               })[name];
             },
             SystemDialogs: {
-              save: async ({ suggestedName }) => {
+              save: async ({ suggestedName, startPath }) => {
+                dialogStartPaths.push(startPath);
                 const filePath = suggestedName === 'data.txt' ? dataFile : httpFile;
                 savedPaths.set(suggestedName, filePath);
                 return { path: filePath, name: suggestedName };
@@ -321,6 +330,9 @@ describe('Browser app (js/apps/browser)', () => {
           },
         }),
       });
+      window.localStorage.setItem('nbosp_browser_settings', JSON.stringify({
+        ask_where_to_save_downloads: true,
+      }));
       const content = initApp(app, { window });
       const urlBar = content.querySelector('#browser-url-bar');
       urlBar.value = 'https://example.test/page';
@@ -359,10 +371,12 @@ describe('Browser app (js/apps/browser)', () => {
 
       for (let i = 0; i < 50 && !nodeFs.existsSync(httpFile); i++) await settle(20);
       expect(await fsPromises.readFile(httpFile, 'utf8')).toBe('downloaded payload');
+      expect(dialogStartPaths[0]).toBe(downloadsPath);
       expect(serverRequests[0]).toMatchObject({
         authorization: 'download-header-test-value',
         referer: 'https://example.test/page',
       });
+
       expect(statuses).toContainEqual(['protected.bin', 'downloading']);
       expect(statuses).toContainEqual(['protected.bin', 'done', 18]);
 
@@ -404,6 +418,72 @@ describe('Browser app (js/apps/browser)', () => {
       ]);
       await new Promise((resolve) => server.close(resolve));
     }
+  });
+
+  it('automatically saves downloads to the Downloads folder by default', async () => {
+    const downloadsPath = await fsPromises.mkdtemp(nodePath.join(process.cwd(), 'tests', '.browser-downloads-'));
+    const filePath = nodePath.join(downloadsPath, 'auto.txt');
+    let dialogCalls = 0;
+    try {
+      const { app, window } = await loadWindowApp('browser', {
+        stubs: browserStubs({
+          extra: {
+            FS: {
+              rootId: process.cwd(),
+              specialFolders: { downloads: downloadsPath },
+              getPath: (path) => path,
+              listDir: () => [],
+            },
+            Buffer: { from: (...args) => Buffer.from(...args) },
+            require: (name) => ({
+              fs: nodeFs,
+              path: nodePath,
+            })[name],
+            SystemDialogs: { save: async () => { dialogCalls++; return null; } },
+          },
+        }),
+      });
+      const content = initApp(app, { window });
+      const urlBar = content.querySelector('#browser-url-bar');
+      urlBar.value = 'https://example.test/page';
+      enter(window, urlBar);
+      const webview = content.querySelector('webview');
+      webview.executeScript = () => {};
+      webview.setZoomMode = () => {};
+      webview.dispatchEvent(new window.Event('loadcommit'));
+
+      const permission = new window.Event('permissionrequest');
+      Object.defineProperties(permission, {
+        permission: { value: 'download' },
+        request: {
+          value: { url: 'data:text/plain;base64,SGVsbG8=', filename: 'auto.txt', deny() {}, allow() {} },
+        },
+      });
+      webview.dispatchEvent(permission);
+
+      for (let i = 0; i < 50 && !nodeFs.existsSync(filePath); i++) await settle(20);
+      expect(await fsPromises.readFile(filePath, 'utf8')).toBe('Hello');
+      expect(dialogCalls).toBe(0);
+    } finally {
+      await fsPromises.rm(downloadsPath, { recursive: true, force: true });
+    }
+  });
+
+  it('lets the browser preference enable Save dialog for each download', async () => {
+    const { app, window } = await loadWindowApp('browser', { stubs: browserStubs() });
+    const content = initApp(app, { window });
+    const urlBar = content.querySelector('#browser-url-bar');
+    urlBar.value = 'browser://settings';
+    enter(window, urlBar);
+
+    const toggle = [...content.querySelectorAll('.browser-settings-page [role="switch"]')]
+      .find((element) => element.parentElement.textContent.includes('Ask where to save each download'));
+    expect(toggle).toBeTruthy();
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    toggle.click();
+    await settle(350);
+    expect(JSON.parse(window.localStorage.getItem('nbosp_browser_settings')))
+      .toMatchObject({ ask_where_to_save_downloads: true });
   });
 
   it('treats a plain query as a search and loads it into the tab webview', async () => {

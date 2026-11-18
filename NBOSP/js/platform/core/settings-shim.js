@@ -167,6 +167,7 @@
     theme: 'HKNS/shell/theme',
     accentColor: 'HKNS/shell/accentColor',
     wallpaperId: 'HKNS/shell/wallpaper',
+    lockWallpaperId: 'HKNS/shell/lockWallpaper',
     devMode: 'HKNS/system/devMode',
     rootAccessEnabled: 'HKNS/security/rootAccessEnabled',
     timezone: 'HKNU/settings/timezone',

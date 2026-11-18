@@ -69,6 +69,7 @@
     'music': 'music',
     'image': 'picture',
     'calendar': 'calendar',
+    'store': 'shop',
     'mail': 'mail',
     'monitor': 'monitor',
     'settings': 'gear',
@@ -174,7 +175,9 @@
     'shuffle': 'shuffle-96',
     'repeat': 'repeat-button-96',
     'pause': 'pause-96',
-    'rename': 'rename-96'
+    'rename': 'rename-96',
+    'maximize': 'fullscreen-96',
+    'registry': 'registry-96',
   });
 
   // Cache of already-rendered icon HTML keyed by `${name}|${size}`. The output
