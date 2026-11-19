@@ -1,50 +1,50 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Documents icon">
   <defs>
-    <!-- 3-stop vertical violet gradient for front sheet -->
+    
     <linearGradient id="dc-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ddd6fe"/>
       <stop offset="0.55" stop-color="#a78bfa"/>
       <stop offset="1" stop-color="#6d28d9"/>
     </linearGradient>
 
-    <!-- Deeper 3-stop vertical violet gradient for rear stacked sheet -->
+    
     <linearGradient id="dc-back" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#c4b5fd"/>
       <stop offset="0.55" stop-color="#8b5cf6"/>
       <stop offset="1" stop-color="#5b21b6"/>
     </linearGradient>
 
-    <!-- Warm amber gradient for foreground folded corner & header badge -->
+    
     <linearGradient id="dc-amber" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#fde68a"/>
       <stop offset="1" stop-color="#f59e0b"/>
     </linearGradient>
 
-    <!-- Proportional NovaReg drop shadow -->
+    
     <filter id="dc-ds" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
   </defs>
 
-  <!-- Rear stacked document sheet -->
+  
   <g filter="url(#dc-ds)">
     <path d="M33 12h31l16 16v39a5 5 0 0 1-5 5H33a5 5 0 0 1-5-5V17a5 5 0 0 1 5-5z" fill="url(#dc-back)"/>
     <path d="M33 12.8h30.2" fill="none" stroke="#ede9fe" stroke-width="1.3" stroke-linecap="round" opacity="0.45"/>
     <path d="M64 12v12a4 4 0 0 0 4 4h12L64 12z" fill="#3b0764" opacity="0.16"/>
   </g>
 
-  <!-- Front document sheet -->
+  
   <g filter="url(#dc-ds)">
     <path d="M21 24h33l16 16v39a5 5 0 0 1-5 5H21a5 5 0 0 1-5-5V29a5 5 0 0 1 5-5z" fill="url(#dc-body)"/>
     <path d="M21 24.8h31.2" fill="none" stroke="#ede9fe" stroke-width="1.4" stroke-linecap="round" opacity="0.65"/>
 
-    <!-- Recessed text lines -->
+    
     <rect x="24" y="48" width="34" height="3.6" rx="1.8" fill="#3b0764" opacity="0.35"/>
     <rect x="24" y="57.5" width="34" height="3.6" rx="1.8" fill="#3b0764" opacity="0.35"/>
     <rect x="24" y="67" width="23" height="3.6" rx="1.8" fill="#3b0764" opacity="0.35"/>
   </g>
 
-  <!-- Warm amber folded dog-ear corner & header accent pill -->
+  
   <g filter="url(#dc-ds)">
     <path d="M54 24v12a4 4 0 0 0 4 4h12L54 24z" fill="url(#dc-amber)"/>
     <rect x="24" y="36" width="18" height="4" rx="2" fill="url(#dc-amber)"/>

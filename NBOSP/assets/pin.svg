@@ -18,20 +18,20 @@
     </filter>
   </defs>
 
-  <!-- Main sky-blue map pin body -->
+  
   <g filter="url(#pin-ds)">
-    <!-- Borderless 3-stop sky-blue teardrop pin -->
+    
     <path d="M48 12 A26 26 0 0 0 22 38 C22 55 44.5 78.5 46.8 80.8 Q48 82 49.2 80.8 C51.5 78.5 74 55 74 38 A26 26 0 0 0 48 12 Z" fill="url(#pin-body)"/>
 
-    <!-- Recessed outer bezel groove -->
+    
     <path d="M48 16.5 A21.5 21.5 0 0 0 26.5 38 C26.5 52.2 46.2 72.5 48 74.3 C49.8 72.5 69.5 52.2 69.5 38 A21.5 21.5 0 0 0 48 16.5 Z" fill="none" stroke="#1e3a8a" stroke-width="1.5" opacity="0.38"/>
 
-    <!-- Light top highlight collar around the center -->
+    
     <circle cx="48" cy="38" r="14.5" fill="url(#pin-top)"/>
     <circle cx="48" cy="38" r="14.5" fill="none" stroke="#2563eb" stroke-width="1.2" opacity="0.35"/>
   </g>
 
-  <!-- Foreground warm amber center jewel -->
+  
   <g filter="url(#pin-ds)">
     <circle cx="48" cy="38" r="8.5" fill="url(#pin-amber)"/>
   </g>

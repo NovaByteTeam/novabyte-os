@@ -21,16 +21,16 @@
     </clipPath>
   </defs>
 
-  <!-- outer sky-blue flash bolt -->
+  
   <g filter="url(#fo-ds)">
     <path d="M52 12 L21 53 H43 L41 84 L75 39 H52 Z" fill="url(#fo-body)" stroke="url(#fo-body)" stroke-width="2.4" stroke-linejoin="round"/>
     <g clip-path="url(#fo-clip)">
-      <!-- upper facet highlight -->
+      
       <rect x="19" y="11" width="58" height="23" fill="url(#fo-top)" opacity="0.55"/>
     </g>
   </g>
 
-  <!-- inner warm amber flash core -->
+  
   <g filter="url(#fo-ds)">
     <path d="M50.5 23.5 L32.5 48.5 H46.5 L45 70 L64 43.5 H50.5 Z" fill="url(#fo-amber)" stroke="url(#fo-amber)" stroke-width="1.6" stroke-linejoin="round"/>
   </g>

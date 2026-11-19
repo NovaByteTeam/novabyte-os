@@ -1,41 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Source Code icon">
   <defs>
-    <!-- Primary 3-stop vibrant teal gradient -->
+    
     <linearGradient id="sc-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#5eead4"/>
       <stop offset="0.55" stop-color="#14b8a6"/>
       <stop offset="1" stop-color="#0f766e"/>
     </linearGradient>
 
-    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    
     <linearGradient id="sc-top" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ccfbf1"/>
       <stop offset="1" stop-color="#5eead4"/>
     </linearGradient>
 
-    <!-- Warm amber accent gradient for the centre slash -->
+    
     <linearGradient id="sc-accent" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#fde68a"/>
       <stop offset="1" stop-color="#f59e0b"/>
     </linearGradient>
 
-    <!-- Proportional drop shadow for 96x96 viewBox -->
+    
     <filter id="sc-ds" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
   </defs>
 
-  <!-- Borderless code brackets and slash with soft drop shadow -->
+  
   <g filter="url(#sc-ds)">
-    <!-- Left and right angled brackets -->
+    
     <path d="M34 26 13 48 34 70" fill="none" stroke="url(#sc-body)" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M62 26 83 48 62 70" fill="none" stroke="url(#sc-body)" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round"/>
 
-    <!-- Subtle inner highlight ridge on the upper arms of the brackets -->
+    
     <path d="M33.5 26.5 14 47" fill="none" stroke="url(#sc-top)" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
     <path d="M62.5 26.5 82 47" fill="none" stroke="url(#sc-top)" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
 
-    <!-- Floating warm amber slash with secondary drop shadow -->
+    
     <g filter="url(#sc-ds)">
       <path d="M55 18 41 78" fill="none" stroke="url(#sc-accent)" stroke-width="8" stroke-linecap="round"/>
     </g>

@@ -1,39 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Call icon">
   <defs>
-    <!-- 3-stop vertical crimson-coral gradient matching incoming hue -->
+    
     <linearGradient id="cl-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#fecaca"/>
       <stop offset="0.55" stop-color="#f87171"/>
       <stop offset="1" stop-color="#dc2626"/>
     </linearGradient>
 
-    <!-- Warm amber gradient for foreground signal arcs -->
+    
     <linearGradient id="cl-amber" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#fde68a"/>
       <stop offset="1" stop-color="#f59e0b"/>
     </linearGradient>
 
-    <!-- Proportional NovaReg drop shadow -->
+    
     <filter id="cl-ds" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
   </defs>
 
-  <!-- Main Telephone Handset Silhouette -->
+  
   <g filter="url(#cl-ds)">
-    <!-- Fully rounded handset body with smooth top-left earpiece curve -->
+    
     <path d="M24.2 13.7 L29.2 12.2 C31.5 11.5 33.9 12.6 34.9 14.8 L41.5 28.8 C42.4 30.8 41.9 33.2 40.2 34.6 L33.2 40.4 C37.2 48.2 43.8 54.8 51.6 58.8 L57.4 51.8 C58.8 50.1 61.2 49.6 63.2 50.5 L77.2 57.1 C79.4 58.1 80.5 60.5 79.8 62.8 L77.8 69.5 C76.1 75.2 70.4 78.6 63.8 76.9 C41.2 71.1 24.9 54.8 19.1 32.2 C17.7 26.8 18.8 22.1 20.5 17.6 C21.2 15.7 22.5 14.2 24.2 13.7 Z" fill="url(#cl-body)"/>
 
-    <!-- Recessed earpiece & mouthpiece pad grooves -->
+    
     <path d="M25.8 19.2 L31.6 31.4" fill="none" stroke="#7f1d1d" stroke-width="2" stroke-linecap="round" opacity="0.32"/>
     <path d="M60.6 60.4 L72.8 66.2" fill="none" stroke="#7f1d1d" stroke-width="2" stroke-linecap="round" opacity="0.32"/>
   </g>
 
-  <!-- Warm amber foreground outgoing signal waves with secondary elevation -->
+  
   <g filter="url(#cl-ds)">
-    <!-- Outer signal arc -->
+    
     <path d="M55.4 16.2 A2.3 2.3 0 0 1 58.2 14.5 C70.4 17.8 79.2 26.6 82.5 38.8 A2.3 2.3 0 1 1 78.1 40 C75.2 29.4 67.6 21.8 57 18.9 A2.3 2.3 0 0 1 55.4 16.2 Z" fill="url(#cl-amber)"/>
-    <!-- Inner signal arc -->
+    
     <path d="M54.8 27.6 A2.3 2.3 0 0 1 57.6 25.9 C64.2 27.8 69.2 32.8 71.1 39.4 A2.3 2.3 0 1 1 66.7 40.6 C65.2 35.4 61.6 31.8 56.4 30.3 A2.3 2.3 0 0 1 54.8 27.6 Z" fill="url(#cl-amber)"/>
   </g>
 </svg>

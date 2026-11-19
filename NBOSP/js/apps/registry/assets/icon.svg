@@ -11,19 +11,19 @@
     </linearGradient>
   </defs>
 
-  <!-- Ground Shadow -->
+  
   <ellipse cx="48" cy="85" rx="28" ry="5" fill="#000" opacity=".2"/>
 
-  <!-- Cylinder Body (Exact rx=28 ry=12 Elliptical Bottom) -->
+  
   <path d="M20 26v42a28 12 0 0 0 56 0V26z" fill="url(#cyl)"/>
 
-  <!-- Smooth Right-Side Shadow Following Cylindrical Curve -->
+  
   <path d="M48 38v42a28 12 0 0 0 28-12V26a28 12 0 0 1-28 12z" fill="#1e3a8a" opacity=".35"/>
 
-  <!-- Parallel Divider Rings (Matching rx=28 ry=12 Arcs) -->
+  
   <path d="M20 40a28 12 0 0 0 56 0M20 54a28 12 0 0 0 56 0" fill="none" stroke="#bfdbfe" stroke-width="2.5" stroke-linecap="round"/>
 
-  <!-- Top Lid & Specular Highlight -->
+  
   <ellipse cx="48" cy="26" rx="28" ry="12" fill="url(#lid)" stroke="#eff6ff" stroke-width="2"/>
   <ellipse cx="39" cy="23" rx="11" ry="4" fill="#fff" opacity=".45"/>
 </svg>

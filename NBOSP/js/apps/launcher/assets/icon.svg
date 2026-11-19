@@ -5,20 +5,20 @@
   </defs>
   <ellipse cx="49" cy="82" rx="32" ry="6" fill="#1e1b4b" opacity=".22"/>
   
-  <!-- Base shadow & main house shape -->
+  
   <path d="m13 42 37-28 37 28v29a8 8 0 0 1-8 8H21a8 8 0 0 1-8-8z" fill="#1e2b79"/>
   <path d="m11 39 37-28 37 28v29a8 8 0 0 1-8 8H19a8 8 0 0 1-8-8z" fill="url(#la-base)"/>
   
-  <!-- Roof highlight -->
+  
   <path d="m20 39 28-21 28 21" fill="none" stroke="#b9c9ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   
-  <!-- Centred 2x2 tile grid -->
+  
   <rect x="26" y="39" width="19" height="15" rx="4" fill="url(#la-tile)"/>
   <rect x="51" y="39" width="19" height="15" rx="4" fill="#fda4af"/>
   <rect x="26" y="58" width="19" height="15" rx="4" fill="#fde68a"/>
   <rect x="51" y="58" width="19" height="15" rx="4" fill="#67e8f9"/>
   
-  <!-- Tile glyph details -->
+  
   <rect x="32.5" y="43.5" width="6" height="6" rx="2" fill="#5571d8"/>
   <circle cx="60.5" cy="46.5" r="3" fill="#fff" opacity=".8"/>
 </svg>

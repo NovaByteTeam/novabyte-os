@@ -21,16 +21,16 @@
     </clipPath>
   </defs>
 
-  <!-- outer purple lightning bolt -->
+  
   <g filter="url(#lt-ds)">
     <path d="M51 13 L20 53 H43 L40 83 L76 37 H52 Z" fill="url(#lt-body)" stroke="url(#lt-body)" stroke-width="2.5" stroke-linejoin="round"/>
     <g clip-path="url(#lt-clip)">
-      <!-- upper facet highlight -->
+      
       <polygon points="18,12 78,12 78,34 18,34" fill="url(#lt-top)" opacity="0.5"/>
     </g>
   </g>
 
-  <!-- inner warm amber energy bolt -->
+  
   <g filter="url(#lt-ds)">
     <path d="M50 24 L31 49 H46.5 L44.5 70 L65 42.5 H50.5 Z" fill="url(#lt-core)" stroke="url(#lt-core)" stroke-width="1.6" stroke-linejoin="round"/>
   </g>

@@ -25,29 +25,29 @@
   </defs>
 
   <g transform="translate(48 48) rotate(-45)">
-    <!-- pink pencil shaft -->
+    
     <g filter="url(#pn-ds)">
       <g clip-path="url(#pn-shaft-clip)">
         <rect x="-18" y="-8.5" width="36" height="17" fill="url(#pn-body)"/>
-        <!-- upper highlight bevel -->
+        
         <rect x="-18" y="-8.5" width="36" height="5.5" fill="url(#pn-top)" opacity="0.6"/>
-        <!-- recessed longitudinal groove -->
+        
         <rect x="-18" y="2.2" width="36" height="1.8" fill="#831843" opacity="0.32"/>
       </g>
     </g>
 
-    <!-- foreground warm amber tip, ferrule & eraser cap -->
+    
     <g filter="url(#pn-ds)">
       <g clip-path="url(#pn-tip-clip)">
         <path d="M-16 -8.5 H-18 L-35.5 -1.1 A1.2 1.2 0 0 0 -35.5 1.1 L-18 8.5 H-16 Z" fill="url(#pn-amber)"/>
-        <!-- recessed graphite lead & collar line clipped cleanly to tip -->
+        
         <rect x="-38" y="-8.5" width="7.5" height="17" fill="#92400e" opacity="0.55"/>
         <rect x="-18.5" y="-8.5" width="2.5" height="17" fill="#92400e" opacity="0.35"/>
       </g>
 
-      <!-- rounded eraser cap tucked 3px under ferrule -->
+      
       <rect x="19" y="-8.5" width="16" height="17" rx="5.5" fill="url(#pn-amber)"/>
-      <!-- ferrule band overlapping both shaft (x=18) and eraser (x=19) -->
+      
       <rect x="15.5" y="-9" width="6.5" height="18" rx="2" fill="url(#pn-amber)"/>
       <rect x="17.8" y="-9" width="1.9" height="18" fill="#92400e" opacity="0.35"/>
     </g>

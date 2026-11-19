@@ -18,24 +18,24 @@
     </filter>
   </defs>
 
-  <!-- Main amber price tag body -->
+  
   <g filter="url(#tag-ds)">
-    <!-- Smooth rounded-corner tag polygon -->
+    
     <path d="M16 22 Q16 17 21 17 L45 17 Q48 17 50 19 L79 48 Q82 51 79 54 L54 79 Q51 82 48 79 L19 50 Q16 48 16 45 Z" fill="url(#tag-body)"/>
 
-    <!-- Recessed inner border groove -->
+    
     <path d="M21 23 Q21 21 23 21 L44 21 Q46 21 47.5 22.5 L73.5 48.5 Q75 50 73.5 51.5 L51.5 73.5 Q50 75 48.5 73.5 L22.5 47.5 Q21 46 21 44 Z" fill="none" stroke="#92400e" stroke-width="1.4" opacity="0.38"/>
 
-    <!-- Light top highlight ring around eyelet -->
+    
     <circle cx="31" cy="32" r="7.5" fill="url(#tag-top)"/>
     <circle cx="31" cy="32" r="7.5" fill="none" stroke="#92400e" stroke-width="1.2" opacity="0.35"/>
   </g>
 
-  <!-- Sky-blue focal accents (required when base icon is gold/amber) -->
+  
   <g filter="url(#tag-ds)" fill="url(#tag-sky)">
-    <!-- Eyelet grommet jewel -->
+    
     <circle cx="31" cy="32" r="4"/>
-    <!-- Diagonal price stripe pill -->
+    
     <rect x="44" y="33.5" width="32" height="5" rx="2.5" transform="rotate(45 44 36)"/>
   </g>
 </svg>

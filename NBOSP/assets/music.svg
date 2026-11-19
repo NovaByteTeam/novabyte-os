@@ -17,9 +17,9 @@
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
     <clipPath id="ms-clip">
-      <!-- Left stem + note head (tucked 3px under beam) -->
+      
       <path d="M33 26 L41 26 L41 68 A12 10.5 -15 1 1 33 59 Z"/>
-      <!-- Right stem + note head (tucked 3px under beam) -->
+      
       <path d="M66 20 L74 20 L74 62 A12 10.5 -15 1 1 66 53 Z"/>
     </clipPath>
     <clipPath id="ms-beam-clip">
@@ -27,25 +27,25 @@
     </clipPath>
   </defs>
 
-  <!-- Base double eighth-note stems & heads -->
+  
   <g filter="url(#ms-ds)">
     <g clip-path="url(#ms-clip)">
       <path d="M33 26 L41 26 L41 68 A12 10.5 -15 1 1 33 59 Z" fill="url(#ms-body)"/>
       <path d="M66 20 L74 20 L74 62 A12 10.5 -15 1 1 66 53 Z" fill="url(#ms-body)"/>
-      <!-- Concentric recessed vinyl grooves on note heads -->
+      
       <ellipse cx="30.2" cy="68.8" rx="6.8" ry="5.6" transform="rotate(-15 30.2 68.8)" fill="none" stroke="#7f1d1d" stroke-width="1.8" opacity="0.38"/>
       <ellipse cx="63.2" cy="62.8" rx="6.8" ry="5.6" transform="rotate(-15 63.2 62.8)" fill="none" stroke="#7f1d1d" stroke-width="1.8" opacity="0.38"/>
-      <!-- Subtle vertical rim highlights along stems -->
+      
       <line x1="34.2" y1="26" x2="34.2" y2="61" stroke="url(#ms-top)" stroke-width="1.5" opacity="0.5"/>
       <line x1="67.2" y1="20" x2="67.2" y2="55" stroke="url(#ms-top)" stroke-width="1.5" opacity="0.5"/>
     </g>
   </g>
 
-  <!-- Foreground warm amber connecting beam with secondary drop shadow -->
+  
   <g filter="url(#ms-ds)">
     <g clip-path="url(#ms-beam-clip)">
       <path d="M33 22.5 L74 15.5 L74 26.5 L33 33.5 Z" fill="url(#ms-amber)"/>
-      <!-- Top highlight bevel on beam -->
+      
       <line x1="32" y1="23.8" x2="75" y2="16.5" stroke="#fef3c7" stroke-width="1.8" opacity="0.75"/>
     </g>
   </g>

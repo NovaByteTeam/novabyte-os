@@ -18,19 +18,19 @@
     </filter>
   </defs>
 
-  <!-- Main purple play housing -->
+  
   <g filter="url(#play-ds)">
-    <!-- Borderless 3-stop purple rounded triangle -->
+    
     <path d="M29 17.5 A5.5 5.5 0 0 0 21 22.3 V73.7 A5.5 5.5 0 0 0 29 78.5 L75 52.8 A5.5 5.5 0 0 0 75 43.2 Z" fill="url(#play-body)"/>
 
-    <!-- Recessed outer bezel groove -->
+    
     <path d="M31.5 23.8 A3.8 3.8 0 0 0 26 27.1 V68.9 A3.8 3.8 0 0 0 31.5 72.2 L68.8 51.3 A3.8 3.8 0 0 0 68.8 44.7 Z" fill="none" stroke="#4c1d95" stroke-width="1.5" opacity="0.38"/>
 
-    <!-- Light top highlight inner plate -->
+    
     <path d="M33.5 28.2 A2.8 2.8 0 0 0 29.5 30.6 V65.4 A2.8 2.8 0 0 0 33.5 67.8 L64.5 50.4 A2.8 2.8 0 0 0 64.5 45.6 Z" fill="url(#play-top)"/>
   </g>
 
-  <!-- Foreground warm amber play core -->
+  
   <g filter="url(#play-ds)">
     <path d="M38 35.5 A2.2 2.2 0 0 0 34.8 37.4 V58.6 A2.2 2.2 0 0 0 38 60.5 L57 49.9 A2.2 2.2 0 0 0 57 46.1 Z" fill="url(#play-amber)"/>
   </g>

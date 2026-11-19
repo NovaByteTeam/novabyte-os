@@ -25,14 +25,14 @@
   <g filter="url(#alr-ds)">
     <g clip-path="url(#alr-clip)">
       <rect x="11" y="13" width="74" height="65" fill="url(#alr-body)"/>
-      <!-- slim upper-slope rim highlight fading smoothly before bottom corners -->
+      
       <path d="M48 13 L12 77 L14.5 77 L48 17.5 L81.5 77 L84 77 Z" fill="url(#alr-top)"/>
-      <!-- recessed inner bevel groove -->
+      
       <path d="M48 23.5 L20.5 71.5 H75.5 Z" fill="none" stroke="#3b0764" stroke-width="2" stroke-linejoin="round" opacity="0.32"/>
     </g>
   </g>
 
-  <!-- unified single-path exclamation mark -->
+  
   <g filter="url(#alr-ds)">
     <path d="M45 35.5 A3 3 0 0 1 51 35.5 L50.2 53.5 A2.2 2.2 0 0 1 45.8 53.5 Z M48 60.5 A3.5 3.5 0 1 1 48 67.5 A3.5 3.5 0 1 1 48 60.5 Z" fill="url(#alr-accent)"/>
   </g>

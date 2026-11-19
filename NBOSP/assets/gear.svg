@@ -28,22 +28,22 @@
     </clipPath>
   </defs>
 
-  <!-- symmetric 8-tooth teal gear body with single un-rotated vertical gradient -->
+  
   <g filter="url(#gr-ds)">
     <g clip-path="url(#gr-gear-clip)">
       <rect x="14" y="14" width="68" height="68" fill="url(#gr-body)"/>
     </g>
 
-    <!-- main gear wheel & clipped highlights -->
+    
     <g clip-path="url(#gr-wheel-clip)">
-      <!-- top highlight bevel -->
+      
       <ellipse cx="48" cy="29" rx="23" ry="10" fill="url(#gr-top)" opacity="0.55"/>
-      <!-- recessed inner bevel ring -->
+      
       <circle cx="48" cy="48" r="21.5" fill="none" stroke="#115e59" stroke-width="2" opacity="0.35"/>
     </g>
   </g>
 
-  <!-- foreground warm amber central hub -->
+  
   <g filter="url(#gr-ds)">
     <circle cx="48" cy="48" r="14.5" fill="url(#gr-amber)"/>
     <circle cx="48" cy="48" r="8.5" fill="none" stroke="#92400e" stroke-width="2" opacity="0.35"/>

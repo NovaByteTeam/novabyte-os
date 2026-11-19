@@ -1,53 +1,53 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="No Entry icon">
   <defs>
-    <!-- 3-stop vertical sky-blue base gradient -->
+    
     <linearGradient id="ne-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#7dd3fc"/>
       <stop offset="0.55" stop-color="#38bdf8"/>
       <stop offset="1" stop-color="#2563eb"/>
     </linearGradient>
 
-    <!-- Lighter top highlight gradient -->
+    
     <linearGradient id="ne-top" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#bae6fd" stop-opacity="0.8"/>
       <stop offset="1" stop-color="#7dd3fc" stop-opacity="0"/>
     </linearGradient>
 
-    <!-- Warm amber foreground accent gradient -->
+    
     <linearGradient id="ne-accent" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#fde68a"/>
       <stop offset="1" stop-color="#f59e0b"/>
     </linearGradient>
 
-    <!-- Proportional NovaReg drop shadow -->
+    
     <filter id="ne-ds" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
 
-    <!-- Clipped silhouette to prevent any inner protrusion -->
+    
     <clipPath id="ne-clip">
       <circle cx="48" cy="48" r="34"/>
     </clipPath>
   </defs>
 
-  <!-- Sky-blue disc base with borderless depth -->
+  
   <g filter="url(#ne-ds)">
     <circle cx="48" cy="48" r="34" fill="url(#ne-body)"/>
 
-    <!-- Clipped inner top sheen and recessed groove ring -->
+    
     <g clip-path="url(#ne-clip)">
       <ellipse cx="48" cy="24" rx="28" ry="14" fill="url(#ne-top)"/>
       <circle cx="48" cy="48" r="27" fill="none" stroke="#1e3a8a" stroke-width="2" opacity="0.38"/>
     </g>
   </g>
 
-  <!-- Warm amber foreground prohibition ring & rotated slash bar -->
+  
   <g filter="url(#ne-ds)">
     <g transform="translate(48 48) rotate(45)">
-      <!-- Diagonal prohibition bar built horizontally around (0, 0) -->
+      
       <rect x="-22" y="-4.5" width="44" height="9" rx="4.5" fill="url(#ne-accent)"/>
     </g>
-    <!-- Crisp inner amber ring framing the slash -->
+    
     <circle cx="48" cy="48" r="21.5" fill="none" stroke="url(#ne-accent)" stroke-width="6.5"/>
   </g>
 </svg>

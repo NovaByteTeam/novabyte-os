@@ -1,42 +1,42 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Wallet icon">
   <defs>
-    <!-- Primary 3-stop vibrant red gradient -->
+    
     <linearGradient id="wl-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#fca5a5"/>
       <stop offset="0.55" stop-color="#ef4444"/>
       <stop offset="1" stop-color="#b91c1c"/>
     </linearGradient>
 
-    <!-- Lighter top/highlight gradient (matching the cylinder lid) -->
+    
     <linearGradient id="wl-top" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#fee2e2"/>
       <stop offset="1" stop-color="#fca5a5"/>
     </linearGradient>
 
-    <!-- Warm amber accent gradient for the clasp -->
+    
     <linearGradient id="wl-accent" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#fde68a"/>
       <stop offset="1" stop-color="#f59e0b"/>
     </linearGradient>
 
-    <!-- Proportional drop shadow for 96x96 viewBox -->
+    
     <filter id="wl-ds" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
   </defs>
 
-  <!-- Borderless wallet body with soft drop shadow -->
+  
   <g filter="url(#wl-ds)">
-    <!-- Main leather body -->
+    
     <path d="M17 24h57a7 7 0 0 1 7 7v44a7 7 0 0 1-7 7H22a7 7 0 0 1-7-7V29a5 5 0 0 1 5-5z" fill="url(#wl-body)"/>
     
-    <!-- Top fold highlight strip -->
+    
     <path d="M15 29a5 5 0 0 1 5-5h54a7 7 0 0 1 7 7H15v-2z" fill="url(#wl-top)"/>
 
-    <!-- Subtle translucent stitching/crease line (matching the cylinder rings) -->
+    
     <path d="M17 33h62" fill="none" stroke="#7f1d1d" stroke-width="2" opacity="0.4"/>
 
-    <!-- Overlapping clasp strap with its own subtle shadow -->
+    
     <g filter="url(#wl-ds)">
       <path d="M59 44h24v20H59a10 10 0 0 1 0-20z" fill="url(#wl-accent)"/>
       <circle cx="66" cy="54" r="3.5" fill="#7f1d1d" opacity="0.55"/>

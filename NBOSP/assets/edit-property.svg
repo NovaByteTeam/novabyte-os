@@ -21,22 +21,22 @@
     </clipPath>
   </defs>
 
-  <!-- green property control card -->
+  
   <g filter="url(#ep-ds)">
     <g clip-path="url(#ep-clip)">
       <rect x="15" y="15" width="66" height="66" rx="10" fill="url(#ep-body)"/>
-      <!-- top highlight bevel -->
+      
       <rect x="15" y="15" width="66" height="10" fill="url(#ep-top)" opacity="0.55"/>
-      <!-- recessed inner rim -->
+      
       <rect x="16.5" y="16.5" width="63" height="63" rx="8.5" fill="none" stroke="#14532d" stroke-width="1.5" opacity="0.35"/>
-      <!-- recessed horizontal slider tracks -->
+      
       <rect x="26" y="29" width="44" height="4" rx="2" fill="#14532d" opacity="0.38"/>
       <rect x="26" y="46" width="44" height="4" rx="2" fill="#14532d" opacity="0.38"/>
       <rect x="26" y="63" width="44" height="4" rx="2" fill="#14532d" opacity="0.38"/>
     </g>
   </g>
 
-  <!-- foreground warm amber slider knobs -->
+  
   <g filter="url(#ep-ds)">
     <circle cx="41" cy="31" r="5.5" fill="url(#ep-amber)"/>
     <circle cx="41" cy="31" r="2" fill="#92400e" opacity="0.4"/>

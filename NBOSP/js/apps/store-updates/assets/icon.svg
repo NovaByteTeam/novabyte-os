@@ -8,9 +8,9 @@
   <path d="M48 47v34l30-15V32z" fill="#166534"/>
   <path d="m18 32 30-15 30 15-30 15z" fill="url(#top)"/>
   <g transform="matrix(30 -15 30 15 18 32)">
-    <!-- rim highlight along the two back edges -->
+    
     <path d="M.1 .1H.9V.9" fill="none" stroke="#fff" stroke-width=".06" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
-    <!-- arrow, rotated so it points at the back corner -->
+    
     <path transform="translate(.5 .5) rotate(45)" d="M0 .44V-.44M-.22 -.08L0 -.44L.22 -.08" fill="none" stroke="#14532d" stroke-width=".09" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>

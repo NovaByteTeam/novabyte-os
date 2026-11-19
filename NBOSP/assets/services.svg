@@ -1,45 +1,45 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Services icon">
   <defs>
-    <!-- Primary 3-stop warm amber-gold gradient -->
+    
     <linearGradient id="srv-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#fde68a"/>
       <stop offset="0.55" stop-color="#fbbf24"/>
       <stop offset="1" stop-color="#d97706"/>
     </linearGradient>
 
-    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    
     <linearGradient id="srv-top" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#fef9c3"/>
       <stop offset="1" stop-color="#fde68a"/>
     </linearGradient>
 
-    <!-- Cool sky-blue accent gradient for the central latch/gear node -->
+    
     <linearGradient id="srv-accent" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#7dd3fc"/>
       <stop offset="1" stop-color="#2563eb"/>
     </linearGradient>
 
-    <!-- Proportional drop shadow for 96x96 viewBox -->
+    
     <filter id="srv-ds" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
   </defs>
 
-  <!-- Borderless briefcase/toolbox with soft drop shadow -->
+  
   <g filter="url(#srv-ds)">
-    <!-- Handle -->
+    
     <path d="M35 31V21.5a4.5 4.5 0 0 1 4.5-4.5h17a4.5 4.5 0 0 1 4.5 4.5V31" fill="none" stroke="url(#srv-body)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 
-    <!-- Main case body -->
+    
     <rect x="13" y="31" width="70" height="48" rx="9" fill="url(#srv-body)"/>
 
-    <!-- Upper lid panel highlight -->
+    
     <path d="M13 40a9 9 0 0 1 9-9h52a9 9 0 0 1 9 9v4H13z" fill="url(#srv-top)"/>
 
-    <!-- Subtle translucent lid seam (mirroring the cylinder rings) -->
+    
     <path d="M13 44h70" fill="none" stroke="#92400e" stroke-width="2" opacity="0.35"/>
 
-    <!-- Floating sky-blue service latch emblem with secondary drop shadow -->
+    
     <g filter="url(#srv-ds)">
       <circle cx="48" cy="56" r="12" fill="url(#srv-accent)"/>
       <circle cx="48" cy="56" r="5" fill="#1e3a8a" opacity="0.55"/>

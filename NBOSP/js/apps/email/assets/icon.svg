@@ -8,15 +8,15 @@
   </defs>
   <ellipse cx="48" cy="81" rx="31" ry="6" fill="#172554" opacity=".2"/>
   <g transform="rotate(-5 48 48)">
-    <!-- Envelope shadow & main back -->
+    
     <rect x="14" y="24" width="68" height="50" rx="9" fill="#1e3287"/>
     <rect x="13" y="20" width="68" height="50" rx="9" fill="url(#em-back)"/>
     
-    <!-- Paper & text lines -->
+    
     <path d="M19 26h56v35H19z" fill="url(#em-paper)"/>
     <path d="M25 34h35m-35 7h28m-28 7h32" stroke="#9bb0d5" stroke-width="3" stroke-linecap="round"/>
     
-    <!-- Front pocket & clipped fold creases -->
+    
     <g clip-path="url(#em-pocket-clip)">
       <path d="m13 31 34 25 34-25v30a9 9 0 0 1-9 9H22a9 9 0 0 1-9-9z" fill="#3166ce"/>
       <path d="m13 61 22-17m46 17L59 44" fill="none" stroke="#17449f" stroke-width="2" opacity=".6"/>

@@ -21,18 +21,18 @@
     </clipPath>
   </defs>
 
-  <!-- cyan eye sclera base -->
+  
   <g filter="url(#ey-ds)">
     <g clip-path="url(#ey-clip)">
       <path d="M13 48 C23 30 35 24 48 24 C61 24 73 30 83 48 C73 66 61 72 48 72 C35 72 23 66 13 48 Z" fill="url(#ey-body)"/>
-      <!-- upper eyelid highlight -->
+      
       <ellipse cx="48" cy="27" rx="32" ry="11" fill="url(#ey-top)" opacity="0.55"/>
-      <!-- recessed inner eyelid rim -->
+      
       <path d="M15 48 C24.5 31.8 35.8 26.2 48 26.2 C60.2 26.2 71.5 31.8 81 48 C71.5 64.2 60.2 69.8 48 69.8 C35.8 69.8 24.5 64.2 15 48 Z" fill="none" stroke="#164e63" stroke-width="1.8" opacity="0.35"/>
     </g>
   </g>
 
-  <!-- foreground warm amber iris & pupil -->
+  
   <g filter="url(#ey-ds)">
     <circle cx="48" cy="48" r="14.5" fill="url(#ey-amber)"/>
     <circle cx="48" cy="48" r="10.2" fill="none" stroke="#92400e" stroke-width="1.6" opacity="0.3"/>

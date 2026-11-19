@@ -21,18 +21,18 @@
     </clipPath>
   </defs>
 
-  <!-- pink house body -->
+  
   <g filter="url(#hm-ds)">
     <path d="M16 42 L48 16 L80 42 V76 A6 6 0 0 1 74 82 H22 A6 6 0 0 1 16 76 Z" fill="url(#hm-body)" stroke="url(#hm-body)" stroke-width="2" stroke-linejoin="round"/>
     <g clip-path="url(#hm-clip)">
-      <!-- upper gable highlight -->
+      
       <polygon points="15,15 81,15 81,38 15,38" fill="url(#hm-top)" opacity="0.55"/>
-      <!-- recessed eave shadow band -->
+      
       <rect x="15" y="42" width="66" height="4" fill="#831843" opacity="0.35"/>
     </g>
   </g>
 
-  <!-- foreground warm amber roof & front door -->
+  
   <g filter="url(#hm-ds)">
     <path d="M13 42.5 L48 14.5 L83 42.5" fill="none" stroke="url(#hm-amber)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M40 82 V60 A8 8 0 0 1 56 60 V82 Z" fill="url(#hm-amber)"/>

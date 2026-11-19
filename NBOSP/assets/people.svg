@@ -18,22 +18,22 @@
     </filter>
   </defs>
 
-  <!-- Flanking background people in cyan -->
+  
   <g filter="url(#ppl-ds)">
-    <!-- Left flanking person -->
+    
     <circle cx="24" cy="40" r="8.5" fill="url(#ppl-top)"/>
     <circle cx="24" cy="40" r="5.5" fill="none" stroke="#0e7490" stroke-width="1.2" opacity="0.35"/>
     <path d="M11 70 Q11 73 14 73 H34 Q37 73 37 70 C36.5 60 31.5 54 24 54 C16.5 54 11.5 60 11 70 Z" fill="url(#ppl-body)"/>
     <path d="M15.5 69.5 H32.5 C31.8 62.5 28.5 58 24 58 C19.5 58 16.2 62.5 15.5 69.5 Z" fill="none" stroke="#164e63" stroke-width="1.3" opacity="0.38"/>
 
-    <!-- Right flanking person -->
+    
     <circle cx="72" cy="40" r="8.5" fill="url(#ppl-top)"/>
     <circle cx="72" cy="40" r="5.5" fill="none" stroke="#0e7490" stroke-width="1.2" opacity="0.35"/>
     <path d="M59 70 Q59 73 62 73 H82 Q85 73 85 70 C84.5 60 79.5 54 72 54 C64.5 54 59.5 60 59 70 Z" fill="url(#ppl-body)"/>
     <path d="M63.5 69.5 H80.5 C79.8 62.5 76.5 58 72 58 C67.5 58 64.2 62.5 63.5 69.5 Z" fill="none" stroke="#164e63" stroke-width="1.3" opacity="0.38"/>
   </g>
 
-  <!-- Foreground focal center person in warm amber -->
+  
   <g filter="url(#ppl-ds)">
     <circle cx="48" cy="31" r="12" fill="url(#ppl-amber)"/>
     <circle cx="48" cy="31" r="8.5" fill="none" stroke="#92400e" stroke-width="1.3" opacity="0.35"/>

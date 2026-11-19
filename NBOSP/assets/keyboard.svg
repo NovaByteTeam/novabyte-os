@@ -25,32 +25,32 @@
     </clipPath>
   </defs>
 
-  <!-- keyboard chassis -->
+  
   <g filter="url(#kb-ds)">
     <g clip-path="url(#kb-clip)">
       <rect x="12" y="24" width="72" height="48" rx="10" fill="url(#kb-body)"/>
-      <!-- top highlight bevel -->
+      
       <rect x="12" y="24" width="72" height="8" fill="url(#kb-top)" opacity="0.55"/>
-      <!-- recessed inner rim -->
+      
       <rect x="13.5" y="25.5" width="69" height="45" rx="8.5" fill="none" stroke="#7f1d1d" stroke-width="1.5" opacity="0.35"/>
     </g>
   </g>
 
-  <!-- key rows & warm amber spacebar -->
+  
   <g filter="url(#kb-ds)">
-    <!-- row 1 -->
+    
     <rect x="20" y="33.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
     <rect x="32" y="33.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
     <rect x="44" y="33.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
     <rect x="56" y="33.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
     <rect x="68" y="33.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
-    <!-- row 2 -->
+    
     <rect x="20" y="45.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
     <rect x="32" y="45.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
     <rect x="44" y="45.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
     <rect x="56" y="45.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
     <rect x="68" y="45.5" width="8" height="7" rx="2.2" fill="url(#kb-key)"/>
-    <!-- warm amber focal spacebar -->
+    
     <rect x="24" y="58" width="48" height="6.5" rx="3.25" fill="url(#kb-amber)"/>
   </g>
 </svg>

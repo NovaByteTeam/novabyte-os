@@ -1,47 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Pause icon">
   <defs>
-    <!-- 3-stop vertical rose/pink base gradient -->
+    
     <linearGradient id="ps-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#f9a8d4"/>
       <stop offset="0.55" stop-color="#ec4899"/>
       <stop offset="1" stop-color="#be185d"/>
     </linearGradient>
 
-    <!-- Lighter top highlight gradient -->
+    
     <linearGradient id="ps-top" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#fce7f3" stop-opacity="0.75"/>
       <stop offset="1" stop-color="#f9a8d4" stop-opacity="0"/>
     </linearGradient>
 
-    <!-- Warm amber foreground accent gradient -->
+    
     <linearGradient id="ps-accent" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#fde68a"/>
       <stop offset="1" stop-color="#f59e0b"/>
     </linearGradient>
 
-    <!-- Proportional NovaReg drop shadow -->
+    
     <filter id="ps-ds" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
 
-    <!-- Clipped silhouette to prevent any inner protrusion -->
+    
     <clipPath id="ps-clip">
       <circle cx="48" cy="48" r="34"/>
     </clipPath>
   </defs>
 
-  <!-- Base disc with borderless depth -->
+  
   <g filter="url(#ps-ds)">
     <circle cx="48" cy="48" r="34" fill="url(#ps-body)"/>
 
-    <!-- Clipped inner highlight and recessed groove ring -->
+    
     <g clip-path="url(#ps-clip)">
       <ellipse cx="48" cy="24" rx="28" ry="14" fill="url(#ps-top)"/>
       <circle cx="48" cy="48" r="27" fill="none" stroke="#831843" stroke-width="2" opacity="0.38"/>
     </g>
   </g>
 
-  <!-- Warm amber foreground pause bars with secondary drop shadow -->
+  
   <g filter="url(#ps-ds)">
     <rect x="34" y="30" width="10" height="36" rx="4" fill="url(#ps-accent)"/>
     <rect x="52" y="30" width="10" height="36" rx="4" fill="url(#ps-accent)"/>

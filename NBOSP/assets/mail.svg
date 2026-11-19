@@ -21,19 +21,19 @@
     </clipPath>
   </defs>
 
-  <!-- envelope base -->
+  
   <g filter="url(#ml-ds)">
     <g clip-path="url(#ml-clip)">
       <rect x="12" y="22" width="72" height="52" rx="10" fill="url(#ml-body)"/>
-      <!-- recessed lower fold creases -->
+      
       <path d="M12 74 L39 51 M84 74 L57 51" fill="none" stroke="#831843" stroke-width="2.5" stroke-linecap="round" opacity="0.35"/>
-      <!-- upper envelope flap highlight -->
+      
       <path d="M12 22 H84 V26 L48 53 L12 26 Z" fill="url(#ml-top)" opacity="0.72"/>
       <path d="M12 26 L48 53 L84 26" fill="none" stroke="#831843" stroke-width="2.2" stroke-linejoin="round" opacity="0.32"/>
     </g>
   </g>
 
-  <!-- foreground warm amber flap trim & seal -->
+  
   <g filter="url(#ml-ds)">
     <path d="M19 29 L48 50.5 L77 29" fill="none" stroke="url(#ml-accent)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
     <circle cx="48" cy="50.5" r="6.5" fill="url(#ml-accent)"/>

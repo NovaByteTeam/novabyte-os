@@ -22,20 +22,20 @@
     </clipPath>
   </defs>
 
-  <!-- gold globe sphere -->
+  
   <g filter="url(#gl-ds)">
     <g clip-path="url(#gl-clip)">
       <circle cx="48" cy="48" r="34" fill="url(#gl-body)"/>
-      <!-- top highlight crescent -->
+      
       <ellipse cx="48" cy="23" rx="30" ry="13" fill="url(#gl-top)" opacity="0.55"/>
-      <!-- recessed latitude parallels & inner rim -->
+      
       <line x1="14" y1="32" x2="82" y2="32" stroke="#92400e" stroke-width="2" opacity="0.32"/>
       <line x1="14" y1="64" x2="82" y2="64" stroke="#92400e" stroke-width="2" opacity="0.32"/>
       <circle cx="48" cy="48" r="32.5" fill="none" stroke="#92400e" stroke-width="1.8" opacity="0.3"/>
     </g>
   </g>
 
-  <!-- foreground sky-blue focal meridian ellipse & equator -->
+  
   <g filter="url(#gl-ds)">
     <g clip-path="url(#gl-clip)">
       <ellipse cx="48" cy="48" rx="16.5" ry="32.2" fill="none" stroke="url(#gl-blue)" stroke-width="3.6"/>

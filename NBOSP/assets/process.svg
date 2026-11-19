@@ -18,21 +18,21 @@
     </filter>
   </defs>
 
-  <!-- Connector branches & outer satellite nodes -->
+  
   <g filter="url(#proc-ds)">
-    <!-- Symmetrical radial connector bars anchored at (48, 48) -->
+    
     <g fill="url(#proc-body)">
-      <!-- Bottom-right (75, 71): atan2(23, 27) = 40.4deg -->
+      
       <rect x="48" y="45.5" width="35.4" height="5" rx="2.5" transform="rotate(40.4 48 48)"/>
-      <!-- Bottom-left (21, 71): atan2(23, -27) = 139.6deg -->
+      
       <rect x="48" y="45.5" width="35.4" height="5" rx="2.5" transform="rotate(139.6 48 48)"/>
-      <!-- Top-left (21, 25): atan2(-23, -27) = -139.6deg -->
+      
       <rect x="48" y="45.5" width="35.4" height="5" rx="2.5" transform="rotate(-139.6 48 48)"/>
-      <!-- Top-right (75, 25): atan2(-23, 27) = -40.4deg -->
+      
       <rect x="48" y="45.5" width="35.4" height="5" rx="2.5" transform="rotate(-40.4 48 48)"/>
     </g>
 
-    <!-- Outer 4 satellite process nodes -->
+    
     <circle cx="21" cy="25" r="8.5" fill="url(#proc-top)"/>
     <circle cx="21" cy="25" r="5" fill="none" stroke="#be185d" stroke-width="1.3" opacity="0.38"/>
 
@@ -46,7 +46,7 @@
     <circle cx="75" cy="71" r="5" fill="none" stroke="#be185d" stroke-width="1.3" opacity="0.38"/>
   </g>
 
-  <!-- Central focal hub -->
+  
   <g filter="url(#proc-ds)">
     <circle cx="48" cy="48" r="14" fill="url(#proc-body)"/>
     <circle cx="48" cy="48" r="10.2" fill="none" stroke="#831843" stroke-width="1.5" opacity="0.38"/>

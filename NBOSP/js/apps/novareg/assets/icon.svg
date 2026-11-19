@@ -18,7 +18,7 @@
     </filter>
   </defs>
 
-  <!-- registry database cylinder -->
+  
   <g filter="url(#nr-ds)">
     <path d="M98 156 v188 a126 46 0 0 0 252 0 v-188 z" fill="url(#nr-db)"/>
     <path d="M98 244 a126 46 0 0 0 252 0" fill="none" stroke="#1e3a8a" stroke-width="10" opacity="0.45"/>
@@ -27,7 +27,7 @@
     <ellipse cx="224" cy="156" rx="86" ry="28" fill="none" stroke="#2563eb" stroke-width="8" opacity="0.55"/>
   </g>
 
-  <!-- key -->
+  
   <g filter="url(#nr-ds)" transform="translate(324 344) rotate(-42)">
     <circle cx="0" cy="0" r="34" fill="none" stroke="url(#nr-key)" stroke-width="24"/>
     <rect x="42" y="-12" width="146" height="24" rx="12" fill="url(#nr-key)"/>

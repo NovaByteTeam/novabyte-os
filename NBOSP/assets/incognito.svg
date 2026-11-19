@@ -21,27 +21,27 @@
     </clipPath>
   </defs>
 
-  <!-- fedora hat crown & brim -->
+  
   <g filter="url(#ic-ds)">
     <path d="M27.5 18 H68.5 L75.5 45 H20.5 Z" fill="url(#ic-body)" stroke="url(#ic-body)" stroke-width="2.4" stroke-linejoin="round"/>
     <g clip-path="url(#ic-crown-clip)">
-      <!-- crown top highlight -->
+      
       <rect x="20" y="17" width="56" height="8" fill="url(#ic-top)" opacity="0.55"/>
-      <!-- recessed hatband -->
+      
       <rect x="18" y="36.5" width="60" height="5.5" fill="#14532d" opacity="0.38"/>
     </g>
-    <!-- hat brim overlapping crown bottom by 2.5px -->
+    
     <rect x="14" y="42.5" width="68" height="6.5" rx="3.25" fill="url(#ic-body)"/>
   </g>
 
-  <!-- foreground warm amber glasses -->
+  
   <g filter="url(#ic-ds)">
-    <!-- bridge tucked 2px into both lenses -->
+    
     <path d="M40.5 61.5 Q48 57.5 55.5 61.5" fill="none" stroke="url(#ic-amber)" stroke-width="4.5" stroke-linecap="round"/>
-    <!-- left & right lenses -->
+    
     <circle cx="32" cy="63" r="10.5" fill="url(#ic-amber)"/>
     <circle cx="64" cy="63" r="10.5" fill="url(#ic-amber)"/>
-    <!-- recessed inner lens rims -->
+    
     <circle cx="32" cy="63" r="7.2" fill="none" stroke="#92400e" stroke-width="1.6" opacity="0.32"/>
     <circle cx="64" cy="63" r="7.2" fill="none" stroke="#92400e" stroke-width="1.6" opacity="0.32"/>
   </g>

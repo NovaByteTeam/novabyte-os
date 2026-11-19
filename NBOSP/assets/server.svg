@@ -1,44 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Server icon">
   <defs>
-    <!-- Primary 3-stop vibrant teal gradient -->
+    
     <linearGradient id="srvr-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#5eead4"/>
       <stop offset="0.55" stop-color="#14b8a6"/>
       <stop offset="1" stop-color="#0f766e"/>
     </linearGradient>
 
-    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    
     <linearGradient id="srvr-top" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ccfbf1"/>
       <stop offset="1" stop-color="#5eead4"/>
     </linearGradient>
 
-    <!-- Warm amber accent gradient for the active status LEDs -->
+    
     <linearGradient id="srvr-accent" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#fde68a"/>
       <stop offset="1" stop-color="#f59e0b"/>
     </linearGradient>
 
-    <!-- Proportional drop shadow for 96x96 viewBox -->
+    
     <filter id="srvr-ds" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
   </defs>
 
-  <!-- Borderless 3-bay server stack with soft drop shadow -->
+  
   <g filter="url(#srvr-ds)">
-    <!-- Top server blade (with subtle lighter top highlight) -->
+    
     <rect x="16" y="14" width="64" height="20" rx="5.5" fill="url(#srvr-body)"/>
     <path d="M16 19.5a5.5 5.5 0 0 1 5.5-5.5h53a5.5 5.5 0 0 1 5.5 5.5v1.5H16z" fill="url(#srvr-top)" opacity="0.75"/>
     <circle cx="27" cy="24" r="3.2" fill="url(#srvr-accent)"/>
     <rect x="38" y="22.2" width="32" height="3.6" rx="1.8" fill="#115e59" opacity="0.45"/>
 
-    <!-- Middle server blade -->
+    
     <rect x="16" y="38" width="64" height="20" rx="5.5" fill="url(#srvr-body)"/>
     <circle cx="27" cy="48" r="3.2" fill="url(#srvr-accent)"/>
     <rect x="38" y="46.2" width="32" height="3.6" rx="1.8" fill="#115e59" opacity="0.45"/>
 
-    <!-- Bottom server blade (equal height & matching status LED) -->
+    
     <rect x="16" y="62" width="64" height="20" rx="5.5" fill="url(#srvr-body)"/>
     <circle cx="27" cy="72" r="3.2" fill="url(#srvr-accent)"/>
     <rect x="38" y="70.2" width="32" height="3.6" rx="1.8" fill="#115e59" opacity="0.45"/>

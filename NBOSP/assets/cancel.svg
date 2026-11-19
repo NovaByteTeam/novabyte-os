@@ -1,41 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Cancel icon">
   <defs>
-    <!-- 3-stop vertical sky-blue gradient matching NovaReg primary palette -->
+    
     <linearGradient id="cn-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#7dd3fc"/>
       <stop offset="0.55" stop-color="#38bdf8"/>
       <stop offset="1" stop-color="#2563eb"/>
     </linearGradient>
 
-    <!-- Lighter ice-blue inner recessed disc gradient -->
+    
     <linearGradient id="cn-inner" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#bae6fd"/>
       <stop offset="1" stop-color="#7dd3fc"/>
     </linearGradient>
 
-    <!-- Warm amber gradient for foreground cross glyph -->
+    
     <linearGradient id="cn-amber" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#fde68a"/>
       <stop offset="1" stop-color="#f59e0b"/>
     </linearGradient>
 
-    <!-- Proportional NovaReg drop shadow -->
+    
     <filter id="cn-ds" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
     </filter>
   </defs>
 
-  <!-- Main Circular Sky-Blue Badge -->
+  
   <g filter="url(#cn-ds)">
-    <!-- Outer 3-stop sky-blue disc -->
+    
     <circle cx="48" cy="48" r="33" fill="url(#cn-body)"/>
 
-    <!-- Inner recessed ice-blue disc & translucent groove ring -->
+    
     <circle cx="48" cy="48" r="25" fill="url(#cn-inner)"/>
     <circle cx="48" cy="48" r="25" fill="none" stroke="#1e3a8a" stroke-width="1.4" opacity="0.28"/>
   </g>
 
-  <!-- Unified single-path foreground warm amber X cross with secondary elevation -->
+  
   <g filter="url(#cn-ds)">
     <path d="M35.3 35.3 A3.2 3.2 0 0 1 39.8 35.3 L48 43.5 L56.2 35.3 A3.2 3.2 0 1 1 60.7 39.8 L52.5 48 L60.7 56.2 A3.2 3.2 0 1 1 56.2 60.7 L48 52.5 L39.8 60.7 A3.2 3.2 0 1 1 35.3 56.2 L43.5 48 L35.3 39.8 A3.2 3.2 0 0 1 35.3 35.3 Z" fill="url(#cn-amber)"/>
   </g>

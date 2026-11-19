@@ -25,25 +25,25 @@
     </clipPath>
   </defs>
 
-  <!-- gold bezel & rotated handle base -->
+  
   <g filter="url(#mg-ds)">
     <g transform="translate(40 40) rotate(45)">
-      <!-- tucked 3px inside the r=25 bezel for a seamless joint -->
+      
       <rect x="22" y="-5.5" width="36" height="11" rx="5.5" fill="url(#mg-body)"/>
-      <!-- recessed collar groove -->
+      
       <rect x="25.5" y="-5.5" width="3" height="11" fill="#92400e" opacity="0.38"/>
     </g>
 
     <g clip-path="url(#mg-ring-clip)">
       <circle cx="40" cy="40" r="25" fill="url(#mg-body)"/>
-      <!-- top bezel highlight -->
+      
       <ellipse cx="40" cy="24" rx="22" ry="11" fill="url(#mg-top)" opacity="0.55"/>
-      <!-- recessed inner rim -->
+      
       <circle cx="40" cy="40" r="18.2" fill="none" stroke="#92400e" stroke-width="2" opacity="0.38"/>
     </g>
   </g>
 
-  <!-- sky-blue focal optical lens -->
+  
   <g filter="url(#mg-ds)">
     <g clip-path="url(#mg-lens-clip)">
       <circle cx="40" cy="40" r="17" fill="url(#mg-lens)"/>

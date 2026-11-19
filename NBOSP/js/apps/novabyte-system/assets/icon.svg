@@ -14,24 +14,24 @@
     </linearGradient>
   </defs>
 
-  <!-- Ground Shadow -->
+  
   <ellipse cx="48" cy="86" rx="29" ry="5" fill="#000" opacity=".2"/>
 
-  <!-- Isometric Chip Pins -->
+  
   <g stroke="#bfdbfe" stroke-width="2.5" stroke-linecap="round">
     <path d="M19 37l-6 2.9M19 49l-6 2.9M19 61l-6 2.9"/>
     <path d="M77 37l6 2.9M77 49l6 2.9M77 61l6 2.9"/>
   </g>
 
-  <!-- Main Isometric Cube -->
+  
   <path d="M19 30v34l29 14V44z" fill="url(#front)"/>
   <path d="M48 44v34l29-14V30z" fill="url(#side)"/>
   <path d="M48 16 77 30 48 44 19 30z" fill="url(#top)"/>
 
-  <!-- Top Isometric Glare Highlight -->
+  
   <ellipse cx="42" cy="27" rx="9" ry="3.5" transform="rotate(-25.8 42 27)" fill="#fff" opacity=".45"/>
 
-  <!-- NovaByte (NB) Nested Hex Logo Projected Onto the Right Face -->
+  
   <g transform="translate(62.5 54) skewY(-25.8) scale(0.24)">
     <polygon points="0,-55 50,-30 50,25 0,55 -50,25 -50,-30" fill="#58a6ff" fill-opacity=".14" stroke="#58a6ff" stroke-width="5"/>
     <polygon points="0,-45 40,-25 40,20 0,45 -40,20 -40,-25" fill="none" stroke="#a371f7" stroke-width="3" opacity=".75"/>
@@ -39,6 +39,6 @@
     <text x="0" y="10" text-anchor="middle" fill="#eff6ff" font-family="system-ui, sans-serif" font-size="30" font-weight="700">NB</text>
   </g>
 
-  <!-- Left-Face Circuit Lines -->
+  
   <path d="M26 45l14 6.8M26 53l9 4.3" stroke="#dbeafe" stroke-width="2" stroke-linecap="round" opacity=".85"/>
 </svg>

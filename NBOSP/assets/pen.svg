@@ -24,28 +24,28 @@
     </clipPath>
   </defs>
 
-  <!-- pen barrel & cone -->
+  
   <g filter="url(#pn-ds)">
     <g clip-path="url(#pn-barrel-clip)">
-      <!-- main 45-degree barrel & cone body tucked cleanly under ferrule -->
+      
       <path d="M24 65 L18 79.5 Q17.3 81.2 19 80.5 L34 75 L72 37 L62 27 Z" fill="url(#pn-body)"/>
-      <!-- upper bevel highlight hugging the top edge -->
+      
       <path d="M24 65 L62 27 L67 32 L29 70 Z" fill="url(#pn-top)" opacity="0.72"/>
-      <!-- flush recessed collar groove -->
+      
       <path d="M24 65 L34 75" fill="none" stroke="#14532d" stroke-width="2.4" opacity="0.4"/>
     </g>
   </g>
 
-  <!-- warm amber cap, ferrule & nib tip -->
+  
   <g filter="url(#pn-ds)">
-    <!-- rounded eraser cap -->
+    
     <path d="M61 28 L68 21 A7.07 7.07 0 0 1 78 31 L71 38 Z" fill="url(#pn-amber)"/>
-    <!-- sleek ferrule pill with clipped inner groove -->
+    
     <g clip-path="url(#pn-ferrule-clip)">
       <rect x="57" y="31.8" width="16" height="4.4" rx="2.2" transform="rotate(45 65 34)" fill="url(#pn-amber)"/>
       <path d="M59 29.5 L71 41.5" fill="none" stroke="#92400e" stroke-width="1.4" opacity="0.32"/>
     </g>
-    <!-- amber nib tip -->
+    
     <path d="M20.2 74.2 L18 79.5 Q17.3 81.2 19 80.5 L24.5 78.5 Z" fill="url(#pn-amber)"/>
   </g>
 </svg>

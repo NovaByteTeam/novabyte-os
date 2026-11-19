@@ -18,25 +18,25 @@
     </filter>
   </defs>
 
-  <!-- Main red photo frame & inner canvas -->
+  
   <g filter="url(#pic-ds)">
-    <!-- Borderless 3-stop red outer frame -->
+    
     <rect x="13" y="18" width="70" height="60" rx="10" fill="url(#pic-body)"/>
 
-    <!-- Recessed outer bezel groove -->
+    
     <rect x="17.5" y="22.5" width="61" height="51" rx="7" fill="none" stroke="#7f1d1d" stroke-width="1.5" opacity="0.38"/>
 
-    <!-- Light top highlight inner canvas -->
+    
     <rect x="20.5" y="25.5" width="55" height="45" rx="5" fill="url(#pic-top)"/>
     <rect x="20.5" y="25.5" width="55" height="45" rx="5" fill="none" stroke="#991b1b" stroke-width="1.2" opacity="0.35"/>
   </g>
 
-  <!-- Foreground warm amber sun & mountain landscape -->
+  
   <g filter="url(#pic-ds)" fill="url(#pic-amber)">
-    <!-- Sun -->
+    
     <circle cx="61.5" cy="36" r="6"/>
 
-    <!-- Level-baseline rounded mountain range -->
+    
     <path d="M23.5 64.2 L38 48.5 Q40 46.5 42 48.5 L51 58 L57.5 51.5 Q59.5 49.5 61.5 51.5 L72.5 64.2 Q73.8 66 71.5 66.5 L24.5 66.5 Q22.2 66 23.5 64.2 Z"/>
   </g>
 </svg>

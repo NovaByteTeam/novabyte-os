@@ -5,15 +5,15 @@
   </defs>
   <ellipse cx="49" cy="83" rx="31" ry="6" fill="#0c4a6e" opacity=".2"/>
   
-  <!-- Arrow shadow & main shape -->
+  
   <path d="M44 13h12v31l10-10 9 9-25 25-25-25 9-9 10 10z" fill="#075985"/>
   <path d="M42 10h12v31l10-10 9 9-25 25-25-25 9-9 10 10z" fill="url(#dw-arrow)"/>
   
-  <!-- Tray shadow (shifted +2px X, +3px Y to match arrow) -->
+  
   <path d="M20 57h14l6 7h18l6-7h14v18a7 7 0 0 1-7 7H27a7 7 0 0 1-7-7z" fill="#26388f"/>
   <path d="M18 54h14l6 7h18l6-7h14v18a7 7 0 0 1-7 7H25a7 7 0 0 1-7-7z" fill="url(#dw-tray)"/>
   
-  <!-- Highlights -->
+  
   <path d="M28 70h40" stroke="#bfeeff" stroke-width="3" stroke-linecap="round" opacity=".8"/>
   <path d="M45 16h6v23" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".65"/>
 </svg>
