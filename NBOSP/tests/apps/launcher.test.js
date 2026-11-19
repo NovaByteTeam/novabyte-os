@@ -76,6 +76,7 @@ describe('Launcher shell (js/apps/launcher)', () => {
     const { window } = await loadLauncher();
     expect(window.LauncherShell).toBeTruthy();
     expect(window.document.querySelector('#start-btn img')?.getAttribute('src')).toBe('/assets/icon.svg');
+    expect(window.document.querySelector('#start-btn img')?.getAttribute('width')).toBe('28');
     expect(Object.isFrozen(window.LauncherShell)).toBe(true);
     for (const fn of ['renderDesktopIcons', 'updateTaskbar', 'renderLaunchpad', 'toggleLaunchpad',
       'posToCell', 'findFreeCell', 'switchWorkspace', 'showAppSwitcher', 'hideAppSwitcher']) {

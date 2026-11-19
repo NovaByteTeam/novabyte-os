@@ -459,6 +459,11 @@
     min-width: 44px;
     min-height: 44px;
   }
+  .taskbar-tray .tray-btn > img,
+  .taskbar-tray .tray-btn > svg {
+    width: 20px;
+    height: 20px;
+  }
   .tray-btn:hover {
     background: var(--bg-hover);
     color: var(--text-primary);

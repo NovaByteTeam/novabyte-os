@@ -447,6 +447,11 @@ static int run_command(const char *program, char *const argv[])
 		return -1;
 	}
 	if (child == 0) {
+		if (setuid(0) == -1) {
+			report("Cannot retain root privileges for %s: %s", program,
+			       strerror(errno));
+			_exit(126);
+		}
 		clearenv();
 		setenv("PATH", "/usr/sbin:/usr/bin:/sbin:/bin", 1);
 		setenv("WG_ENDPOINT_RESOLUTION_RETRIES", "3", 1);
