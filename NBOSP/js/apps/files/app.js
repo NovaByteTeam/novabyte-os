@@ -73,6 +73,13 @@
     return !ILLEGAL_NAME_RE.test(trimmed);
   }
 
+  function isPathWithin(pathApi, root, target) {
+    if (typeof root !== 'string' || typeof target !== 'string') return false;
+    const relative = pathApi.relative(pathApi.resolve(root), pathApi.resolve(target));
+    return relative === '' ||
+      (relative !== '..' && !relative.startsWith('..' + pathApi.sep) && !pathApi.isAbsolute(relative));
+  }
+
   // Thin wrapper kept for call-site readability; the actual logic lives on
   // FS (js/core/services/fs.js) so it can be shared with non-Files-app
   // callers like the desktop's empty-area "New File"/"New Folder" menu.
@@ -1004,7 +1011,7 @@
           this.selectedIds.add(f.id);
           this.updateSelectionVisuals();
         }
-        this.showFileContextMenu(e.clientX, e.clientY, f);
+        this.showFileContextMenu(e.clientX, e.clientY, f, [...this.selectedIds]);
       }, { signal: this.signal });
     }
 
@@ -1032,7 +1039,7 @@
     }
 
     // Per-file context menu
-    showFileContextMenu(x, y, f) {
+    showFileContextMenu(x, y, f, selectedIds = [...this.selectedIds]) {
       const inTrash = this.nav.cwd === FS.specialFolders.trash;
       const items = [
         {
@@ -1097,7 +1104,7 @@
       } else {
         items.push({
           label: _t('apps.files.contextMenu.moveToTrash'), icon: 'trash', danger: true, shortcut: 'Del',
-          action: () => this.trashSelected(f),
+          action: () => this.trashSelected(f, selectedIds),
         });
       }
       ContextMenu.show(x, y, items);
@@ -1312,6 +1319,10 @@
     // fails, roll back the in-memory mutation so the UI stays consistent
     // with storage.
     async restoreFromTrash(f) {
+      if (isViewOnly()) {
+        notifyBlocked(_t('apps.files.notifications.writeDisabled'));
+        return;
+      }
       const desktop = FS.specialFolders.desktop;
       if (!desktop) {
         Notify.show({ title: _t('apps.files.notifications.cannotRestore'), body: _t('apps.files.notifications.desktopUnavailable'), type: 'error', appName: 'Files' });
@@ -1334,6 +1345,10 @@
     }
 
     async permanentlyDelete(f) {
+      if (isViewOnly()) {
+        notifyBlocked(_t('apps.files.notifications.deleteDisabled'));
+        return;
+      }
       const ok = await showModal(
         _t('apps.files.contextMenu.deletePermanently'),
         _t('apps.files.dialogs.deletePermanentlyBody'),
@@ -1378,12 +1393,12 @@
     // Move the current selection (plus the optional context-clicked file) to
     // trash. Sequential await avoids races against the trash worker; if any
     // item fails we abort and surface the error.
-    async trashSelected(contextFile) {
+    async trashSelected(contextFile, selectedIds = this.selectedIds) {
       if (isViewOnly()) {
         notifyBlocked(_t('apps.files.notifications.deleteDisabled'));
         return;
       }
-      const ids = new Set(this.selectedIds);
+      const ids = new Set(selectedIds);
       if (contextFile) ids.add(contextFile.id);
       if (!ids.size) return;
       try {
@@ -1431,6 +1446,10 @@
     }
 
     async promptCreate(defaultName, isFile) {
+      if (isViewOnly()) {
+        notifyBlocked(_t('apps.files.notifications.writeDisabled'));
+        return;
+      }
       const name = await showPrompt(isFile ? _t('apps.files.dialogs.newFileName') : _t('apps.files.contextMenu.newFolder'), defaultName);
       if (!name) return;
       if (!isValidFileName(name)) {
@@ -1450,6 +1469,10 @@
     }
 
     async pasteFromClipboard() {
+      if (isViewOnly()) {
+        notifyBlocked(_t('apps.files.notifications.writeDisabled'));
+        return;
+      }
       if (isPasteDisabled()) {
         notifyBlocked(_t('apps.files.notifications.pasteDisabled'));
         return;
@@ -1602,6 +1625,53 @@
         this.controller.abort();
         this.state._linuxPath = null;
       });
+    }
+
+    isUserPath(target) {
+      return isPathWithin(this.path, this.homePath, target);
+    }
+
+    isSharedPath(target) {
+      return isPathWithin(this.path, FS?.specialFolders?.shared, target);
+    }
+
+    isManagedPath(target) {
+      return this.isUserPath(target) || this.isSharedPath(target);
+    }
+
+    async assertQuotaForPath(target, incomingBytes = 0, existingBytes = 0) {
+      if (this.isUserPath(target) && typeof FS?.assertStorageQuota === 'function') {
+        await FS.assertStorageQuota(incomingBytes, existingBytes);
+      }
+    }
+
+    async pathSizeBytes(target) {
+      const stack = [target];
+      let total = 0;
+      while (stack.length) {
+        const current = stack.pop();
+        const stat = await this.fs.lstat(current);
+        if (!stat.isDirectory()) {
+          total += stat.size;
+          continue;
+        }
+        const entries = await this.fs.readdir(current, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory() && !entry.isSymbolicLink()) {
+            stack.push(this.path.join(current, entry.name));
+          } else {
+            const child = await this.fs.stat(this.path.join(current, entry.name));
+            total += child.size;
+          }
+        }
+      }
+      return total;
+    }
+
+    guardWrite() {
+      if (!isViewOnly()) return false;
+      notifyBlocked(_t('apps.files.notifications.writeDisabled'));
+      return true;
     }
 
     mount() {
@@ -2116,12 +2186,31 @@
     }
 
     async createEntry(isDirectory) {
+      if (this.guardWrite()) return;
       const name = await showPrompt(isDirectory ? _t('apps.files.linux.newFolder') : _t('apps.files.linux.newFile'), isDirectory ? 'New folder' : 'untitled.txt');
       if (!name || !isValidFileName(name)) return;
       const target = this.path.join(this.currentPath, name);
       try {
-        if (isDirectory) await this.fs.mkdir(target);
-        else await this.fs.writeFile(target, '', { flag: 'wx' });
+        if (this.isManagedPath(this.currentPath) &&
+            (isDirectory ? typeof FS?.createFolder === 'function' : typeof FS?.createFile === 'function')) {
+          if (isDirectory) {
+            try {
+              await this.fs.lstat(target);
+              const error = new Error(_t('apps.files.linux.nameExists'));
+              error.code = 'EEXIST';
+              throw error;
+            } catch (error) {
+              if (error.code !== 'ENOENT') throw error;
+            }
+          }
+          if (isDirectory) await FS.createFolder(this.currentPath, name);
+          else await FS.createFile(this.currentPath, name, '');
+        } else {
+          await this.assertQuotaForPath(target);
+          if (isDirectory) await this.fs.mkdir(target);
+          else await this.fs.writeFile(target, '', { flag: 'wx' });
+          if (this.isSharedPath(target)) FS?._noteSharedCreator?.(target);
+        }
         await this.render();
       } catch (error) {
         Notify.show({ title: _t('apps.files.notifications.createFailed'), body: error.message, type: 'error', appName: 'Files' });
@@ -2224,6 +2313,11 @@
     }
 
     async pasteClipboard(destinationPath = this.currentPath) {
+      if (this.guardWrite()) return;
+      if (isPasteDisabled()) {
+        notifyBlocked(_t('apps.files.notifications.pasteDisabled'));
+        return;
+      }
       const clip = this.clipboard;
       if (!clip?.paths?.length) return;
       try {
@@ -2238,6 +2332,7 @@
           }
           if (clip.type === 'cut' && this.path.dirname(source) === destinationPath) continue;
 
+          if (this.isManagedPath(source)) FS?.assertSharedWriteAllowed?.(source);
           const name = this.path.basename(source);
           const dot = name.lastIndexOf('.');
           const hasExtension = !stat.isDirectory() && dot > 0;
@@ -2246,10 +2341,32 @@
             hasExtension ? name.slice(0, dot) : name,
             hasExtension ? name.slice(dot) : ''
           );
-          if (clip.type === 'cut') {
+          let handledByFs = false;
+          if (this.isManagedPath(source) && this.isManagedPath(destinationPath) &&
+              typeof FS?.pasteInto === 'function') {
+            const sourceNode = FS.files?.get?.(source) || FS.getByPath?.(source);
+            const destinationNode = FS.files?.get?.(destinationPath) || FS.getByPath?.(destinationPath);
+            if (sourceNode && destinationNode) {
+              const result = await FS.pasteInto({ fileId: source, type: clip.type }, destinationPath);
+              if (!result) throw new Error(_t('apps.files.notifications.pasteFailed'));
+              handledByFs = true;
+            }
+          }
+          if (!handledByFs && clip.type === 'cut') {
+            if (this.isUserPath(destinationPath) && !this.isUserPath(source)) {
+              await this.assertQuotaForPath(destinationPath, await this.pathSizeBytes(source));
+            }
             await this.fs.rename(source, destination);
-          } else {
+            if (this.isSharedPath(source) && !this.isSharedPath(destination)) {
+              FS?._forgetSharedCreator?.(source);
+            }
+            if (this.isSharedPath(destination)) FS?._noteSharedCreator?.(destination);
+          } else if (!handledByFs) {
+            if (this.isUserPath(destinationPath)) {
+              await this.assertQuotaForPath(destinationPath, await this.pathSizeBytes(source));
+            }
             await this.fs.cp(source, destination, { recursive: true, errorOnExist: true });
+            if (this.isSharedPath(destination)) FS?._noteSharedCreator?.(destination);
           }
         }
         if (clip.type === 'cut') this.clipboard = null;
@@ -2309,6 +2426,7 @@
     }
 
     async compressToZip(entry) {
+      if (this.guardWrite()) return;
       const paths = this.actionTargets(entry);
       const dir = this.path.dirname(paths[0]);
       const names = paths.map(p => this.path.basename(p));
@@ -2317,6 +2435,8 @@
         target = await this.uniquePath(dir, names.length === 1 ? names[0] : 'Archive', '.zip');
         // "./" keeps a name that starts with "-" from being read as an option.
         await this.runBsdtar(['--format', 'zip', '-cf', target, '-C', dir, ...names.map(name => `./${name}`)]);
+        await this.assertQuotaForPath(target);
+        if (this.isSharedPath(target)) FS?._noteSharedCreator?.(target);
         await this.render();
         Notify.show({ title: _t('apps.files.notifications.compressed'), body: this.path.basename(target), type: 'success', appName: 'Files' });
       } catch (error) {
@@ -2327,6 +2447,7 @@
     }
 
     async extractZip(zipPath) {
+      if (this.guardWrite()) return;
       const dir = this.path.dirname(zipPath);
       let dest = null;
       try {
@@ -2334,6 +2455,8 @@
         dest = await this.uniquePath(dir, this.path.basename(zipPath).replace(/\.zip$/i, ''), '');
         await this.fs.mkdir(dest);
         await this.runBsdtar(['-xf', zipPath, '-C', dest]);
+        await this.assertQuotaForPath(dest);
+        if (this.isSharedPath(dest)) FS?._noteSharedCreator?.(dest);
         await this.render();
         Notify.show({ title: _t('apps.files.notifications.extracted'), body: this.path.basename(dest), type: 'success', appName: 'Files' });
       } catch (error) {
@@ -2392,6 +2515,7 @@
     }
 
     async renameEntry(entry) {
+      if (this.guardWrite()) return;
       const name = await showPrompt(_t('common.rename'), entry.name);
       if (!name || name === entry.name || name === '.' || name === '..' || /[\\/]/.test(name)) return;
       try {
@@ -2402,7 +2526,15 @@
         } catch (error) {
           if (error.code !== 'ENOENT') throw error;
         }
-        await this.fs.rename(entry.path, target);
+        if (this.isManagedPath(entry.path) && this.isManagedPath(target) &&
+            typeof FS?.rename === 'function') {
+          await FS.rename(entry.path, name);
+        } else {
+          if (this.isManagedPath(entry.path)) FS?.assertSharedWriteAllowed?.(entry.path);
+          await this.fs.rename(entry.path, target);
+          if (this.isSharedPath(entry.path)) FS?._forgetSharedCreator?.(entry.path);
+          if (this.isSharedPath(target)) FS?._noteSharedCreator?.(target);
+        }
         await this.render();
       } catch (error) {
         Notify.show({ title: _t('apps.files.notifications.renameFailed'), body: error.message, type: 'error', appName: 'Files' });
@@ -2410,15 +2542,28 @@
     }
 
     async deleteEntry(entry) {
+      if (this.guardWrite()) return;
+      const targets = this.actionTargets(entry);
       const confirmed = await showModal(
         _t('apps.files.dialogs.deleteItemTitle'),
-        _t('apps.files.dialogs.deleteItemBody', { name: entry.name }),
+        targets.length === 1
+          ? _t('apps.files.dialogs.deleteItemBody', { name: entry.name })
+          : _t('apps.files.notifications.itemsCount', { count: targets.length }),
         [{ label: _t('common.cancel') }, { label: _t('apps.files.contextMenu.delete'), danger: true, value: 'delete' }]
       );
       if (confirmed !== 'delete') return;
       try {
-        if (entry.isDirectory) await this.fs.rmdir(entry.path);
-        else await this.fs.unlink(entry.path);
+        for (const target of targets) {
+          if (this.isManagedPath(target) && typeof FS?.permanentDelete === 'function') {
+            await FS.permanentDelete(target);
+          } else {
+            if (this.isManagedPath(target)) FS?.assertSharedWriteAllowed?.(target);
+            await this.fs.rm(target, { recursive: true });
+            if (this.isSharedPath(target)) FS?._forgetSharedCreator?.(target);
+          }
+          this.selectedPaths.delete(target);
+        }
+        this.selectedPath = null;
         await this.render();
       } catch (error) {
         Notify.show({ title: _t('apps.files.notifications.deleteFailed'), body: error.message, type: 'error', appName: 'Files' });
@@ -2452,6 +2597,10 @@
         Notify.show({ title: _t('common.error'), body: _t('apps.files.notifications.invalidDrop'), type: 'error', appName: 'Files' });
         return;
       }
+      if (isViewOnly()) {
+        notifyBlocked(_t('apps.files.notifications.writeDisabled'));
+        return;
+      }
       if (window.Scanner) {
         let verdict;
         try {
@@ -2473,8 +2622,23 @@
           const home = typeof FS !== 'undefined' && typeof FS.rootId === 'string'
             ? FS.rootId
             : require('os').homedir();
-          const destination = path.resolve(state?._linuxPath || home, file.name);
-          await fs.writeFile(destination, Buffer.from(await file.arrayBuffer()), { flag: 'wx' });
+          const parent = path.resolve(state?._linuxPath || home);
+          const destination = path.resolve(parent, file.name);
+          const bytes = Buffer.from(await file.arrayBuffer());
+          const mime = file.type || this._extMap[file.name.split('.').pop()?.toLowerCase()] || 'application/octet-stream';
+          const managed = isPathWithin(path, home, parent) ||
+            isPathWithin(path, FS?.specialFolders?.shared, parent);
+          if (managed && typeof FS?.createFile === 'function') {
+            await FS.createFile(parent, file.name, bytes, mime);
+          } else {
+            if (isPathWithin(path, home, parent)) {
+              await FS?.assertStorageQuota?.(bytes.length);
+            }
+            await fs.writeFile(destination, bytes, { flag: 'wx' });
+            if (isPathWithin(path, FS?.specialFolders?.shared, parent)) {
+              FS?._noteSharedCreator?.(destination);
+            }
+          }
           Notify.show({ title: _t('apps.files.notifications.fileAdded'), body: file.name, type: 'success', appName: 'Files' });
         } catch (err) {
           console.error('[Files] Linux file drop failed:', err);
@@ -2483,7 +2647,6 @@
         return;
       }
       try {
-        const fileId = generateId();
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
         let mime = file.type;
@@ -2492,18 +2655,9 @@
           mime = (ext && this._extMap[ext]) || 'application/octet-stream';
         }
         const parentId = state?._nav?.cwd || FS.specialFolders?.desktop || FS.rootId;
-        const node = {
-          id: fileId,
-          name: file.name,
-          type: 'file',
-          size: file.size,
-          content: bytes,
-          mimeType: mime,
-          parentId,
-          modified: Date.now(),
-        };
-        FS.files.set(fileId, node);
-        await OS.workers.fs.call('putFiles', [node]);
+        if (!isValidFileName(file.name)) throw new Error(_t('apps.files.notifications.thatNameInvalid'));
+        const name = uniqueNameFor(parentId, file.name);
+        await FS.createFile(parentId, name, bytes, mime);
         if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
         Notify.show({ title: _t('apps.files.notifications.fileAdded'), body: file.name, type: 'success', appName: 'Files' });
       } catch (err) {

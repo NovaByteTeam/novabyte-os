@@ -1361,6 +1361,18 @@ describe('Modal service (js/apps/shell-ui/modals.js)', () => {
     w.document.getElementById('modal-input-field')
       .dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await expect(p2).resolves.toBeNull();
+
+    const p3 = w.showPrompt('Create file', 'untitled.txt');
+    const overlay = w.document.querySelector('.modal-overlay');
+    w.document.getElementById('modal-input-field').value = 'cancelled.txt';
+    [...overlay.querySelectorAll('button')].find((button) => button.textContent === 'Cancel').click();
+    await expect(p3).resolves.toBeNull();
+
+    const p4 = w.showPrompt('Create file', 'untitled.txt');
+    const overlay2 = w.document.querySelector('.modal-overlay');
+    w.document.getElementById('modal-input-field').value = 'created.txt';
+    [...overlay2.querySelectorAll('button')].find((button) => button.textContent === 'OK').click();
+    await expect(p4).resolves.toBe('created.txt');
   });
 
   it('supports custom DOM bodies; the compat wrapper forwards the full argument list', async () => {

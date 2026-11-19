@@ -887,18 +887,17 @@ function sharedRoot() {
     return path.join(os.homedir(), '.local', 'share', 'novabyte', 'shared');
 }
 
-function dirSizeBytes(target, depthBudget = 12) {
+function dirSizeBytes(target) {
     let total = 0;
-    const stack = [[target, depthBudget]];
+    const stack = [target];
     while (stack.length) {
-        const [dir, depth] = stack.pop();
-        if (depth < 0) continue;
+        const dir = stack.pop();
         let entries = [];
         try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { continue; }
         for (const entry of entries) {
             const full = path.join(dir, entry.name);
             try {
-                if (entry.isDirectory()) stack.push([full, depth - 1]);
+                if (entry.isDirectory() && !entry.isSymbolicLink()) stack.push(full);
                 else total += fs.statSync(full).size;
             } catch (_) { }
         }

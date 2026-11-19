@@ -155,7 +155,8 @@ const ModalService = {
         const btn = target.closest('button');
         if (btn && actionsDiv.contains(btn)) {
           if (modalInput) {
-            return terminateModal(btn._hasExplicitValue ? modalInput.value : null);
+            const actionValue = btn._hasExplicitValue ? btn._actionValue : btn._actionLabel;
+            return terminateModal(actionValue === null ? null : modalInput.value);
           }
           const actionValue = btn._hasExplicitValue ? btn._actionValue : btn._actionLabel;
           if (actionValue === '__MODAL_SUBMIT_SELECTION__') {

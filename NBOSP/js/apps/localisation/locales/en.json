@@ -1416,7 +1416,7 @@
         "deletePermanentlyBody": "This cannot be undone.",
         "emptyTrashBody": "All items in Trash will be permanently deleted. This cannot be undone.",
         "deleteItemTitle": "Delete item?",
-        "deleteItemBody": "Delete {{name}}? Folders must be empty before they can be deleted.",
+        "deleteItemBody": "Delete {{name}}? If it is a folder, its contents will also be deleted.",
         "newFileName": "New File Name"
       },
       "notifications": {
@@ -1424,6 +1424,7 @@
         "invalidName": "Invalid name",
         "nameNotAllowed": "That name contains characters that are not allowed.",
         "thatNameInvalid": "That name is not valid.",
+        "writeDisabled": "Writing disabled by policy.",
         "renameDisabled": "Renaming disabled by policy.",
         "renameDisabledShort": "Renaming disabled.",
         "renameFailed": "Rename failed",
@@ -2973,7 +2974,8 @@
         "displayNameRequired": "Enter a display name.",
         "usernameInvalid": "Username: 3–32 chars — letters, digits, dots, dashes, underscores.",
         "pinDigits": "PIN must be 4–6 digits.",
-        "passphraseTooShort": "Passphrase must be 8+ characters (or empty)."
+        "passphraseTooShort": "Passphrase must be 8+ characters (or empty).",
+        "quotaRange": "Storage quota must be between 1 GB and 32 GB."
       },
       "creating": "Creating…",
       "createAccount": "Create account",

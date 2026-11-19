@@ -117,7 +117,7 @@
   {
     "id": "com.nbosp.files",
     "file": "js/apps/com.nbosp.files.novaapp",
-    "cacheKey": "6759aad9ab0270fd2ad6f15fbf87f909d7bd3b9df5da257049dddd1e06e68b55"
+    "cacheKey": "238d17408a74d330122ff1e360d27e886f385539a27f4bf35b12bab0b605c93a"
   },
   {
     "id": "com.nbosp.store",
@@ -222,7 +222,7 @@
   {
     "id": "com.nbosp.shell-ui",
     "file": "js/apps/com.nbosp.shell-ui.novaapp",
-    "cacheKey": "55bfd076885329702e4fa1a9ec40c20af1634cac822e94c09241b331f014e777",
+    "cacheKey": "3f7c668f0a751098852bffa01a1f1b250586ec2494949fd329de9806b6a315e9",
     "systemService": true
   },
   {
@@ -293,7 +293,7 @@
   {
     "id": "com.nbosp.users",
     "file": "js/apps/com.nbosp.users.novaapp",
-    "cacheKey": "9fd1dcfd5104714393ed90c0730668549848b46ad844b0aef4ac263150b37cbe"
+    "cacheKey": "ea65e7f376a495803963cbae6228591c94ccbf528c07fbb4837ca71cb1173a04"
   },
   {
     "id": "com.nbosp.setup",
@@ -303,13 +303,13 @@
   {
     "id": "com.nbosp.localisation",
     "file": "js/apps/com.nbosp.localisation.novaapp",
-    "cacheKey": "56d1668215e944e3eaf8a6c06ed90afbf936d0519087cf0c44ef14f1503f71d6",
+    "cacheKey": "6d37e9a0f42baa6052796801863a1aadce6e7f2f93a40532f809866aea8ad762",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.vpn",
     "file": "js/apps/com.nbosp.service.vpn.novaapp",
-    "cacheKey": "0a5c9397074e24d0ef389440bd00c09fb970d015ab76a87cb05ab692ac0e2f65",
+    "cacheKey": "3f3cc0d71352481c1947c60731c6b322ed80d8a5a39d5aa538a9ea25354bb6bc",
     "systemService": true
   }
 ]

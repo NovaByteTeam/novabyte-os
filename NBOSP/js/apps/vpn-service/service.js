@@ -201,8 +201,13 @@
       throw new Error('The native VPN helper returned an invalid provider list.');
     }
     return ids.map((id) => {
-      const app = AppRegistry.getApp(id);
-      return app ? { id, name: app.name || id, granted: hasProviderPermission(id) } : null;
+      const app = getInstalledProviderApp(id);
+      const isSystemApp = app?.system === true ||
+        app?.source === 'system-bundle' ||
+        (app?.verified === true && app?.signer === 'NovaByte System' && app?.manifest?.system === true);
+      return app && !isSystemApp && app.type !== 'webapp'
+        ? { id, name: app.name || app.manifest?.name || id, granted: hasProviderPermission(id) }
+        : null;
     }).filter(Boolean);
   }
 

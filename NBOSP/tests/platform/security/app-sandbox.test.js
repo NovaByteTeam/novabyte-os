@@ -265,7 +265,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
 
   it('uses the active account quota for sandbox storage instead of a fixed limit', async () => {
     const previousScope = globalThis.NovaUserScope;
-    const storageQuotaBytes = vi.fn().mockResolvedValue(7 * 1024 * 1024);
+    const storageQuotaBytes = vi.fn().mockResolvedValue(1024 * 1024 * 1024);
     globalThis.NovaUserScope = {
       enabled: () => true,
       uid: () => 'u-quota',
@@ -273,7 +273,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     };
     try {
       await expect(AppSandbox._internal.storageUserQuotaBytes('u-quota'))
-        .resolves.toBe(7 * 1024 * 1024);
+        .resolves.toBe(1024 * 1024 * 1024);
       expect(storageQuotaBytes).toHaveBeenCalledOnce();
     } finally {
       if (previousScope === undefined) delete globalThis.NovaUserScope;

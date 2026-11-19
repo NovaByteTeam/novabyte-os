@@ -92,6 +92,29 @@ describe('Users app account table', () => {
     }
   });
 
+  it('rejects account quotas below 1 GB before sending a create request', async () => {
+    const { window, host, calls } = await mountUsersApp([
+      { uid: 'u1', username: 'ada', displayName: 'Ada', role: 'owner', roleLabel: 'Owner', status: 'active' },
+    ]);
+    try {
+      host.querySelector('.nbusers-add-btn').click();
+      host.querySelector('#nu-display').value = 'Small Quota';
+      host.querySelector('#nu-username').value = 'small-quota';
+      host.querySelector('#nu-pin').value = '1234';
+      host.querySelector('#nu-pin2').value = '1234';
+      host.querySelector('#nu-quota').value = '0.5';
+      [...host.querySelectorAll('button')]
+        .find(button => button.textContent === 'Create account')
+        .click();
+      await new Promise(resolve => window.setTimeout(resolve, 0));
+
+      expect(host.querySelector('.nbusers-status').textContent).toContain('between 1 GB and 32 GB');
+      expect(calls.some(call => call.method === 'POST' && call.path === '/api/auth/admin/users')).toBe(false);
+    } finally {
+      window.close();
+    }
+  });
+
   it('renders markup in a display field as plain text', async () => {
     const { window, host } = await mountUsersApp([
       { uid: 'u1', username: 'ada', displayName: 'Ada', role: 'admin', roleLabel: '<img src=x onerror=alert(1)>', status: 'active' },

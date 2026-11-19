@@ -17,7 +17,7 @@ function makeFS() {
   return fs;
 }
 
-async function loadFiles({ fs, registry = null } = {}) {
+async function loadFiles({ fs, registry = null, settings = {}, linuxModules = null } = {}) {
   const showPromptValue = { current: null };
   const mocks = {
     Notify: { show: vi.fn() },
@@ -31,7 +31,7 @@ async function loadFiles({ fs, registry = null } = {}) {
     eventsOff: vi.fn(),
   };
   const OS = {
-    settings: { get: () => undefined },
+    settings: { get: key => settings[key] },
     apps: {
       'com.nbosp.novareg': {
         icon: `data:image/svg+xml;base64,${Buffer.from(
@@ -56,6 +56,17 @@ async function loadFiles({ fs, registry = null } = {}) {
         openFileWithDefaultApp: mocks.openFileWithDefaultApp,
         renderDesktopIcons: mocks.renderDesktopIcons,
         ...(registry ? { NovaRegistry: registry } : {}),
+        ...(linuxModules ? {
+          process: { platform: 'linux' },
+          Buffer,
+          require: name => {
+            if (name === 'fs') return linuxModules.fs;
+            if (name === 'path') return linuxModules.path || linuxPath;
+            if (name === 'os') return linuxModules.os || { homedir: () => '/home/nbosp' };
+            if (name === 'child_process') return linuxModules.childProcess || {};
+            throw new Error(`Unexpected module: ${name}`);
+          },
+        } : {}),
       },
     },
   });
@@ -134,6 +145,7 @@ describe('Files app (js/apps/files)', () => {
         },
       },
     });
+
     const state = { cleanups: [] };
     const content = initApp(loaded.app, { window: loaded.window, state });
     await settle();
@@ -151,6 +163,83 @@ describe('Files app (js/apps/files)', () => {
     expect(state._linuxPath).toBe(userHome);
     expect(fsPromises.stat).toHaveBeenCalledWith(userHome);
     state.cleanups.forEach(cleanup => cleanup());
+  });
+
+  it('deletes the full Linux multi-selection, including non-empty directories', async () => {
+    const root = '/home/nbosp/users/sam';
+    const deleted = [];
+    const entries = [
+      { name: 'notes.txt', isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false },
+      { name: 'Projects', isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false },
+    ];
+    const fsPromises = {
+      readdir: vi.fn(async () => entries),
+      lstat: vi.fn(async path => ({
+        size: path.endsWith('notes.txt') ? 5 : 4096,
+        mode: 0,
+        mtime: new Date(0),
+        isDirectory: () => path.endsWith('Projects'),
+      })),
+      rm: vi.fn(async path => { deleted.push(path); }),
+    };
+    const { content, ContextMenu, showModal } = await loadFiles({
+      fs: { rootId: root, specialFolders: {} },
+      linuxModules: { fs: { promises: fsPromises, constants: {} } },
+    });
+    await settle();
+    const list = content.querySelector('[role="listbox"]');
+    list.dispatchEvent(new content.ownerDocument.defaultView.KeyboardEvent('keydown', {
+      key: 'a', ctrlKey: true, bubbles: true,
+    }));
+    const rows = [...list.querySelectorAll('[data-path]')];
+    expect(rows).toHaveLength(2);
+    rows[0].dispatchEvent(new content.ownerDocument.defaultView.MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true,
+    }));
+    const menu = ContextMenu.show.mock.calls.at(-1)[2];
+    showModal.mockResolvedValue('delete');
+    await menu.find(item => item.label === 'Delete').action();
+
+    expect(deleted).toEqual([
+      `${root}/Projects`,
+      `${root}/notes.txt`,
+    ]);
+    expect(fsPromises.rm).toHaveBeenCalledWith(`${root}/Projects`, { recursive: true });
+  });
+
+  it('enforces quota before Linux Files writes and blocks writes in view-only mode', async () => {
+    const root = '/home/nbosp/users/sam';
+    const fsPromises = {
+      readdir: vi.fn(async () => []),
+      lstat: vi.fn(),
+      stat: vi.fn(async () => ({ isDirectory: () => true })),
+      writeFile: vi.fn(),
+    };
+    const quotaError = Object.assign(new Error('Account storage quota exceeded.'), { code: 'STORAGE_FULL' });
+    const FS = {
+      rootId: root,
+      specialFolders: {},
+      assertStorageQuota: vi.fn().mockRejectedValue(quotaError),
+    };
+    const { content, showPrompt, showPromptValue } = await loadFiles({
+      fs: FS,
+      linuxModules: { fs: { promises: fsPromises, constants: {} } },
+    });
+    await settle();
+    showPromptValue.current = 'too-large.txt';
+    await content._linuxFilesApp.createEntry(false);
+    expect(FS.assertStorageQuota).toHaveBeenCalledWith(0, 0);
+    expect(fsPromises.writeFile).not.toHaveBeenCalled();
+
+    const viewOnly = await loadFiles({
+      fs: FS,
+      settings: { filesViewOnly: true },
+      linuxModules: { fs: { promises: fsPromises, constants: {} } },
+    });
+    await settle();
+    await viewOnly.content._linuxFilesApp.createEntry(false);
+    expect(viewOnly.showPrompt).not.toHaveBeenCalled();
+    expect(viewOnly.Notify.show).toHaveBeenCalledWith(expect.objectContaining({ title: 'Blocked' }));
   });
 
   it('installing a .novaapp survives getter-only File#path and hands App Manager a usable File', async () => {
@@ -407,6 +496,36 @@ describe('Files app (js/apps/files)', () => {
     expect(trashed.parentId).toBe(fs.specialFolders.trash);
   });
 
+  it('moves every selected item to trash when deleting from a selected item context menu', async () => {
+    const fs = makeFS();
+    const first = await fs.createFile(fs.rootId, 'first.txt', '1', 'text/plain');
+    const second = await fs.createFile(fs.rootId, 'second.txt', '2', 'text/plain');
+    const deleteToTrash = vi.spyOn(fs, 'deleteToTrash');
+    const { content, window, ContextMenu } = await loadFiles({ fs });
+    const appWindow = window.document.createElement('div');
+    appWindow.className = 'app-window';
+    appWindow.dataset.appId = 'com.nbosp.files';
+    appWindow.appendChild(content);
+    window.document.body.appendChild(appWindow);
+
+    const grid = content.querySelector('.vault-files');
+    grid.focus();
+    grid.dispatchEvent(new window.KeyboardEvent('keydown', {
+      key: 'a', ctrlKey: true, bubbles: true, cancelable: true,
+    }));
+    const clicked = fileItems(content).find((item) => item._fileNode.id === first.id);
+    clicked.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+    ContextMenu.show.mock.calls.at(-1)[2]
+      .find((item) => item.label === 'Move to Trash').action();
+    await settle();
+
+    expect(deleteToTrash).toHaveBeenCalledWith(first.id);
+    expect(deleteToTrash).toHaveBeenCalledWith(second.id);
+    expect(fs.files.get(first.id).parentId).toBe(fs.specialFolders.trash);
+    expect(fs.files.get(second.id).parentId).toBe(fs.specialFolders.trash);
+  });
+
   it('creates files and folders via the empty-area context menu prompt flow', async () => {
     const fs = makeFS();
     const { content, window, ContextMenu, showPromptValue, Notify } = await loadFiles({ fs });
@@ -431,6 +550,13 @@ describe('Files app (js/apps/files)', () => {
     menu2.find((i) => i.label === 'New File').action();
     await settle();
     expect(Notify.show).toHaveBeenCalledWith(expect.objectContaining({ title: 'Blocked', body: 'That name is not valid.' }));
+
+    showPromptValue.current = null;
+    grid.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const menu3 = ContextMenu.show.mock.calls[2][2];
+    menu3.find((i) => i.label === 'New Folder').action();
+    await settle();
+    expect(fileItems(content).some((item) => item.textContent.includes('New Folder'))).toBe(false);
   });
 
   it('switches to list view from the empty-area menu with size/type/date columns', async () => {
@@ -497,7 +623,7 @@ describe('Files app (js/apps/files)', () => {
     expect(node.type).toBe('file');
     expect(node.mimeType).toBe('image/png'); // from _extMap because file.type was empty
     expect(node.parentId).toBe(FS.rootId); // state._nav.cwd (root)
-    expect(OS.workers.fs.call).toHaveBeenCalledWith('putFiles', [node]);
+    expect(FS.listDir(node.parentId)).toContainEqual(node);
   });
 
   it('blocks unsafe drops through the Scanner and rejects malformed drop payloads', async () => {
@@ -515,6 +641,59 @@ describe('Files app (js/apps/files)', () => {
     // Not a file object at all
     await app.onDrop(null, state);
     expect(Notify.show).toHaveBeenCalledWith(expect.objectContaining({ title: 'Error', body: 'Invalid file dropped.' }));
+  });
+
+  it('uses the native FS service for Linux drops into the user tree', async () => {
+    const root = '/home/nbosp/users/sam';
+    const FS = {
+      rootId: root,
+      specialFolders: {},
+      createFile: vi.fn(async () => ({ id: `${root}/drop.txt` })),
+    };
+    const { app, state } = await loadFiles({
+      fs: FS,
+      linuxModules: {
+        fs: { promises: {}, constants: {} },
+      },
+    });
+    const bytes = new TextEncoder().encode('native-drop');
+    await app.onDrop({
+      name: 'drop.txt',
+      type: 'text/plain',
+      size: bytes.length,
+      arrayBuffer: async () => bytes.buffer,
+    }, state);
+
+    expect(FS.createFile).toHaveBeenCalledWith(
+      root, 'drop.txt', expect.any(Buffer), 'text/plain',
+    );
+  });
+
+  it('blocks virtual file creation and paste when Files is view-only', async () => {
+    const fs = makeFS();
+    const source = await fs.createFile(fs.rootId, 'source.txt', 'data');
+    const { app, state, OS, showPrompt, Notify } = await loadFiles({
+      fs,
+      settings: { filesViewOnly: true },
+    });
+    OS.clipboard = { fileId: source.id, type: 'copy' };
+
+    await state.filesApp.promptCreate('new.txt', true);
+    await state.filesApp.pasteFromClipboard();
+    const bytes = new TextEncoder().encode('drop');
+    await app.onDrop({
+      name: 'dropped.txt',
+      type: 'text/plain',
+      size: bytes.length,
+      arrayBuffer: async () => bytes.buffer,
+    }, state);
+
+    expect(showPrompt).not.toHaveBeenCalled();
+    const rootNames = fs.listDir(fs.rootId).map(node => node.name);
+    expect(rootNames.filter(name => name === 'source.txt')).toHaveLength(1);
+    expect(rootNames).not.toContain('new.txt');
+    expect(rootNames).not.toContain('dropped.txt');
+    expect(Notify.show).toHaveBeenCalledWith(expect.objectContaining({ title: 'Blocked' }));
   });
 
   it('opens double-clicked files with the default app and folders navigate', async () => {

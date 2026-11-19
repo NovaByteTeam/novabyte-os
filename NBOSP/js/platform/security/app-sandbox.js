@@ -7019,7 +7019,7 @@ const AppSandbox = (() => {
     }
     const quotaBytes = await scope.storageQuotaBytes();
     if (quotaBytes === null) return null;
-    if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 0) {
+    if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 1024 * 1024 * 1024) {
       const error = new Error('The active account storage quota is invalid.');
       error.code = 'STORAGE_QUOTA_UNAVAILABLE';
       throw error;

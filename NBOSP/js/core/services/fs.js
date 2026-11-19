@@ -131,10 +131,7 @@ const FS = {
   _stampSharedEntry(node, parentId) {
     const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
     if (!scope || !scope.enabled() || !node) return node;
-    const parent = this.files.get(parentId);
-    const parentIsShared = parentId === this.specialFolders.shared ||
-      (parent && (parent.ownerUid === '__shared__' || parentId === parent.id && parent.name === 'Shared' && parent.parentId === this.rootId));
-    if (!parentIsShared) return node;
+    if (!this._isSharedParent(parentId)) return node;
     // Guests never write into the cross-account drop box: without this a
     // guest-created entry would ride the '__shared__' owner into every
     // account's tree (the native backend already excludes /Shared from a
@@ -145,6 +142,57 @@ const FS = {
     node.ownerUid = '__shared__';
     node.creator = scope.uid() || '__anonymous__';
     return node;
+  },
+
+  _isSharedParent(parentId) {
+    const parent = this.files.get(parentId);
+    return (this.specialFolders.shared !== undefined && parentId === this.specialFolders.shared) ||
+      Boolean(parent && (parent.ownerUid === '__shared__' ||
+        (parent.name === 'Shared' && parent.parentId === this.rootId)));
+  },
+
+  _isProtectedRoot(id) {
+    return id === this.rootId ||
+      id === this.specialFolders.trash ||
+      id === this.specialFolders.shared ||
+      id === this.specialFolders.data;
+  },
+
+  _subtreeNodes(root) {
+    const nodes = [root];
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].type === 'folder') nodes.push(...this.listDir(nodes[i].id));
+    }
+    return nodes;
+  },
+
+  async _prepareOwnershipTransfer(nodes, destinationId) {
+    const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
+    if (!scope || !scope.enabled() || !nodes.length) return false;
+
+    const sourceIsShared = nodes[0].ownerUid === '__shared__';
+    const destinationIsShared = this._isSharedParent(destinationId);
+    if (sourceIsShared === destinationIsShared) return false;
+
+    if (sourceIsShared) {
+      for (const node of nodes) this.assertSharedWriteAllowed(node);
+      const size = nodes.reduce((total, node) =>
+        total + (node.type === 'file' && Number.isFinite(node.size) ? node.size : 0), 0);
+      await this.assertStorageQuota(size);
+      for (const node of nodes) {
+        node.ownerUid = scope.uid() || '__anonymous__';
+        delete node.creator;
+      }
+      return true;
+    }
+
+    this._stampSharedEntry(nodes[0], destinationId);
+    if (nodes[0].ownerUid !== '__shared__') return false;
+    for (const node of nodes.slice(1)) {
+      node.ownerUid = '__shared__';
+      node.creator = nodes[0].creator;
+    }
+    return true;
   },
 
   /**
@@ -442,6 +490,11 @@ const FS = {
   async rename(id, newName) {
     const node = this.files.get(id);
     if (!node) return null;
+    if (this._isProtectedRoot(id)) {
+      const error = new Error('Cannot rename a filesystem root');
+      error.code = 'EBUSY';
+      throw error;
+    }
     this.assertSharedWriteAllowed(node);
     const oldName = node.name;
     if (oldName === newName) return node;
@@ -465,12 +518,24 @@ const FS = {
   async move(id, newParentId) {
     const node = this.files.get(id);
     if (!node) return null;
+    if (this._isProtectedRoot(id)) {
+      const error = new Error('Cannot move a filesystem root');
+      error.code = 'EBUSY';
+      throw error;
+    }
+    const nodes = this._subtreeNodes(node);
+    if (node.type === 'folder' && nodes.some(item => item.id === newParentId)) {
+      const error = new Error('Cannot move a folder into itself');
+      error.code = 'EINVAL';
+      throw error;
+    }
     this.assertSharedWriteAllowed(node);
+    const ownershipChanged = await this._prepareOwnershipTransfer(nodes, newParentId);
     this._unindexFile(id);
     node.parentId = newParentId;
     node.modified = Date.now();
     this._indexFile(node);
-    await OS.workers.fs.call('putFiles', [node]);
+    await OS.workers.fs.call('putFiles', ownershipChanged ? nodes : [node]);
     OS.events.emit('fs:moved', node);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'FS', category: 'filesystem', severity: 'info', message: `Moved ${node.name}`, data: { id, newParentId } });
@@ -529,13 +594,20 @@ const FS = {
   async deleteToTrash(id) {
     const node = this.files.get(id);
     if (!node) return;
+    if (this._isProtectedRoot(id)) {
+      const error = new Error('Cannot move a filesystem root to Trash');
+      error.code = 'EBUSY';
+      throw error;
+    }
     this.assertSharedWriteAllowed(node);
+    const nodes = this._subtreeNodes(node);
+    const ownershipChanged = await this._prepareOwnershipTransfer(nodes, this.specialFolders.trash);
     this._unindexFile(id);
     node._originalParent = node.parentId;
     node.parentId = this.specialFolders.trash;
     node.modified = Date.now();
     this._indexFile(node);
-    await OS.workers.fs.call('putFiles', [node]);
+    await OS.workers.fs.call('putFiles', ownershipChanged ? nodes : [node]);
     OS.events.emit('fs:deleted', node);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'FS', category: 'filesystem', severity: 'warn', message: `Moved ${node.name} to Trash`, data: { id } });
@@ -545,6 +617,11 @@ const FS = {
   async permanentDelete(id) {
     const node = this.files.get(id);
     if (!node) return;
+    if (this._isProtectedRoot(id)) {
+      const error = new Error('Cannot permanently delete a filesystem root');
+      error.code = 'EBUSY';
+      throw error;
+    }
     this.assertSharedWriteAllowed(node);
     if (node.type === 'folder') {
       const parentMap = this._childrenByParent.get(id);
@@ -751,13 +828,12 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     const rootStat = nativeFs.statSync(root);
     if (!rootStat.isDirectory()) return rootStat.size;
     let total = 0;
-    const stack = [[root, 12]];
+    const stack = [root];
     while (stack.length) {
-      const [directory, depth] = stack.pop();
-      if (depth < 0) continue;
+      const directory = stack.pop();
       for (const entry of nativeFs.readdirSync(directory, { withFileTypes: true })) {
         const fullPath = nativePath.join(directory, entry.name);
-        if (entry.isDirectory() && !entry.isSymbolicLink()) stack.push([fullPath, depth - 1]);
+        if (entry.isDirectory() && !entry.isSymbolicLink()) stack.push(fullPath);
         else total += nativeFs.statSync(fullPath).size;
       }
     }
@@ -1040,6 +1116,20 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
         nativeFs.renameSync(tmp, nativePath.join(sharedRoot, '.nova-owners.json'));
       } catch (_) { /* best-effort bookkeeping */ }
     },
+    _forgetSharedCreator(resolved) {
+      const rel = this._sharedRelative(resolved);
+      if (rel === null) return;
+      const entries = this._sharedIndex();
+      const prefix = rel + nativePath.sep;
+      let changed = false;
+      for (const key of Object.keys(entries)) {
+        if (key === rel || key.startsWith(prefix)) {
+          delete entries[key];
+          changed = true;
+        }
+      }
+      if (changed) this._sharedIndexWrite(entries);
+    },
     accountStorageUsageBytes() {
       return directorySizeBytes(home);
     },
@@ -1052,7 +1142,19 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       const rel = this._sharedRelative(resolved);
       if (rel === null || !scope || !scope.enabled()) return;
       const entries = this._sharedIndex();
-      entries[rel] = scope.uid() || '__anonymous__';
+      const creator = scope.uid() || '__anonymous__';
+      const stack = [resolved];
+      while (stack.length) {
+        const current = stack.pop();
+        const currentRel = this._sharedRelative(current);
+        if (currentRel === null) continue;
+        entries[currentRel] = creator;
+        const stat = nativeFs.lstatSync(current);
+        if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
+        for (const entry of nativeFs.readdirSync(current, { withFileTypes: true })) {
+          if (!entry.isSymbolicLink()) stack.push(nativePath.join(current, entry.name));
+        }
+      }
       this._sharedIndexWrite(entries);
     },
     /** /Shared rule: write/delete only your own entries; admins all. */
@@ -1105,6 +1207,11 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     async rename(id, newName) {
       const source = assertHomePath(id);
       this.assertSharedWriteAllowed(source);
+      if (source === trashPath || source === appDataRoot || allowedRoots.includes(source)) {
+        const error = new Error('Cannot rename a filesystem root');
+        error.code = 'EBUSY';
+        throw error;
+      }
       const destination = safeChild(nativePath.dirname(source), newName);
       if (nativeFs.existsSync(destination)) {
         const error = new Error(`A file or folder named "${newName}" already exists in this location.`);
@@ -1112,6 +1219,8 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
         throw error;
       }
       nativeFs.renameSync(source, destination);
+      this._forgetSharedCreator(source);
+      this._noteSharedCreator(destination);
       refreshVisibleTree();
       const node = nodeForPath(destination);
       OS.events.emit('fs:updated', node);
@@ -1120,6 +1229,11 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     async move(id, newParentId, nameOverride) {
       const source = assertHomePath(id);
       this.assertSharedWriteAllowed(source);
+      if (source === trashPath || source === appDataRoot || allowedRoots.includes(source)) {
+        const error = new Error('Cannot move a filesystem root');
+        error.code = 'EBUSY';
+        throw error;
+      }
       const destination = safeChild(newParentId, nameOverride || nativePath.basename(source));
       if (destination === source) {
         // Cut-pasted into the folder it already sits in, with the same name:
@@ -1141,6 +1255,7 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
         nativeFs.cpSync(source, destination, { recursive: true, errorOnExist: true });
         nativeFs.rmSync(source, { recursive: true });
       }
+      if (isSharedPath(source) && !isSharedPath(destination)) this._forgetSharedCreator(source);
       this._noteSharedCreator(destination);
       refreshVisibleTree();
       const node = nodeForPath(destination);
@@ -1152,6 +1267,7 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       const destination = safeChild(destParentId, name ?? node.name);
       await this.assertStorageQuota(directorySizeBytes(source), 0, isSharedPath(destination));
       nativeFs.cpSync(source, destination, { recursive: true, errorOnExist: true });
+      this._noteSharedCreator(destination);
       refreshVisibleTree();
       return nodeForPath(destination);
     },
@@ -1171,9 +1287,17 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     async deleteToTrash(id) {
       const source = assertHomePath(id);
       this.assertSharedWriteAllowed(source);
+      if (source === trashPath || source === appDataRoot || allowedRoots.includes(source)) {
+        const error = new Error('Cannot move a filesystem root to Trash');
+        error.code = 'EBUSY';
+        throw error;
+      }
+      const wasShared = isSharedPath(source);
+      if (wasShared) await this.assertStorageQuota(directorySizeBytes(source));
       const uniqueDestination = this.uniqueName(trashPath, nativePath.basename(source));
       const finalPath = safeChild(trashPath, uniqueDestination);
       nativeFs.renameSync(source, finalPath);
+      if (wasShared) this._forgetSharedCreator(source);
       refreshVisibleTree();
       const node = nodeForPath(finalPath);
       OS.events.emit('fs:deleted', node);
@@ -1183,8 +1307,11 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       const path = assertHomePath(id);
       this.assertSharedWriteAllowed(path);
       if (path === home) throw new Error('Refusing to delete the user home directory');
-      if (allowedRoots.includes(path)) throw new Error('Refusing to delete a storage root directory');
+      if (path === trashPath || path === appDataRoot || allowedRoots.includes(path)) {
+        throw new Error('Refusing to delete a storage root directory');
+      }
       nativeFs.rmSync(path, { recursive: true, force: false });
+      this._forgetSharedCreator(path);
       refreshVisibleTree();
       OS.events.emit('fs:deleted', { id: path });
     },

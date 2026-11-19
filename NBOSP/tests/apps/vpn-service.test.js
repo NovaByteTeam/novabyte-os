@@ -23,6 +23,8 @@ function installVpnService({ installedApps = [] } = {}) {
     queueMicrotask(() => {
       child.stdout.emit('data', args[0] === 'register'
         ? JSON.stringify({ registered: true, providerId: args[1] })
+        : args[0] === 'list'
+          ? JSON.stringify([appId])
         : JSON.stringify({ active: false }));
       child.emit('close', 0, null);
     });
@@ -58,6 +60,16 @@ describe('VPN provider registration', () => {
     });
     expect(registry.getApp).toHaveBeenCalledWith(appId);
     expect(spawn).toHaveBeenCalledWith('/usr/bin/nbosp-vpn', ['register', appId], expect.any(Object));
+  });
+
+  it('lists registered providers from the installed package store before AppRegistry hydration', async () => {
+    const { appId, service } = installVpnService({
+      installedApps: [{ id: 'com.example.vpntest', name: 'VPN Test', type: 'package' }],
+    });
+
+    await expect(service.getProviders()).resolves.toEqual([
+      { id: appId, name: 'VPN Test', granted: true },
+    ]);
   });
 
   it('still rejects uninstalled apps, web apps, and trusted system apps', async () => {

@@ -2245,12 +2245,12 @@ describe('auth-routes — admin family: role gates, account CRUD, lifecycle guar
     expect(badQuota.body.message).toBe('Invalid quota');
 
     const goodQuota = await w.owner.patch(`/api/auth/admin/users/${w.samUid}`)
-      .set('X-CSRF-Token', w.ownerCsrf).send({ quotaBytes: 5 * 1024 * 1024 });
+      .set('X-CSRF-Token', w.ownerCsrf).send({ quotaBytes: 1024 * 1024 * 1024 });
     expect(goodQuota.status).toBe(200);
-    expect(goodQuota.body.data.user.quotaBytes).toBe(5 * 1024 * 1024);
+    expect(goodQuota.body.data.user.quotaBytes).toBe(1024 * 1024 * 1024);
     const usage = await request.agent(app);
     await loginOk(usage, { username: 'sam', secret: '4321' });
-    expect((await usage.get('/api/auth/usage')).body.data.usage.quotaBytes).toBe(5 * 1024 * 1024);
+    expect((await usage.get('/api/auth/usage')).body.data.usage.quotaBytes).toBe(1024 * 1024 * 1024);
 
     // Promote and demote.
     const promote = await w.owner.patch(`/api/auth/admin/users/${w.samUid}`)
@@ -2937,6 +2937,11 @@ describe('auth-routes — admin CRUD depth: validation, quota, avatar, paginatio
   it('POST /admin/users surfaces the store validation messages and honours quotaBytes', async () => {
     const w = await world();
 
+    const tooSmallDefault = await w.owner.put('/api/auth/admin/policies')
+      .set('X-CSRF-Token', w.ownerCsrf).send({ defaultUserQuotaBytes: 107 });
+    expect(tooSmallDefault.status).toBe(400);
+    expect(tooSmallDefault.body).toMatchObject({ success: false, code: 'INVALID_POLICY' });
+
     const shortName = await w.owner.post('/api/auth/admin/users').set('X-CSRF-Token', w.ownerCsrf)
       .send({ username: 'ab', pin: '1234', role: 'standard' });
     expect(shortName.status).toBe(400);
@@ -2957,17 +2962,22 @@ describe('auth-routes — admin CRUD depth: validation, quota, avatar, paginatio
     expect(shortPass.status).toBe(400);
     expect(shortPass.body.message).toBe('Passphrase must be at least 8 characters');
 
+    const tooSmall = await w.owner.post('/api/auth/admin/users').set('X-CSRF-Token', w.ownerCsrf)
+      .send({ username: 'quota-user', pin: '2468', role: 'standard', quotaBytes: 107 });
+    expect(tooSmall.status).toBe(400);
+    expect(tooSmall.body.message).toBe('Invalid quota');
+
     // Creation with an explicit quota.
     const created = await w.owner.post('/api/auth/admin/users').set('X-CSRF-Token', w.ownerCsrf)
-      .send({ username: 'quota-user', displayName: 'Quota User', pin: '2468', role: 'standard', quotaBytes: 10 * 1024 * 1024 });
+      .send({ username: 'quota-user', displayName: 'Quota User', pin: '2468', role: 'standard', quotaBytes: 1024 * 1024 * 1024 });
     expect(created.status).toBe(200);
-    expect(created.body.data.user).toMatchObject({ username: 'quota-user', quotaBytes: 10 * 1024 * 1024 });
+    expect(created.body.data.user).toMatchObject({ username: 'quota-user', quotaBytes: 1024 * 1024 * 1024 });
 
     // The self usage surface reports it.
     const agent = request.agent(app);
     await loginOk(agent, { username: 'quota-user', secret: '2468' });
     const usage = await agent.get('/api/auth/usage');
-    expect(usage.body.data.usage.quotaBytes).toBe(10 * 1024 * 1024);
+    expect(usage.body.data.usage.quotaBytes).toBe(1024 * 1024 * 1024);
   });
 
   it('PATCH /admin/users: avatar set/clear, unknown role, same-role no-op', async () => {

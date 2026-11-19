@@ -488,6 +488,10 @@ registerApp({
         if (!/^\d{4,6}$/.test(pin)) { status.textContent = _t('apps.users.validation.pinDigits'); return; }
         if (pin !== pinConfirm) { status.textContent = _t('apps.users.pinMismatch'); return; }
         if (passphrase && passphrase.length < 8) { status.textContent = _t('apps.users.validation.passphraseTooShort'); return; }
+        if (inputs['nu-quota'].value && (!Number.isFinite(quotaGB) || quotaGB < 1 || quotaGB > 32)) {
+          status.textContent = _t('apps.users.validation.quotaRange');
+          return;
+        }
         status.textContent = _t('apps.users.creating');
         const account = { displayName, username, role, pin };
         if (passphrase) account.passphrase = passphrase;
@@ -546,7 +550,11 @@ registerApp({
         const patch = { displayName: displayNameInput.value.trim() || user.username };
         if (user.role !== 'owner') patch.role = roleSelect.value;
         const gb = parseFloat(quotaInput.value);
-        if (Number.isFinite(gb) && gb > 0) patch.quotaBytes = Math.round(gb * 1024 * 1024 * 1024);
+        if (!Number.isFinite(gb) || gb < 1 || gb > 32) {
+          status.textContent = _t('apps.users.validation.quotaRange');
+          return;
+        }
+        patch.quotaBytes = Math.round(gb * 1024 * 1024 * 1024);
         const result = await adminUsers('accounts.update', { uid: user.uid, patch });
         if (result?.success) {
           await refresh();
@@ -729,7 +737,7 @@ registerApp({
       mkToggle('guestAccess', _t('apps.users.policies.guestAccess'), _t('apps.users.policies.guestAccessHint'));
       mkToggle('showUsernamesOnPicker', _t('apps.users.policies.showUsernames'), _t('apps.users.policies.showUsernamesHint'));
       mkToggle('closeAppsOnSwitch', _t('apps.users.policies.closeAppsOnSwitch'), _t('apps.users.policies.closeAppsHint'));
-      mkNumber('defaultUserQuotaBytes', _t('apps.users.policies.defaultQuota'), _t('apps.users.policies.defaultQuotaHint'), 1024 * 1024, 32 * 1024 ** 3, 1024 * 1024);
+      mkNumber('defaultUserQuotaBytes', _t('apps.users.policies.defaultQuota'), _t('apps.users.policies.defaultQuotaHint'), 1024 ** 3, 32 * 1024 ** 3, 1024 * 1024);
       mkNumber('idleLockMaxMinutes', _t('apps.users.policies.idleLockMax'), _t('apps.users.policies.idleLockHint'), 1, 240, 1);
       mkNumber('lockoutShortMs', _t('apps.users.policies.lockoutStep1'), _t('apps.users.policies.lockoutStep1Hint'), 5000, 600000, 5000);
       mkNumber('lockoutExtendedMs', _t('apps.users.policies.lockoutStep2'), _t('apps.users.policies.lockoutStep2Hint'), 5000, 3600000, 5000);

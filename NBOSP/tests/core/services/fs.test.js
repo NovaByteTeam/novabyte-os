@@ -326,6 +326,27 @@ describe('FS virtual backend (non-Linux contract)', () => {
     });
   });
 
+  it('refuses to move, rename, or delete protected VFS roots', async () => {
+    FS.rootId = 'root';
+    FS.specialFolders = { trash: 'trash', shared: 'shared', data: 'data' };
+    FS.files.set('root', { id: 'root', name: '/', type: 'folder', parentId: null });
+    FS.files.set('trash', { id: 'trash', name: 'Trash', type: 'folder', parentId: 'root' });
+    FS.files.set('shared', { id: 'shared', name: 'Shared', type: 'folder', parentId: 'root' });
+    FS._childrenByParent.set('root', new Map([
+      ['trash', FS.files.get('trash')],
+      ['shared', FS.files.get('shared')],
+    ]));
+    mockWorker.call.mockResolvedValue(undefined);
+
+    await expect(FS.permanentDelete('root')).rejects.toMatchObject({ code: 'EBUSY' });
+    await expect(FS.deleteToTrash('trash')).rejects.toMatchObject({ code: 'EBUSY' });
+    await expect(FS.rename('trash', 'Archive')).rejects.toMatchObject({ code: 'EBUSY' });
+    await expect(FS.move('shared', 'root')).rejects.toMatchObject({ code: 'EBUSY' });
+    expect(FS.files.has('root')).toBe(true);
+    expect(FS.files.has('trash')).toBe(true);
+    expect(FS.files.has('shared')).toBe(true);
+  });
+
   describe('getMimeIcon', () => {
     it('returns "folder" for directories', () => {
       expect(FS.getMimeIcon('inode/directory', '')).toBe('folder');
@@ -500,6 +521,55 @@ describe('FS virtual backend (non-Linux contract)', () => {
         await expect(FS.createFile(sharedNode.id, 'evil.txt', 'leak')).rejects.toThrow(/Guest sessions cannot write to the shared drop box/);
       });
     });
+
+    it('transfers ownership when moving a folder into and out of /Shared', async () => {
+      const fake = fakeOwnerWorker();
+      globalThis.OS.workers.fs.call.mockImplementation(fake.call);
+      let uid = 'uA';
+      let quotaBytes = 100;
+      const scope = {
+        enabled: () => true,
+        uid: () => uid,
+        ownerUid: () => uid,
+        activeUsername: () => uid === 'uA' ? 'ada' : 'sam',
+        storageQuotaBytes: async () => quotaBytes,
+      };
+
+      await withScope(scope, async () => {
+        await FS.setUserRoot('uA', { username: 'ada' });
+        const folder = await FS.createFolder(FS.specialFolders.documents, 'shared-folder');
+        const child = await FS.createFile(folder.id, 'nested.txt', 'data');
+        await FS.move(folder.id, FS.specialFolders.shared);
+
+        expect(folder.ownerUid).toBe('__shared__');
+        expect(child.ownerUid).toBe('__shared__');
+        expect(folder.creator).toBe('uA');
+        expect(child.creator).toBe('uA');
+
+        uid = 'uB';
+        await FS.setUserRoot('uB', { username: 'sam' });
+        const visibleFolder = FS.listDir(FS.specialFolders.shared)
+          .find(node => node.name === 'shared-folder');
+        expect(visibleFolder).toBeTruthy();
+        expect(FS.listDir(visibleFolder.id).map(node => node.name)).toContain('nested.txt');
+
+        uid = 'uA';
+        await FS.setUserRoot('uA', { username: 'ada' });
+        const restored = FS.files.get(folder.id);
+        quotaBytes = 1;
+        await expect(FS.move(restored.id, FS.specialFolders.documents))
+          .rejects.toMatchObject({ code: 'STORAGE_FULL' });
+        expect(restored.ownerUid).toBe('__shared__');
+        expect(restored.parentId).toBe(FS.specialFolders.shared);
+
+        quotaBytes = 100;
+        await FS.move(restored.id, FS.specialFolders.documents);
+        expect(restored.ownerUid).toBe('uA');
+        expect(restored.creator).toBeUndefined();
+        expect(FS.files.get(child.id).ownerUid).toBe('uA');
+        expect(FS.files.get(child.id).creator).toBeUndefined();
+      });
+    });
   });
 });
 
@@ -616,6 +686,46 @@ describe('FS linux-native backend (real disk contract)', () => {
     } finally {
       await FS.setUserRoot('', {});
       nodeFs.rmSync(nodePath.join(fakeHome, 'users'), { recursive: true, force: true });
+      if (previousScope === undefined) delete globalThis.NovaUserScope;
+      else globalThis.NovaUserScope = previousScope;
+    }
+  });
+
+  it('tracks nested ownership as native folders move into and out of /Shared', async () => {
+    const previousScope = globalThis.NovaUserScope;
+    let uid = 'u-owner';
+    globalThis.NovaUserScope = {
+      enabled: () => true,
+      uid: () => uid,
+      isActiveAdmin: () => false,
+      storageQuotaBytes: async () => 1024,
+    };
+    const userRoot = nodePath.join(fakeHome, 'users', 'ada');
+    try {
+      await FS.setUserRoot(uid, { username: 'ada' });
+      const folder = await FS.createFolder(FS.specialFolders.documents, 'shared-tree');
+      await FS.createFile(folder.id, 'nested.txt', 'nested');
+      await FS.move(folder.id, FS.specialFolders.shared);
+
+      const sharedFolder = nodePath.join(FS.specialFolders.shared, 'shared-tree');
+      const sharedChild = nodePath.join(sharedFolder, 'nested.txt');
+      const index = FS._sharedIndex();
+      expect(index['shared-tree']).toBe(uid);
+      expect(index[nodePath.join('shared-tree', 'nested.txt')]).toBe(uid);
+      uid = 'u-other';
+      expect(() => FS.assertSharedWriteAllowed(sharedChild))
+        .toThrow(/belongs to another account/);
+
+      uid = 'u-owner';
+      await FS.move(sharedFolder, FS.specialFolders.documents);
+      const afterMove = FS._sharedIndex();
+      expect(afterMove['shared-tree']).toBeUndefined();
+      expect(afterMove[nodePath.join('shared-tree', 'nested.txt')]).toBeUndefined();
+      expect(nodeFs.readFileSync(nodePath.join(userRoot, 'Documents', 'shared-tree', 'nested.txt'), 'utf8'))
+        .toBe('nested');
+    } finally {
+      await FS.setUserRoot('', {});
+      nodeFs.rmSync(userRoot, { recursive: true, force: true });
       if (previousScope === undefined) delete globalThis.NovaUserScope;
       else globalThis.NovaUserScope = previousScope;
     }
@@ -875,6 +985,29 @@ describe('FS linux-native backend (real disk contract)', () => {
 
     await expect(FS.permanentDelete(fakeHome)).rejects.toThrow(/Refusing to delete the user home/);
     expect(nodeFs.existsSync(fakeHome)).toBe(true);
+  });
+
+  it('protects native storage roots and counts files beyond twelve nested folders', async () => {
+    await expect(FS.deleteToTrash(fakeHome)).rejects.toThrow(/filesystem root/);
+    await expect(FS.permanentDelete(trashDir)).rejects.toThrow(/storage root/);
+    await expect(FS.rename(trashDir, 'Archive')).rejects.toThrow(/filesystem root/);
+    await expect(FS.move(trashDir, nodePath.join(fakeHome, 'Documents')))
+      .rejects.toThrow(/filesystem root/);
+
+    const deepDirectory = nodePath.join(
+      fakeHome,
+      'Documents',
+      ...Array.from({ length: 15 }, (_, index) => `level-${index}`)
+    );
+    nodeFs.mkdirSync(deepDirectory, { recursive: true });
+    const deepFile = nodePath.join(deepDirectory, 'deep.txt');
+    const before = FS.accountStorageUsageBytes();
+    nodeFs.writeFileSync(deepFile, 'deep-data');
+    try {
+      expect(FS.accountStorageUsageBytes()).toBe(before + Buffer.byteLength('deep-data'));
+    } finally {
+      nodeFs.rmSync(nodePath.join(fakeHome, 'Documents', 'level-0'), { recursive: true, force: true });
+    }
   });
 
   it('emptyTrash clears the real Trash directory', async () => {

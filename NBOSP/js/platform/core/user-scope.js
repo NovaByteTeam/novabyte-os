@@ -151,7 +151,7 @@
         const usage = response?.json?.data?.usage;
         if (!response?.ok || response.json?.success !== true ||
             usage?.uid !== uid || !Number.isSafeInteger(usage.quotaBytes) ||
-            usage.quotaBytes < 1024 * 1024) {
+            usage.quotaBytes < 1024 * 1024 * 1024) {
           const error = new Error(response?.json?.message || 'Could not verify the active account storage quota.');
           error.code = 'STORAGE_QUOTA_UNAVAILABLE';
           throw error;

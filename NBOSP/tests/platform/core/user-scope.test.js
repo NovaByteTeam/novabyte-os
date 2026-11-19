@@ -129,13 +129,13 @@ describe('NovaUserScope — the mounted account (uid + username)', () => {
       ok: true,
       json: {
         success: true,
-        data: { usage: { uid: 'u-quota', quotaBytes: 12 * 1024 * 1024 } },
+        data: { usage: { uid: 'u-quota', quotaBytes: 1024 * 1024 * 1024 } },
       },
     });
     window.SessionManager = { authFetch };
     try {
-      await expect(UserScope.storageQuotaBytes()).resolves.toBe(12 * 1024 * 1024);
-      await expect(UserScope.storageQuotaBytes()).resolves.toBe(12 * 1024 * 1024);
+      await expect(UserScope.storageQuotaBytes()).resolves.toBe(1024 * 1024 * 1024);
+      await expect(UserScope.storageQuotaBytes()).resolves.toBe(1024 * 1024 * 1024);
       expect(authFetch).toHaveBeenCalledTimes(1);
       expect(authFetch).toHaveBeenCalledWith('/api/auth/usage');
     } finally {
@@ -156,6 +156,25 @@ describe('NovaUserScope — the mounted account (uid + username)', () => {
     };
     try {
       await expect(UserScope.storageQuotaBytes()).rejects.toMatchObject({ code: 'STORAGE_QUOTA_UNAVAILABLE' });
+    } finally {
+      UserScope.reset();
+      if (previousSessionManager === undefined) delete window.SessionManager;
+      else window.SessionManager = previousSessionManager;
+    }
+  });
+
+  it('fails closed when an account quota is below the 1 GB minimum', async () => {
+    UserScope.setActive('u-quota');
+    const previousSessionManager = window.SessionManager;
+    window.SessionManager = {
+      authFetch: vi.fn().mockResolvedValue({
+        ok: true,
+        json: { success: true, data: { usage: { uid: 'u-quota', quotaBytes: 107 } } },
+      }),
+    };
+    try {
+      await expect(UserScope.storageQuotaBytes())
+        .rejects.toMatchObject({ code: 'STORAGE_QUOTA_UNAVAILABLE' });
     } finally {
       UserScope.reset();
       if (previousSessionManager === undefined) delete window.SessionManager;

@@ -35,6 +35,8 @@ const ADMIN_ROLES = Object.freeze(new Set(['owner', 'admin']));
 const STATUSES = Object.freeze(['active', 'disabled']);
 
 const DEFAULT_USER_QUOTA_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
+const MIN_USER_QUOTA_BYTES = 1024 * 1024 * 1024; // 1 GB
+const MAX_USER_QUOTA_BYTES = 32 * 1024 * 1024 * 1024;
 
 // Machine account policies (the Users app "Policies" tab surface).
 const DEFAULT_POLICIES = Object.freeze({
@@ -181,6 +183,8 @@ function getDb() {
     db = new Database(USERS_DB_PATH);
     db.pragma('journal_mode = WAL');
     migrate(db);
+    db.prepare('UPDATE users SET quota_bytes = ? WHERE quota_bytes < ?')
+        .run(MIN_USER_QUOTA_BYTES, MIN_USER_QUOTA_BYTES);
     return db;
 }
 
@@ -263,6 +267,11 @@ function getPolicyBlock() {
             merged[row.key] = JSON.parse(row.value);
         } catch (_) { /* corrupted row: default wins */ }
     }
+    if (!Number.isSafeInteger(merged.defaultUserQuotaBytes) ||
+        merged.defaultUserQuotaBytes < MIN_USER_QUOTA_BYTES ||
+        merged.defaultUserQuotaBytes > MAX_USER_QUOTA_BYTES) {
+        merged.defaultUserQuotaBytes = DEFAULT_USER_QUOTA_BYTES;
+    }
     policyCache = merged;
     return merged;
 }
@@ -275,6 +284,10 @@ function setPolicies(patch) {
             'INSERT INTO policies (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
         for (const [key, value] of entries) {
             if (!(key in DEFAULT_POLICIES)) throw new Error(`Unknown account policy '${key}'`);
+            if (key === 'defaultUserQuotaBytes' &&
+                (!Number.isSafeInteger(value) || value < MIN_USER_QUOTA_BYTES || value > MAX_USER_QUOTA_BYTES)) {
+                throw new Error('Default storage quota must be between 1 GB and 32 GB');
+            }
             upsert.run(key, JSON.stringify(value));
         }
     });
@@ -451,9 +464,12 @@ function createUser({ displayName, username, pin, passphrase, role, avatar, quot
     }
     const uid = randomUUID();
     const now = Date.now();
-    const quota = Number.isFinite(quotaBytes) && quotaBytes > 0
-        ? Math.min(Math.trunc(quotaBytes), 32 * 1024 * 1024 * 1024)
-        : (getPolicyBlock().defaultUserQuotaBytes ?? DEFAULT_USER_QUOTA_BYTES);
+    let quota = getPolicyBlock().defaultUserQuotaBytes ?? DEFAULT_USER_QUOTA_BYTES;
+    if (quotaBytes !== undefined) {
+        quota = Math.trunc(Number(quotaBytes));
+        if (!Number.isSafeInteger(quota) || quota < MIN_USER_QUOTA_BYTES) throw new Error('Invalid quota');
+        quota = Math.min(quota, MAX_USER_QUOTA_BYTES);
+    }
     database.prepare(`INSERT INTO users
         (uid, username, display_name, avatar, role, status, pin_hash, pin_salt, pin_kdf, pin_len,
          pass_hash, pass_salt, pass_kdf, quota_bytes, created_at, updated_at)
@@ -550,8 +566,8 @@ function updateUser(uid, patch, actorUid) {
     }
     if (patch.quotaBytes !== undefined) {
         const quota = Math.trunc(Number(patch.quotaBytes));
-        if (!Number.isFinite(quota) || quota < 1024 * 1024) throw new Error('Invalid quota');
-        sets.push('quota_bytes = ?'); args.push(Math.min(quota, 32 * 1024 * 1024 * 1024));
+        if (!Number.isSafeInteger(quota) || quota < MIN_USER_QUOTA_BYTES) throw new Error('Invalid quota');
+        sets.push('quota_bytes = ?'); args.push(Math.min(quota, MAX_USER_QUOTA_BYTES));
     }
     if (patch.role !== undefined && patch.role !== row.role) {
         if (row.role === 'owner') {
