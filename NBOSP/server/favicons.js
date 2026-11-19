@@ -6,11 +6,13 @@ const dns = require('dns');
 const Database = require('better-sqlite3');
 const { Agent, fetch: undiciFetch } = require('undici');
 const { getRuntimeDataDir } = require('../scripts/runtime-data-dir');
+const { extractMappedV4 } = require('./ip-address');
 
 const FAVICON_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const FAVICON_MAX = 500; // max cached entries
 const FAVICON_FETCH_TIMEOUT = 4000; // 4s per attempt
 const FAVICON_MAX_REDIRECTS = 5;
+const FAVICON_MAX_BYTES = 1024 * 1024;
 
 // Persistent favicon cache
 const FAVICON_DB_DIR = path.join(getRuntimeDataDir(path.resolve(__dirname, '..')), 'data');
@@ -77,11 +79,6 @@ function isPrivateIpv4(ip) {
            (parts[0] === 192 && parts[1] === 168) ||
            (parts[0] === 169 && parts[1] === 254) ||
            (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127);
-}
-
-function extractMappedV4(ip) {
-    const m = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(ip);
-    return m ? m[1] : null;
 }
 
 function isPrivateIpv6(ip) {
@@ -199,6 +196,28 @@ function normaliseFaviconMime(buf, headerMime) {
     return null;
 }
 
+async function readLimitedResponseBody(body, maxBytes) {
+      if (!body) return Buffer.alloc(0);
+      const reader = body.getReader();
+      const chunks = [];
+      let total = 0;
+      try {
+          while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              total += value.byteLength;
+              if (total > maxBytes) {
+                  await reader.cancel();
+                  return null;
+              }
+              chunks.push(Buffer.from(value));
+          }
+      } finally {
+          reader.releaseLock();
+      }
+      return Buffer.concat(chunks, total);
+}
+
 function extractBestIcoImage(icoBuf) {
     try {
         if (icoBuf.length < 6) return null;
@@ -251,53 +270,56 @@ async function fetchIconUrl(initialUrl) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), FAVICON_FETCH_TIMEOUT);
 
-        let resp;
         try {
-            resp = await pinnedFetch(currentUrl, {
+            const resp = await pinnedFetch(currentUrl, {
                 headers: CLEAN_HEADERS,
                 redirect: 'manual',
                 signal: controller.signal,
             }, dnsResult);
+
+            if (resp.status >= 300 && resp.status < 400) {
+                const loc = resp.headers.get('location');
+                try { await resp.body?.cancel(); } catch (_) {}
+                if (!loc) return null;
+                try { currentUrl = new URL(loc, currentUrl).toString(); } catch { return null; }
+                continue;
+            }
+
+            if (!resp.ok) {
+                try { await resp.body?.cancel(); } catch (_) {}
+                return null;
+            }
+
+            const contentType = resp.headers.get('content-type') || '';
+            if (contentType && !contentType.startsWith('image/') &&
+                !contentType.includes('text/xml') && !contentType.includes('application/xml')) {
+                try { await resp.body?.cancel(); } catch (_) {}
+                return null;
+            }
+
+            const contentLength = Number(resp.headers.get('content-length'));
+            if (Number.isFinite(contentLength) && contentLength > FAVICON_MAX_BYTES) {
+                try { await resp.body?.cancel(); } catch (_) {}
+                return null;
+            }
+            const bufNode = await readLimitedResponseBody(resp.body, FAVICON_MAX_BYTES);
+            if (!bufNode || bufNode.length === 0) return null;
+
+            const mime = normaliseFaviconMime(bufNode, contentType);
+            if (!mime) return null;
+
+            // Try to extract PNG from ICO if embedded
+            if (mime === 'image/x-icon') {
+                const extracted = extractBestIcoImage(bufNode);
+                if (extracted) return extracted;
+            }
+
+            return { buf: bufNode, mime };
         } catch {
             return null;
         } finally {
             clearTimeout(timer);
         }
-
-        if (resp.status >= 300 && resp.status < 400) {
-            const loc = resp.headers.get('location');
-            try { resp.body?.cancel(); } catch (_) {}
-            if (!loc) return null;
-            try { currentUrl = new URL(loc, currentUrl).toString(); } catch { return null; }
-            continue;
-        }
-
-        if (!resp.ok) {
-            try { resp.body?.cancel(); } catch (_) {}
-            return null;
-        }
-
-        const contentType = resp.headers.get('content-type') || '';
-        if (contentType && !contentType.startsWith('image/') &&
-            !contentType.includes('text/xml') && !contentType.includes('application/xml')) {
-            try { resp.body?.cancel(); } catch (_) {}
-            return null;
-        }
-
-        const buf = await resp.arrayBuffer();
-        if (buf.byteLength === 0 || buf.byteLength > 1024 * 1024) return null;
-
-        const bufNode = Buffer.from(buf);
-        const mime = normaliseFaviconMime(bufNode, contentType);
-        if (!mime) return null;
-
-        // Try to extract PNG from ICO if embedded
-        if (mime === 'image/x-icon') {
-            const extracted = extractBestIcoImage(bufNode);
-            if (extracted) return extracted;
-        }
-
-        return { buf: bufNode, mime };
     }
 
     return null; // too many redirects

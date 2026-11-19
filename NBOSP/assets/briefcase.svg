@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Briefcase icon">
+  <defs>
+    <!-- 3-stop vertical rose-pink gradient matching incoming hue -->
+    <linearGradient id="bf-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbcfe8"/>
+      <stop offset="0.55" stop-color="#f472b6"/>
+      <stop offset="1" stop-color="#be185d"/>
+    </linearGradient>
+
+    <!-- Lighter blush-pink top lid flap highlight gradient -->
+    <linearGradient id="bf-flap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fce7f3"/>
+      <stop offset="1" stop-color="#f9a8d4"/>
+    </linearGradient>
+
+    <!-- Warm amber gradient for foreground latch clasp & handle trim -->
+    <linearGradient id="bf-amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- ClipPath matching briefcase body silhouette so top lid flap aligns flush -->
+    <clipPath id="bf-clip">
+      <rect x="13" y="31" width="70" height="48" rx="9"/>
+    </clipPath>
+
+    <!-- Proportional NovaReg drop shadow -->
+    <filter id="bf-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Top Carrying Handle & Main Briefcase Body (outer filter, inner clipPath) -->
+  <g filter="url(#bf-ds)">
+    <!-- Handle arch (overlaps 2px into top of briefcase body to prevent seam) -->
+    <path d="M35 33 V22 A5 5 0 0 1 40 17 H56 A5 5 0 0 1 61 22 V33" fill="none" stroke="url(#bf-body)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Subtle inner handle shadow groove -->
+    <path d="M35 31 V22 A5 5 0 0 1 40 17 H56 A5 5 0 0 1 61 22 V31" fill="none" stroke="#831843" stroke-width="1.4" opacity="0.28"/>
+
+    <!-- Clipped briefcase body & upper lid flap -->
+    <g clip-path="url(#bf-clip)">
+      <!-- Main 3-stop rose-pink case body -->
+      <rect x="13" y="31" width="70" height="48" rx="9" fill="url(#bf-body)"/>
+
+      <!-- Lighter blush-pink top lid flap & recessed seam -->
+      <path d="M13 31 H83 V46.5 Q48 51.5 13 46.5 Z" fill="url(#bf-flap)"/>
+      <path d="M13 46.5 Q48 51.5 83 46.5" fill="none" stroke="#831843" stroke-width="2" opacity="0.34"/>
+    </g>
+
+    <!-- Crisp top-edge specular highlight -->
+    <path d="M22 31.8 H74" fill="none" stroke="#fff1f2" stroke-width="1.4" stroke-linecap="round" opacity="0.7"/>
+  </g>
+
+  <!-- Warm amber foreground center clasp buckle with secondary elevation -->
+  <g filter="url(#bf-ds)">
+    <rect x="41.5" y="43.5" width="13" height="11" rx="3.2" fill="url(#bf-amber)"/>
+    <!-- Recessed keyhole/latch detail inside buckle -->
+    <rect x="46.2" y="46.5" width="3.6" height="5" rx="1.8" fill="#78350f" opacity="0.35"/>
+  </g>
+</svg>

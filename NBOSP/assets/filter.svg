@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Filter icon">
+  <defs>
+    <linearGradient id="fl-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fca5a5"/>
+      <stop offset="0.55" stop-color="#ef4444"/>
+      <stop offset="1" stop-color="#b91c1c"/>
+    </linearGradient>
+    <linearGradient id="fl-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fee2e2"/>
+      <stop offset="1" stop-color="#fca5a5"/>
+    </linearGradient>
+    <linearGradient id="fl-amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="fl-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="fl-clip">
+      <path d="M16 21 H80 L55.5 49 V72 L40.5 80 V49 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- red funnel body -->
+  <g filter="url(#fl-ds)">
+    <path d="M16 21 H80 L55.5 49 V72 L40.5 80 V49 Z" fill="url(#fl-body)" stroke="url(#fl-body)" stroke-width="2.2" stroke-linejoin="round"/>
+    <g clip-path="url(#fl-clip)">
+      <!-- upper bowl highlight -->
+      <rect x="15" y="20" width="66" height="14" fill="url(#fl-top)" opacity="0.5"/>
+      <!-- recessed neck & spout grooves -->
+      <line x1="36" y1="49" x2="60" y2="49" stroke="#7f1d1d" stroke-width="2" opacity="0.35"/>
+      <line x1="36" y1="56" x2="60" y2="56" stroke="#7f1d1d" stroke-width="2" opacity="0.35"/>
+    </g>
+  </g>
+
+  <!-- foreground warm amber top funnel rim -->
+  <g filter="url(#fl-ds)">
+    <rect x="13" y="16" width="70" height="7" rx="3.5" fill="url(#fl-amber)"/>
+  </g>
+</svg>

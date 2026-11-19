@@ -567,26 +567,22 @@ const AppPackage = (() => {
    */
   async function closeRunningAppInstances(appId) {
     let hadWindows = false;
-    try {
-      if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
-        const openWindowIds = [];
-        for (const [wid, wstate] of OS.windows) {
-          if (wstate && wstate.appId === appId) openWindowIds.push(wid);
-        }
-        hadWindows = openWindowIds.length > 0;
-        await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid, { forceKill: true })));
+    if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+      const openWindowIds = [];
+      for (const [wid, wstate] of OS.windows) {
+        if (wstate && wstate.appId === appId) openWindowIds.push(wid);
       }
-    } catch (_) { /* best-effort shutdown */ }
-    try {
-      if (typeof AppSandbox !== 'undefined' && AppSandbox.getAllSandboxes) {
-        for (const sandbox of AppSandbox.getAllSandboxes()) {
-          if (sandbox && sandbox.appId === appId && sandbox.backgrounded) {
-            AppSandbox.terminateBackground(sandbox.sandboxId);
-            if (typeof Notify !== 'undefined' && Notify.unpin) Notify.unpin(`pin_bg_${appId}`);
-          }
+      hadWindows = openWindowIds.length > 0;
+      await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid, { forceKill: true })));
+    }
+    if (typeof AppSandbox !== 'undefined' && AppSandbox.getAllSandboxes) {
+      for (const sandbox of AppSandbox.getAllSandboxes()) {
+        if (sandbox && sandbox.appId === appId && sandbox.backgrounded) {
+          await AppSandbox.terminateBackground(sandbox.sandboxId);
+          if (typeof Notify !== 'undefined' && Notify.unpin) Notify.unpin(`pin_bg_${appId}`);
         }
       }
-    } catch (_) { /* best-effort shutdown */ }
+    }
     return hadWindows;
   }
 
@@ -732,34 +728,69 @@ const AppPackage = (() => {
     const registered = (typeof AppRegistry !== 'undefined') &&
       AppRegistry?.registerApp(appConfig, { force: !!options.force });
 
-    if (registered && typeof window.NovaAppPackageStore !== 'undefined' && window.NovaAppPackageStore.installApp) {
-      try {
-        await window.NovaAppPackageStore.installApp({
-          novabyte_app: pkg.novabyte_app,
-          compiled_at: pkg.compiled_at,
-          id: appConfig.id,
-          name: appConfig.name,
-          version: appConfig.version,
-          entry: appConfig.entry,
-          icon: appConfig.icon,
-          description: appConfig.description || '',
-          category: appConfig.category || 'other',
-          permissions: appConfig.permissions || [],
-          optionalPermissions: appConfig.optionalPermissions || [],
-          files: appConfig.files || {},
-          signature: appConfig.signature,
-          verified,
-          signer,
-          system: appConfig.system,
-          source: appConfig.source,
-          installedDate: appConfig.installedDate,
-          manifest: pkg.manifest,
-          signing: pkg.signing,
-          integrity: pkg.integrity,
-        });
-      } catch (e) {
-        console.warn('[AppPackage] Failed to persist installed app to NovaAppPackageStore:', e);
+    if (!registered) {
+      throw new Error(`AppRegistry could not register ${appConfig.id}`);
+    }
+
+    const packageStore = window.NovaAppPackageStore;
+    if (!packageStore || typeof packageStore.installApp !== 'function') {
+      AppRegistry.unregisterApp(appConfig.id);
+      throw new Error('NovaAppPackageStore is unavailable; the app was not persisted');
+    }
+
+    try {
+      await packageStore.installApp({
+        novabyte_app: pkg.novabyte_app,
+        compiled_at: pkg.compiled_at,
+        id: appConfig.id,
+        name: appConfig.name,
+        version: appConfig.version,
+        entry: appConfig.entry,
+        icon: appConfig.icon,
+        description: appConfig.description || '',
+        category: appConfig.category || 'other',
+        permissions: appConfig.permissions || [],
+        optionalPermissions: appConfig.optionalPermissions || [],
+        files: appConfig.files || {},
+        signature: appConfig.signature,
+        verified,
+        signer,
+        system: appConfig.system,
+        source: appConfig.source,
+        installedDate: appConfig.installedDate,
+        manifest: pkg.manifest,
+        signing: pkg.signing,
+        integrity: pkg.integrity,
+      });
+    } catch (error) {
+      console.error('[AppPackage] Failed to persist installed app to NovaAppPackageStore:', error);
+      let rollbackError = null;
+      if (existing) {
+        try {
+          if (!existing.files || typeof existing.files !== 'object') {
+            throw new Error('The previous package contents are unavailable for rollback');
+          }
+          await packageStore.installApp(existing);
+          if (!AppRegistry.registerApp(existing, { force: true })) {
+            throw new Error('The previous app registration could not be restored');
+          }
+        } catch (rollbackFailure) {
+          rollbackError = rollbackFailure;
+          AppRegistry.unregisterApp(appConfig.id);
+        }
+      } else {
+        AppRegistry.unregisterApp(appConfig.id);
+        try {
+          await packageStore.removeApp(appConfig.id, { updateRegistry: false });
+        } catch (cleanupError) {
+          rollbackError = cleanupError;
+        }
       }
+
+      const message = rollbackError
+        ? `Failed to persist ${appConfig.id}; rollback also failed: ${rollbackError.message}`
+        : `Failed to persist ${appConfig.id}`;
+      throw new Error(message, { cause: error });
     }
 
     if (typeof EventLog !== 'undefined') {

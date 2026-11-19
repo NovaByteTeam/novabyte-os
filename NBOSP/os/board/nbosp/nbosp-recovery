@@ -25,7 +25,7 @@ TMP=$(mktemp -d /tmp/nbosp-recovery.XXXXXX) || { echo "recovery: mktemp failed" 
 # Stash for machine-secret files while a backup runs (see do_backup) —
 # kept in /run (tmpfs, survives a crash, cleared on reboot) so a SIGKILL
 # mid-backup can at worst lose auto-regenerable material, never user data.
-STASH=/run/nbosp-recovery-stash.$$
+STASH=
 
 mkdir -p "$MNT"
 
@@ -60,6 +60,13 @@ ask() {
 
 pause() { ask "Press Enter to continue..." >/dev/null; }
 
+profile_paths_safe() {
+  [ ! -L "$HOME_DIR" ] &&
+    [ ! -L "$HOME_DIR/.config" ] &&
+    [ ! -L "$PROFILE" ] &&
+    [ ! -L "$PROFILE/runtime" ]
+}
+
 # confirm_word WORD PROMPT: destructive actions need the word typed out.
 confirm_word() {
   ask "$2 Type $1 to confirm: " || return 1
@@ -78,26 +85,40 @@ confirm_word() {
 # even a worst-case crash mid-stash costs nothing the machine cannot
 # rebuild. Account data (runtime/data/users.db) stays IN the backup.
 stash_runtime_secrets() {
+  profile_paths_safe || return 1
   [ -d "$PROFILE/runtime" ] || return 0
-  mkdir -p "$STASH" 2>/dev/null || return 1
+  STASH=$(mktemp -d /run/nbosp-recovery-stash.XXXXXX) || return 1
+  chmod 0700 "$STASH" || { rmdir "$STASH"; STASH=; return 1; }
   for f in "$PROFILE/runtime/.env" \
            "$PROFILE/runtime/ca.key" \
            "$PROFILE/runtime/ca.crt" \
            "$PROFILE/runtime/ca.trusted" \
            "$PROFILE/runtime/cert.key" \
            "$PROFILE/runtime/cert.crt"; do
-    [ -e "$f" ] && mv "$f" "$STASH/"
+    [ -e "$f" ] || continue
+    if ! mv "$f" "$STASH/"; then
+      unstash_runtime_secrets
+      return 1
+    fi
   done
   return 0
 }
 
 unstash_runtime_secrets() {
-  [ -d "$STASH" ] || return 0
-  [ -d "$PROFILE/runtime" ] || mkdir -p "$PROFILE/runtime"
+  [ -n "$STASH" ] && [ -d "$STASH" ] || return 0
+  profile_paths_safe || return 1
+  [ -d "$PROFILE/runtime" ] || mkdir -p "$PROFILE/runtime" || return 1
+  failed=0
   for f in "$STASH"/* "$STASH"/.env; do
-    [ -e "$f" ] && mv "$f" "$PROFILE/runtime/"
+    [ -e "$f" ] || continue
+    if ! mv "$f" "$PROFILE/runtime/"; then
+      failed=1
+    fi
   done
-  rmdir "$STASH" 2>/dev/null
+  [ "$failed" -eq 0 ] || return 1
+  rmdir "$STASH" 2>/dev/null || return 1
+  STASH=
+  return 0
 }
 
 # ── kiosk launch ───────────────────────────────────────────────────────
@@ -116,6 +137,8 @@ launch_kiosk() {
 
 # ── actions ────────────────────────────────────────────────────────────
 do_safe_mode() {
+  profile_paths_safe || { err "Refusing to write through a symlinked user profile."; pause; return; }
+  [ ! -L "$PROFILE/safe-mode" ] || { err "Refusing to write through a symlinked safe-mode flag."; pause; return; }
   mkdir -p "$PROFILE"
   : > "$PROFILE/safe-mode"
   chown nbosp:nbosp "$HOME_DIR/.config" "$PROFILE" "$PROFILE/safe-mode" 2>/dev/null
@@ -125,6 +148,12 @@ do_safe_mode() {
 }
 
 do_clear_cache() {
+  profile_paths_safe || { err "Refusing to clear caches through a symlinked user profile."; pause; return; }
+  if [ -L "$PROFILE/Default" ] || [ -L "$PROFILE/Default/Service Worker" ]; then
+    err "Refusing to clear caches through a symlinked browser profile directory."
+    pause
+    return
+  fi
   say "Clearing browser caches and temp data..."
   for d in \
     "$PROFILE/Default/Cache" \
@@ -143,6 +172,7 @@ do_clear_cache() {
 }
 
 do_reset_settings() {
+  profile_paths_safe || { err "Refusing to reset settings through a symlinked user profile."; pause; return; }
   warn "This resets NovaByte settings and keyboard layout to defaults."
   warn "Your files and installed apps are kept."
   confirm_word RESET "Reset settings?" || { say "Cancelled."; pause; return; }
@@ -210,16 +240,37 @@ do_backup() {
   # entire home directory to any attached drive.
   confirm_word BACKUP "Write the backup to $DEV?" || { say "Cancelled."; release_device; pause; return; }
   out="$DEST/nbosp-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+  if [ -e "$out" ] || [ -L "$out" ]; then
+    out="$DEST/nbosp-backup-$(date +%Y%m%d-%H%M%S)-$$.tar.gz"
+  fi
+  if [ -e "$out" ] || [ -L "$out" ]; then
+    err "A backup with the generated name already exists."
+    release_device; pause; return
+  fi
+  if ! profile_paths_safe; then
+    err "The profile contains a symlinked path. Refusing to back it up."
+    release_device; pause; return
+  fi
+  temp_out=$(mktemp "$DEST/.nbosp-backup.XXXXXX") || {
+    err "Could not safely create a temporary backup file on the selected drive."
+    release_device; pause; return
+  }
   say "Writing $out ..."
-  stash_runtime_secrets || { err "Could not prepare backup (secret stash failed)."; release_device; pause; return; }
-  if tar -czf "$out" -C / home/nbosp 2>"$TMP/tarerr"; then
+  stash_runtime_secrets || {
+    rm -f "$temp_out"
+    err "Could not prepare backup (secret stash failed)."
+    release_device; pause; return
+  }
+  if tar -czf "$temp_out" -C / home/nbosp 2>"$TMP/tarerr" && mv "$temp_out" "$out"; then
     sync
     ok "Backup complete: $(basename "$out") ($(du -h "$out" | awk '{print $1}'))"
   else
     err "Backup failed: $(tail -n 3 "$TMP/tarerr")"
-    rm -f "$out"
+    rm -f "$temp_out"
   fi
-  unstash_runtime_secrets
+  if ! unstash_runtime_secrets; then
+    err "Could not restore machine secrets from the temporary backup stash."
+  fi
   release_device
   pause
 }
@@ -254,15 +305,65 @@ do_restore() {
     err "Archive contains paths outside home/nbosp. Refusing to restore it."
     release_device; pause; return
   fi
+  if [ ! -s "$TMP/list" ] || ! grep -Eq '^home/nbosp/?$' "$TMP/list"; then
+    err "Archive does not contain a home/nbosp profile."
+    release_device; pause; return
+  fi
+  if ! tar -tvzf "$file" > "$TMP/verbose" 2>/dev/null ||
+      ! awk 'substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" { invalid = 1 } END { exit invalid }' "$TMP/verbose"; then
+    err "Archive contains links or special files. Refusing to restore it."
+    release_device; pause; return
+  fi
 
   confirm_word RESTORE "Replace /home/nbosp with this backup?" || { say "Cancelled."; release_device; pause; return; }
-  find "$HOME_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
-  if tar -xzf "$file" -C /; then
-    chown -R nbosp:nbosp "$HOME_DIR"
-    sync
-    ok "Restore complete."
+  if ! profile_paths_safe; then
+    err "The current profile contains a symlinked path. Refusing to replace it."
+    release_device; pause; return
+  fi
+  restore_stage=$(mktemp -d /home/.nbosp-restore.XXXXXX) || {
+    err "Could not create a staging directory for the restore."
+    release_device; pause; return
+  }
+  if ! tar -xzf "$file" -C "$restore_stage" ||
+      [ ! -d "$restore_stage/home/nbosp" ] ||
+      [ -L "$restore_stage/home" ] ||
+      [ -L "$restore_stage/home/nbosp" ]; then
+    rm -rf "$restore_stage"
+    err "Restore archive could not be safely staged. The current profile was not changed."
+    release_device; pause; return
+  fi
+
+  old_profile="${restore_stage}.old"
+  if ! mv "$HOME_DIR" "$old_profile"; then
+    rm -rf "$restore_stage"
+    err "Could not move the current profile aside."
+    release_device; pause; return
+  fi
+  if mv "$restore_stage/home/nbosp" "$HOME_DIR"; then
+    if chown -R nbosp:nbosp "$HOME_DIR"; then
+      rm -rf "$old_profile" "$restore_stage"
+      sync
+      ok "Restore complete."
+    else
+      failed_profile="${restore_stage}.failed"
+      if mv "$HOME_DIR" "$failed_profile" && mv "$old_profile" "$HOME_DIR"; then
+        rm -rf "$failed_profile"
+        err "Restore ownership failed. The previous profile was restored."
+      else
+        if [ ! -e "$HOME_DIR" ] && [ -d "$old_profile" ]; then
+          mv "$old_profile" "$HOME_DIR"
+        fi
+        err "Restore ownership failed; profile recovery requires attention under /home."
+      fi
+      rm -rf "$restore_stage"
+    fi
   else
-    err "Restore failed part-way. The profile may be incomplete; restore again or factory reset."
+    if ! mv "$old_profile" "$HOME_DIR"; then
+      err "Restore failed and the previous profile could not be put back at $HOME_DIR."
+    else
+      err "Restore failed. The previous profile was restored."
+    fi
+    rm -rf "$restore_stage"
   fi
   release_device
   pause
@@ -335,6 +436,10 @@ do_factory_reset() {
   say "installed apps, app data and the browser profile. The system itself"
   say "(/opt/nbosp) is kept; nothing is repartitioned or reinstalled."
   confirm_word ERASE "Erase all user data?" || { say "Cancelled."; pause; return; }
+  if ! profile_paths_safe; then
+    err "The profile contains a symlinked path. Refusing to erase it."
+    pause; return
+  fi
   find "$HOME_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
   sync
   ok "User data erased. Restarting..."

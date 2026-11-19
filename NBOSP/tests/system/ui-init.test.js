@@ -18,9 +18,9 @@ const TRAY_HTML = `<!doctype html>
 <html>
   <head><title>shell</title></head>
   <body>
-    <img id="tray-volume-img" src="/assets/icons8-sound-94.png" alt="vol">
-    <img id="tray-wifi-img" src="/assets/icons8-wi-fi-94.png" alt="wifi">
-    <img id="tray-bell-img" src="/assets/icons8-bell-94.png" alt="bell">
+    <img id="tray-volume-img" src="/assets/sound.svg" alt="vol">
+    <img id="tray-wifi-img" src="/assets/wi-fi.svg" alt="wifi">
+    <img id="tray-bell-img" src="/assets/bell.svg" alt="bell">
   </body>
 </html>`;
 

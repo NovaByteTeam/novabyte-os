@@ -3,7 +3,26 @@ set -eu
 
 DEVICE="${1:-}"
 case "$DEVICE" in
-        /dev/sd[a-z]|/dev/vd[a-z]|/dev/nvme[0-9]*n[0-9]*|/dev/mmcblk[0-9]*) ;;
+        /dev/sd[a-z]|/dev/vd[a-z]) ;;
+        /dev/nvme*)
+                identifier=${DEVICE#/dev/nvme}
+                case "$identifier" in
+                        *n*) controller=${identifier%%n*}; namespace=${identifier#*n} ;;
+                        *) echo "Unsupported install target: $DEVICE" >&2; exit 2 ;;
+                esac
+                case "$controller" in
+                        ''|*[!0-9]*) echo "Unsupported install target: $DEVICE" >&2; exit 2 ;;
+                esac
+                case "$namespace" in
+                        ''|*[!0-9]*) echo "Unsupported install target: $DEVICE" >&2; exit 2 ;;
+                esac
+                ;;
+        /dev/mmcblk*)
+                device_number=${DEVICE#/dev/mmcblk}
+                case "$device_number" in
+                        ''|*[!0-9]*) echo "Unsupported install target: $DEVICE" >&2; exit 2 ;;
+                esac
+                ;;
         *) echo "Unsupported install target: $DEVICE" >&2; exit 2 ;;
 esac
 [ "$(id -u)" -eq 0 ] || { echo "Installer must run as root" >&2; exit 1; }
@@ -171,16 +190,48 @@ gzip -dc "$ARCHIVE" | tar -xf - -C "$ROOT"
 echo "Removing installer from installed system"
 NOVAAPP="$ROOT/opt/nbosp/package.nw/js/apps/com.nbosp.install.novaapp"
 MANIFEST="$ROOT/opt/nbosp/package.nw/js/apps/novaapp-manifest.json"
-rm -f "$NOVAAPP"
 if [ -f "$MANIFEST" ]; then
-  # Remove the 5-line entry block for com.nbosp.install from the manifest.
-  # Format is consistent: {, "id", "file", "cacheKey", } — use grep to
-  # strip all lines that reference this app id or its .novaapp file.
-  grep -v '"com\.nbosp\.install"' "$MANIFEST" \
-    | grep -v '"js/apps/com\.nbosp\.install\.novaapp"' \
-    | grep -v '"cacheKey".*3358478e' \
-    > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST" || rm -f "$MANIFEST.tmp"
+        MANIFEST_TMP="$MANIFEST.tmp"
+        if ! awk '
+                BEGIN { print "["; first = 1 }
+                /^[[:space:]]*\[[[:space:]]*$/ || /^[[:space:]]*\][[:space:]]*$/ { next }
+                /^[[:space:]]*\{[[:space:]]*$/ { in_object = 1; object = $0; drop = 0; next }
+                in_object {
+                        if ($0 ~ /"id"[[:space:]]*:[[:space:]]*"com\.nbosp\.install"/) drop = 1
+                        if ($0 ~ /^[[:space:]]*}[[:space:]]*,?[[:space:]]*$/) {
+                                close_line = $0
+                                sub(/,[[:space:]]*$/, "", close_line)
+                                object = object "\n" close_line
+                                if (!drop) {
+                                        if (!first) print ","
+                                        print object
+                                        first = 0
+                                }
+                                in_object = 0
+                                object = ""
+                        } else {
+                                object = object "\n" $0
+                        }
+                        next
+                }
+                /^[[:space:]]*$/ { next }
+                { exit 1 }
+                END {
+                        if (in_object) exit 1
+                        print "]"
+                }
+        ' "$MANIFEST" > "$MANIFEST_TMP"; then
+                rm -f "$MANIFEST_TMP"
+                echo "Could not remove the installer from the app manifest" >&2
+                exit 1
+        fi
+        if ! mv "$MANIFEST_TMP" "$MANIFEST"; then
+                rm -f "$MANIFEST_TMP"
+                echo "Could not update the app manifest" >&2
+                exit 1
+        fi
 fi
+rm -f "$NOVAAPP"
 
 mkdir -p "$ROOT/boot/grub"
 cp "$MEDIA/boot/vmlinuz" "$ROOT/boot/vmlinuz"

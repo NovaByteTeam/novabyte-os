@@ -23,7 +23,7 @@ registerApp({
         return;
       }
       const image = createEl('img', {
-        src: '/assets/icons8-vpn-icon-94.png',
+        src: '/assets/vpn-icon.svg',
         width: String(size),
         height: String(size),
         alt: '',
@@ -3946,9 +3946,15 @@ registerApp({
       const { wrap: swWrap, rows: swRows } = mkSection(_t('settings.about.softwareInfo'), '\uD83D\uDCBF');
 
       const logoRow = createEl('div', { style: 'padding:18px 0 14px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border-subtle);' });
-      const logoBox = createEl('div', { style: 'width:54px;height:54px;border-radius:15px;background:linear-gradient(135deg,#3d8eff 0%,#7c5cfc 55%,#c45cff 100%);display:flex;align-items:center;justify-content:center;box-shadow:0 6px 22px rgba(88,166,255,0.32),0 2px 8px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.22);flex-shrink:0;' });
-      // Static SVG literal — no user input, safe to set via innerHTML
-      logoBox.innerHTML = '<svg viewBox="0 0 120 120" width="32" height="32" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="abt-g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#58a6ff"/><stop offset="100%" stop-color="#a371f7"/></linearGradient></defs><polygon points="60,5 110,30 110,85 60,115 10,85 10,30" fill="rgba(88,166,255,0.05)" stroke="url(#abt-g)" stroke-width="2.5" opacity="0.9"/><polygon points="60,15 100,35 100,80 60,105 20,80 20,35" fill="none" stroke="url(#abt-g)" stroke-width="1.5" opacity="0.38"/><polygon points="60,28 88,43 88,76 60,91 32,76 32,43" fill="rgba(163,113,247,0.05)" stroke="url(#abt-g)" stroke-width="1" opacity="0.3"/><text x="60" y="69" text-anchor="middle" fill="url(#abt-g)" font-family="system-ui,-apple-system,sans-serif" font-size="30" font-weight="700">NB</text></svg>';
+      const logoBox = createEl('div', { style: 'width:64px;height:64px;display:flex;align-items:center;justify-content:center;flex-shrink:0;' });
+      logoBox.appendChild(createEl('img', {
+        src: '/assets/icon.svg',
+        width: 64,
+        height: 64,
+        alt: '',
+        draggable: false,
+        style: 'display:block;object-fit:contain;',
+      }));
       const logoMeta = createEl('div');
       const lgTitle  = createEl('div', { style: 'font-size:17px;font-weight:800;background:linear-gradient(130deg,var(--text-primary) 25%,var(--accent) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px;line-height:1.15;', textContent: 'NovaByte' });
       const verBadge = createEl('div', { 'data-os-version': '', 'data-os-version-prefix': 'v', style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:20px;padding:2px 11px;font-size:11px;font-weight:700;color:var(--accent);margin-bottom:3px;', textContent: 'v' + OS.version });

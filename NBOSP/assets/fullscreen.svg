@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Fullscreen icon">
+  <defs>
+    <linearGradient id="fs-body" gradientUnits="userSpaceOnUse" x1="0" y1="12" x2="0" y2="84">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="0.55" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="fs-top" gradientUnits="userSpaceOnUse" x1="0" y1="12" x2="0" y2="28">
+      <stop offset="0" stop-color="#ede9fe"/>
+      <stop offset="1" stop-color="#c4b5fd"/>
+    </linearGradient>
+    <linearGradient id="fs-amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="fs-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="fs-brackets-clip">
+      <path d="M16 35 V20 A4 4 0 0 1 20 16 H35 M61 16 H76 A4 4 0 0 1 80 20 V35 M16 61 V76 A4 4 0 0 0 20 80 H35 M61 80 H76 A4 4 0 0 0 80 76 V61" fill="none" stroke="#000" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </clipPath>
+  </defs>
+
+  <!-- four purple fullscreen corner brackets -->
+  <g filter="url(#fs-ds)">
+    <path d="M16 35 V20 A4 4 0 0 1 20 16 H35 M61 16 H76 A4 4 0 0 1 80 20 V35 M16 61 V76 A4 4 0 0 0 20 80 H35 M61 80 H76 A4 4 0 0 0 80 76 V61" fill="none" stroke="url(#fs-body)" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- subtle inner corner bevel lines -->
+    <path d="M18.5 34 V20 A1.5 1.5 0 0 1 20 18.5 H34 M62 18.5 H76 A1.5 1.5 0 0 1 77.5 20 V34 M18.5 62 V76 A1.5 1.5 0 0 0 20 77.5 H34 M62 77.5 H76 A1.5 1.5 0 0 0 77.5 76 V62" fill="none" stroke="#4c1d95" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+  </g>
+
+  <!-- central warm amber focal viewport -->
+  <g filter="url(#fs-ds)">
+    <rect x="31" y="31" width="34" height="34" rx="7" fill="url(#fs-amber)"/>
+    <rect x="34" y="34" width="28" height="28" rx="4.5" fill="none" stroke="#92400e" stroke-width="1.6" opacity="0.32"/>
+  </g>
+</svg>

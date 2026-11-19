@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Save icon">
+  <defs>
+    <!-- Primary 3-stop sky-blue gradient matching your NovaReg palette -->
+    <linearGradient id="sv-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="0.55" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+
+    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    <linearGradient id="sv-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bae6fd"/>
+      <stop offset="1" stop-color="#7dd3fc"/>
+    </linearGradient>
+
+    <!-- Warm amber accent gradient for the sliding metal shutter -->
+    <linearGradient id="sv-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- Proportional drop shadow for 96x96 viewBox -->
+    <filter id="sv-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Borderless floppy disk with soft drop shadow -->
+  <g filter="url(#sv-ds)">
+    <!-- Main floppy cartridge body with clean rounded corners and chamfered top-right corner -->
+    <path d="M21 13h47l11 11v55a5 5 0 0 1-5 5H22a5 5 0 0 1-5-5V18a5 5 0 0 1 4-5z" fill="url(#sv-body)"/>
+
+    <!-- Recessed bottom label card (lighter sky-blue highlight) -->
+    <rect x="27" y="50" width="42" height="28" rx="4" fill="url(#sv-top)"/>
+
+    <!-- Subtle translucent ruled lines on the label card (mirroring cylinder rings) -->
+    <path d="M33 58.5h30M33 65.5h30M33 72.5h20" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="round" opacity="0.35"/>
+
+    <!-- Floating warm amber sliding shutter at the top with secondary drop shadow -->
+    <g filter="url(#sv-ds)">
+      <path d="M30 13h35v21a4 4 0 0 1-4 4H34a4 4 0 0 1-4-4V13z" fill="url(#sv-accent)"/>
+      <!-- Shutter write-protect slot cutout -->
+      <rect x="52" y="18" width="6.5" height="14" rx="2" fill="#92400e" opacity="0.45"/>
+    </g>
+  </g>
+</svg>

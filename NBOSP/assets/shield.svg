@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Shield icon">
+  <defs>
+    <!-- Primary 3-stop vibrant pink gradient -->
+    <linearGradient id="shd-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f9a8d4"/>
+      <stop offset="0.55" stop-color="#ec4899"/>
+      <stop offset="1" stop-color="#be185d"/>
+    </linearGradient>
+
+    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    <linearGradient id="shd-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fce7f3"/>
+      <stop offset="1" stop-color="#f9a8d4"/>
+    </linearGradient>
+
+    <!-- Warm amber accent gradient for the floating checkmark -->
+    <linearGradient id="shd-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- Proportional drop shadow for 96x96 viewBox -->
+    <filter id="shd-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Borderless shield with soft drop shadow -->
+  <g filter="url(#shd-ds)">
+    <!-- Shield base -->
+    <path d="M48 11 79 23v23c0 19-12 31-31 40-19-9-31-21-31-40V23z" fill="url(#shd-body)"/>
+
+    <!-- Subtle inner shield bevel (mirroring the cylinder rim detail) -->
+    <path d="M48 16.5 73.5 26.5v19.5c0 16-9.8 26.2-25.5 34-15.7-7.8-25.5-18-25.5-34V26.5z" fill="none" stroke="#831843" stroke-width="2" opacity="0.35"/>
+
+    <!-- Top-right glossy edge highlight -->
+    <path d="M48 18 72 27v14" fill="none" stroke="url(#shd-top)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+
+    <!-- Floating warm amber checkmark with secondary drop shadow -->
+    <g filter="url(#shd-ds)">
+      <path d="M33.5 47.5l10.5 10.5 20.5-22" fill="none" stroke="url(#shd-accent)" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>

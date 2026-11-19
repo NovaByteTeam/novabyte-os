@@ -156,13 +156,6 @@ function terminalStubs(overrides = {}) {
       OS: makeOS(),
       Notify: makeNotify(),
       ContextMenu: makeContextMenu(),
-      __novaUnrestrictedPackage: {
-        files: {
-          'icons/icons8-copy-94.png': Buffer.from('copy-icon').toString('base64'),
-          'icons/icons8-document-94.png': Buffer.from('paste-icon').toString('base64'),
-          'icons/icons8-trash-94.png': Buffer.from('trash-icon').toString('base64'),
-        },
-      },
       ...(overrides.extra ?? {}),
     },
   };
@@ -452,7 +445,7 @@ describe('Terminal app (js/apps/terminal)', () => {
     expect(y).toBe(10);
     // no selection → no Copy item; Paste icon comes from the package files
     expect(items.map((i) => i.label)).toEqual(['Paste', 'Clear', undefined, 'Select All']);
-    expect(items[0].icon).toBe('data:image/png;base64,' + Buffer.from('paste-icon').toString('base64'));
+    expect(items[0].icon).toBe('document');
 
     items[1].action(); // Clear
     expect(t.output.children).toHaveLength(0);

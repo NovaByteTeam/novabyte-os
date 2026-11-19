@@ -491,6 +491,10 @@ const WM = window.WM = (() => {
       const { forceKill = false } = options;
       const state = OS.windows.get(id);
       if (!state) return Promise.resolve();
+      if (state._closePromise) {
+        if (forceKill) state._forceKill = true;
+        return state._closePromise;
+      }
 
       state.element.classList.add('closing');
 
@@ -499,10 +503,12 @@ const WM = window.WM = (() => {
       let closed = false;
       let resolveClosed;
       const closedPromise = new Promise(res => { resolveClosed = res; });
+      state._closePromise = closedPromise;
       const finishClose = () => {
         if (closed) return;
         closed = true;
         clearTimeout(fallback);
+        state.element.removeEventListener('animationend', onAnimationEnd);
 
         // system:background:live keep-alive check. This only ever keeps the
         // *sandbox* (the webview + its process) alive — the window chrome,
@@ -528,7 +534,7 @@ const WM = window.WM = (() => {
         let keptAlive = false;
         let isFirstBackground = false;
         try {
-          if (!forceKill &&
+          if (!forceKill && !state._forceKill &&
               typeof AppPermissionManager !== 'undefined' &&
               typeof AppSandbox !== 'undefined' &&
               AppPermissionManager.isGranted('system:background:live', state.appId)) {
@@ -597,8 +603,11 @@ const WM = window.WM = (() => {
         resolveClosed();
       };
 
+      const onAnimationEnd = (event) => {
+        if (event.target === state.element && event.animationName === 'windowClose') finishClose();
+      };
       const fallback = setTimeout(finishClose, 250);
-      state.element.addEventListener('animationend', finishClose, { once: true });
+      state.element.addEventListener('animationend', onAnimationEnd);
       return closedPromise;
     },
 
@@ -913,7 +922,7 @@ const WM = window.WM = (() => {
       const onPointerMove = throttleRAF(rawMove);
 
       const onPointerDown = (e) => {
-        if (e.target.closest('.window-controls')) return;
+        if (e.button !== 0 || e.isPrimary === false || e.target.closest('.window-controls')) return;
 
         if (state.maximized) {
           state.maximized = false;
@@ -1046,7 +1055,7 @@ const WM = window.WM = (() => {
       const onPointerMove = throttleRAF(rawMove);
 
       const onPointerDown = (e) => {
-        if (state.maximized) return;
+        if (e.button !== 0 || e.isPrimary === false || state.maximized) return;
         resizing = true;
         dir = '';
         for (const d of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {

@@ -2,11 +2,16 @@
 
 const express        = require('express');
 const ServerEventLog = require('./server-event-log');
+const { isTrustedSystemAppRequest } = require('../rate-limit-auth');
 
 function setupEventsRoutes(app) {
   const router = express.Router();
 
   router.get('/stream', (req, res) => {
+    if (!isTrustedSystemAppRequest(req)) {
+      return res.status(403).json({ error: 'System trust required' });
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
@@ -42,7 +47,6 @@ function setupEventsRoutes(app) {
       unsubscribe();
     }
 
-    req.on('close', cleanup);
     res.on('close', cleanup);
     res.on('finish', cleanup);
     res.on('error', cleanup);

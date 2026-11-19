@@ -1,6 +1,5 @@
 (function () {
   const BROWSER_APP_ID = 'com.nbosp.browser';
-  const packageFiles = window.__novaUnrestrictedPackage?.files || {};
   const osSvgIcon = window.svgIcon;
 
   function svgIcon(name, size = 16) {
@@ -12,13 +11,7 @@
       throw new Error('NovaByte icon renderer is unavailable');
     }
 
-    return osSvgIcon(name, size).replace(/src="\/assets\/([^"]+)"/g, (attribute, fileName) => {
-      const encoded = packageFiles[`icons/${fileName}`];
-      if (!encoded) {
-        throw new Error(`Browser package is missing icon asset icons/${fileName}`);
-      }
-      return `src="data:image/png;base64,${encoded}"`;
-    });
+    return osSvgIcon(name, size);
   }
 
 registerApp({

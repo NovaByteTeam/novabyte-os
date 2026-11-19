@@ -606,6 +606,11 @@ const AppRegistry = (() => {
     if (app.system === true && options.force !== true) {
       throw new Error(`System app ${appId} cannot be uninstalled`);
     }
+    if (typeof AppPackage === 'undefined' ||
+        typeof AppPackage.closeRunningAppInstances !== 'function') {
+      throw new Error('Cannot safely uninstall an app while instance shutdown is unavailable');
+    }
+    await AppPackage.closeRunningAppInstances(appId);
     if (typeof window.NovaAppPackageStore?.removeApp === 'function') {
       const removed = await window.NovaAppPackageStore.removeApp(app, {
         force: options.force === true,

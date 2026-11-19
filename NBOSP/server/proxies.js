@@ -3,6 +3,7 @@ const { isTrustedSystemAppRequest, getTrustedAppProxyId } = require('./rate-limi
 const dns = require('dns');
 const fs = require('fs');
 const net = require('net');
+const { extractMappedV4 } = require('./ip-address');
 const ServerEventLog = require('./core/server-event-log');
 
 // ── Frame-Embed Check Proxy ────────────────────────────────────────────────
@@ -281,8 +282,7 @@ function _vpnRouteForRequest(requestedAppId, trustedAppId, activeRoute) {
 // IPv4-mapped IPv6 (::ffff:a.b.c.d) — pull out the embedded v4 address so it
 // hits the same range checks as a plain v4 literal.
 function _extractMappedV4(ip) {
-    const m = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(ip);
-    return m ? m[1] : null;
+    return extractMappedV4(ip);
 }
 
 function _isPrivateIpv4(ip) {
@@ -666,6 +666,7 @@ function setupAppNetworkProxy(app) {
         let currentUrl = urlObj.toString();
         const visitedUrls = new Set();
         let resp;
+        let responseTimer = null;
 
         for (let hop = 0; hop <= MAX_PROXY_REDIRECTS; hop++) {
             if (visitedUrls.has(currentUrl)) {
@@ -734,16 +735,15 @@ function setupAppNetworkProxy(app) {
                 // developer's console) can tell a dead IPv6 route from a TLS
                 // failure from a timeout without server-side log access.
                 return res.status(502).json({ error: `Network error: ${err.message}`, code: errCode });
-            } finally {
-                clearTimeout(timer);
             }
 
             if (hopResp.status >= 300 && hopResp.status < 400) {
+                clearTimeout(timer);
                 const loc = hopResp.headers.get('location');
                 // Cancel hopResp's body before chasing the redirect — this response is
                 // about to be discarded, not the accumulated resp from a prior hop
                 // (resp is still unset on hop 0, which is why this has to check hopResp).
-                try { hopResp.body?.cancel(); } catch (_) {}
+                try { await hopResp.body?.cancel(); } catch (_) {}
                 if (!loc) return res.status(502).json({ error: 'Redirect with no Location header' });
                 try { currentUrl = new URL(loc, currentUrl).toString(); }
                 catch (_) { return res.status(400).json({ error: 'Invalid redirect target' }); }
@@ -751,6 +751,7 @@ function setupAppNetworkProxy(app) {
             }
 
             resp = hopResp;
+            responseTimer = timer;
             break;
         }
 
@@ -762,19 +763,27 @@ function setupAppNetworkProxy(app) {
         const chunks = [];
         let total = 0;
         try {
-            const reader = resp.body.getReader();
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                total += value.length;
-                if (total > APP_PROXY_SIZE_CAP) {
-                    reader.cancel();
-                    return res.status(502).json({ error: 'Response too large' });
+            if (resp.body) {
+                const reader = resp.body.getReader();
+                try {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        total += value.byteLength;
+                        if (total > APP_PROXY_SIZE_CAP) {
+                            await reader.cancel();
+                            return res.status(502).json({ error: 'Response too large' });
+                        }
+                        chunks.push(value);
+                    }
+                } finally {
+                    reader.releaseLock();
                 }
-                chunks.push(value);
             }
         } catch (err) {
             return res.status(502).json({ error: `Read error: ${err.message}` });
+        } finally {
+            clearTimeout(responseTimer);
         }
 
         const bodyBuffer = Buffer.concat(chunks.map(c => Buffer.from(c)));

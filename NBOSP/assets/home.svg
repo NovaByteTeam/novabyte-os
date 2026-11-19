@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Home icon">
+  <defs>
+    <linearGradient id="hm-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f9a8d4"/>
+      <stop offset="0.55" stop-color="#ec4899"/>
+      <stop offset="1" stop-color="#be185d"/>
+    </linearGradient>
+    <linearGradient id="hm-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fce7f3"/>
+      <stop offset="1" stop-color="#f9a8d4"/>
+    </linearGradient>
+    <linearGradient id="hm-amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="hm-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="hm-clip">
+      <path d="M16 42 L48 16 L80 42 V76 A6 6 0 0 1 74 82 H22 A6 6 0 0 1 16 76 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- pink house body -->
+  <g filter="url(#hm-ds)">
+    <path d="M16 42 L48 16 L80 42 V76 A6 6 0 0 1 74 82 H22 A6 6 0 0 1 16 76 Z" fill="url(#hm-body)" stroke="url(#hm-body)" stroke-width="2" stroke-linejoin="round"/>
+    <g clip-path="url(#hm-clip)">
+      <!-- upper gable highlight -->
+      <polygon points="15,15 81,15 81,38 15,38" fill="url(#hm-top)" opacity="0.55"/>
+      <!-- recessed eave shadow band -->
+      <rect x="15" y="42" width="66" height="4" fill="#831843" opacity="0.35"/>
+    </g>
+  </g>
+
+  <!-- foreground warm amber roof & front door -->
+  <g filter="url(#hm-ds)">
+    <path d="M13 42.5 L48 14.5 L83 42.5" fill="none" stroke="url(#hm-amber)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M40 82 V60 A8 8 0 0 1 56 60 V82 Z" fill="url(#hm-amber)"/>
+    <circle cx="52" cy="68" r="1.4" fill="#92400e" opacity="0.55"/>
+  </g>
+</svg>

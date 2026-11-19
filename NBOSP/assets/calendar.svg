@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Calendar icon">
+  <defs>
+    <!-- 3-stop vertical cyan-teal gradient matching incoming hue -->
+    <linearGradient id="ca-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a5f3fc"/>
+      <stop offset="0.55" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#0e7490"/>
+    </linearGradient>
+
+    <!-- Lighter cyan-ice top header band gradient -->
+    <linearGradient id="ca-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cffafe"/>
+      <stop offset="1" stop-color="#67e8f9"/>
+    </linearGradient>
+
+    <!-- Warm amber gradient for foreground binder rings & featured date tile -->
+    <linearGradient id="ca-amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- ClipPath matching calendar card silhouette so top header strip aligns flush -->
+    <clipPath id="ca-clip">
+      <rect x="14" y="21" width="68" height="61" rx="9"/>
+    </clipPath>
+
+    <!-- Proportional NovaReg drop shadow -->
+    <filter id="ca-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Main Calendar Card Body (outer filter, inner clipPath) -->
+  <g filter="url(#ca-ds)">
+    <g clip-path="url(#ca-clip)">
+      <!-- Main 3-stop cyan-teal calendar card -->
+      <rect x="14" y="21" width="68" height="61" rx="9" fill="url(#ca-body)"/>
+
+      <!-- Lighter top header band & recessed divider groove -->
+      <rect x="14" y="21" width="68" height="17" fill="url(#ca-top)"/>
+      <rect x="14" y="37" width="68" height="2" fill="#164e63" opacity="0.28"/>
+
+      <!-- Recessed date grid tiles -->
+      <rect x="24" y="47" width="11" height="10" rx="3" fill="#164e63" opacity="0.32"/>
+      <rect x="42.5" y="47" width="11" height="10" rx="3" fill="#164e63" opacity="0.32"/>
+      <rect x="61" y="47" width="11" height="10" rx="3" fill="#164e63" opacity="0.32"/>
+      <rect x="24" y="63" width="11" height="10" rx="3" fill="#164e63" opacity="0.32"/>
+      <rect x="42.5" y="63" width="11" height="10" rx="3" fill="#164e63" opacity="0.32"/>
+    </g>
+
+    <!-- Crisp top-edge specular highlight -->
+    <path d="M23 21.8 H73" fill="none" stroke="#ecfeff" stroke-width="1.4" stroke-linecap="round" opacity="0.7"/>
+  </g>
+
+  <!-- Warm amber foreground binder rings & active date tile with secondary elevation -->
+  <g filter="url(#ca-ds)">
+    <!-- Left & right vertical binder rings -->
+    <rect x="26.5" y="14" width="6" height="14" rx="3" fill="url(#ca-amber)"/>
+    <rect x="63.5" y="14" width="6" height="14" rx="3" fill="url(#ca-amber)"/>
+
+    <!-- Highlighted active date tile (bottom-right slot) -->
+    <rect x="61" y="63" width="11" height="10" rx="3" fill="url(#ca-amber)"/>
+  </g>
+</svg>

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Picture icon">
+  <defs>
+    <linearGradient id="pic-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fca5a5"/>
+      <stop offset="0.55" stop-color="#ef4444"/>
+      <stop offset="1" stop-color="#b91c1c"/>
+    </linearGradient>
+    <linearGradient id="pic-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fee2e2"/>
+      <stop offset="1" stop-color="#fca5a5"/>
+    </linearGradient>
+    <linearGradient id="pic-amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="pic-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Main red photo frame & inner canvas -->
+  <g filter="url(#pic-ds)">
+    <!-- Borderless 3-stop red outer frame -->
+    <rect x="13" y="18" width="70" height="60" rx="10" fill="url(#pic-body)"/>
+
+    <!-- Recessed outer bezel groove -->
+    <rect x="17.5" y="22.5" width="61" height="51" rx="7" fill="none" stroke="#7f1d1d" stroke-width="1.5" opacity="0.38"/>
+
+    <!-- Light top highlight inner canvas -->
+    <rect x="20.5" y="25.5" width="55" height="45" rx="5" fill="url(#pic-top)"/>
+    <rect x="20.5" y="25.5" width="55" height="45" rx="5" fill="none" stroke="#991b1b" stroke-width="1.2" opacity="0.35"/>
+  </g>
+
+  <!-- Foreground warm amber sun & mountain landscape -->
+  <g filter="url(#pic-ds)" fill="url(#pic-amber)">
+    <!-- Sun -->
+    <circle cx="61.5" cy="36" r="6"/>
+
+    <!-- Level-baseline rounded mountain range -->
+    <path d="M23.5 64.2 L38 48.5 Q40 46.5 42 48.5 L51 58 L57.5 51.5 Q59.5 49.5 61.5 51.5 L72.5 64.2 Q73.8 66 71.5 66.5 L24.5 66.5 Q22.2 66 23.5 64.2 Z"/>
+  </g>
+</svg>

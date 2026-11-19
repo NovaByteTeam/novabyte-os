@@ -200,6 +200,17 @@ const Boot = {
     if (!linuxNative || migrateLegacyStorage) {
       OS.workers.fs = createWorker(FS_WORKER_CODE, 'fs');
       await OS.workers.fs.call('init');
+      const userScope = window.NovaUserScope;
+      const legacyOwnerUid = userScope?.enabled?.() ? userScope.legacyOwnerUid?.() : '';
+      if (legacyOwnerUid) {
+        const stamped = await OS.workers.fs.call('stampOwner', legacyOwnerUid);
+        if (!stamped || typeof stamped.stamped !== 'number') {
+          throw new Error('Legacy filesystem ownership migration returned an invalid result');
+        }
+        if (stamped.stamped > 0) {
+          console.info(`[BOOT] Stamped ${stamped.stamped} legacy filesystem rows to the owner`);
+        }
+      }
     }
     OS.workers.search = createWorker(SEARCH_WORKER_CODE, 'search');
     OS.workers.crypto = createWorker(CRYPTO_WORKER_CODE, 'crypto');
@@ -509,7 +520,9 @@ async function boot() {
 
   // 3. Attempt Tracking ────────────────────────────────────────────
   const priorAttempts = BootState.attempts();
-  const isSafeMode    = BootState.flag('safeMode') || consumeSafeModeFile();
+  const safeModeFlag = BootState.flag('safeMode');
+  const safeModeFile = consumeSafeModeFile();
+  const isSafeMode = safeModeFlag || safeModeFile;
 
   if (priorAttempts.length >= BOOT_THRESHOLD && !isSafeMode) {
     requestSystemRecovery('repeated_boot_failure');
@@ -845,17 +858,20 @@ async function startConfiguredHomeApp() {
       throw new Error('AppSandbox Home surface runtime is unavailable');
     } else {
       window.__NOVA_ACTIVE_HOME_APP_ID__ = selectedId;
-      root.replaceChildren();
+      const homeContainer = document.createElement('div');
+      homeContainer.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:10;';
+      root.replaceChildren(homeContainer);
       BootState.setHomeLaunchPending(selectedId);
       try {
         // launchRootApp resolves null on failure (after scheduling its own
         // reload), so a falsy result has to count as a failed start.
-        const launched = await launchWithTimeout(AppSandbox.launchHome(app, root), HOME_START_TIMEOUT_MS, `Home app ${selectedId}`);
+        const launched = await launchWithTimeout(AppSandbox.launchHome(app, homeContainer), HOME_START_TIMEOUT_MS, `Home app ${selectedId}`);
         if (!launched) throw new Error('launchHome returned no surface');
         BootState.clearHomeLaunchPending();
       } catch (error) {
         console.error(`[BOOT] Failed to start selected Home app "${selectedId}"; falling back to ${bundledLauncherId}:`, error);
         BootState.clearHomeLaunchPending();
+        homeContainer.remove();
         if (!isOneSessionHome || selectedId === savedHomeId) {
           DefaultApps.setDefault?.('home', null);
         }

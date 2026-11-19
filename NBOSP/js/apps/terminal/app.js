@@ -8,13 +8,6 @@
 
 // App bundle id used for the AppDirs runtime guard.
 const APP_BUNDLE_ID = 'com.nbosp.terminal';
-const SHELL_PACKAGE_FILES = window.__novaUnrestrictedPackage?.files || {};
-
-function shellPackagedIcon(fileName) {
-  const encoded = SHELL_PACKAGE_FILES[`icons/${fileName}`];
-  if (!encoded) throw new Error(`Terminal package is missing icon asset icons/${fileName}`);
-  return `data:image/png;base64,${encoded}`;
-}
 
 // Builtin command names. Shared between `help`, `which`, and tab completion.
 // Frozen so we can safely reuse one instance per tab without defensive copies.
@@ -1657,7 +1650,7 @@ registerApp({
       const items = [];
       if (sel) {
         items.push({
-          label: _t('apps.terminal.contextCopy'), icon: shellPackagedIcon('icons8-copy-94.png'),
+          label: _t('apps.terminal.contextCopy'), icon: 'copy',
           action() {
             const p = clipboardWrite(sel);
             if (p) p.then(
@@ -1669,7 +1662,7 @@ registerApp({
         items.push({ separator: true });
       }
       items.push({
-        label: _t('apps.terminal.contextPaste'), icon: shellPackagedIcon('icons8-document-94.png'),
+        label: _t('apps.terminal.contextPaste'), icon: 'document',
         action() {
           const p = clipboardRead();
           if (p) p.then(
@@ -1682,7 +1675,7 @@ registerApp({
         }
       });
       items.push({
-        label: _t('apps.terminal.contextClear'), icon: shellPackagedIcon('icons8-trash-94.png'),
+        label: _t('apps.terminal.contextClear'), icon: 'trash',
         action() {
           const t = tabs[activeTabIdx];
           if (t?.output) t.output.innerHTML = '';

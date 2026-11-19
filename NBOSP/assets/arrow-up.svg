@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Arrow Up icon">
+  <defs>
+    <linearGradient id="au-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#86efac"/>
+      <stop offset="0.55" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#15803d"/>
+    </linearGradient>
+    <linearGradient id="au-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dcfce7" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#86efac" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="au-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <clipPath id="au-clip">
+      <path d="M46.5 15.5 L20.5 41.5 Q18.5 43.5 21.3 43.5 H36 V79 Q36 81.5 38.5 81.5 H57.5 Q60 81.5 60 79 V43.5 H74.7 Q77.5 43.5 75.5 41.5 L49.5 15.5 Q48 14 46.5 15.5 Z"/>
+    </clipPath>
+    <filter id="au-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#au-ds)">
+    <g clip-path="url(#au-clip)">
+      <rect x="14" y="14" width="68" height="68" fill="url(#au-body)"/>
+      <path d="M48 14 L18 44 L20.5 44 L48 16.8 L75.5 44 L78 44 Z" fill="url(#au-top)"/>
+    </g>
+  </g>
+
+  <g filter="url(#au-ds)">
+    <rect x="45.5" y="34" width="5" height="33" rx="2.5" fill="url(#au-accent)"/>
+  </g>
+</svg>

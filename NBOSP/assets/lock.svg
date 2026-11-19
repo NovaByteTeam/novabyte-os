@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Lock icon">
+  <defs>
+    <linearGradient id="lk-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="0.55" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="lk-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ccfbf1"/>
+      <stop offset="1" stop-color="#5eead4"/>
+    </linearGradient>
+    <linearGradient id="lk-shackle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ccfbf1"/>
+      <stop offset="0.55" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="lk-keyhole" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="lk-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="lk-clip">
+      <rect x="18" y="41" width="60" height="42" rx="10"/>
+    </clipPath>
+  </defs>
+
+  <!-- shackle & padlock body -->
+  <g filter="url(#lk-ds)">
+    <!-- shackle tucked 3px inside the y=41 body -->
+    <path d="M31 44 V30 A17 17 0 0 1 65 30 V44" fill="none" stroke="url(#lk-shackle)" stroke-width="8.5" stroke-linecap="butt"/>
+    <path d="M31 39 V30 A17 17 0 0 1 65 30 V39" fill="none" stroke="#f0fdfa" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+
+    <!-- padlock body -->
+    <g clip-path="url(#lk-clip)">
+      <rect x="18" y="41" width="60" height="42" rx="10" fill="url(#lk-body)"/>
+      <!-- top highlight bevel -->
+      <rect x="18" y="41" width="60" height="8" fill="url(#lk-top)" opacity="0.55"/>
+      <!-- recessed horizontal grooves -->
+      <line x1="18" y1="71" x2="78" y2="71" stroke="#115e59" stroke-width="2" opacity="0.35"/>
+      <line x1="18" y1="76.5" x2="78" y2="76.5" stroke="#115e59" stroke-width="2" opacity="0.35"/>
+    </g>
+  </g>
+
+  <!-- unified single-path warm amber keyhole -->
+  <g filter="url(#lk-ds)">
+    <path d="M50.75 60.66 A5 5 0 1 0 45.25 60.66 V65.75 A2.75 2.75 0 0 0 50.75 65.75 Z" fill="url(#lk-keyhole)"/>
+  </g>
+</svg>

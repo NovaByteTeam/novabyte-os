@@ -933,7 +933,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     ]);
     vi.stubGlobal('svgIcon', icon => icon === 'settings'
       ? '<svg viewBox="0 0 24 24"><path d="M1 1"></path></svg>'
-      : '<img src="/assets/icons8-mail-94.png">');
+      : '<img src="/assets/mail.svg">');
 
     try {
       await AppSandbox._internal.handleAPICall(
@@ -952,7 +952,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(listed[0].icon).toBe('settings');
     expect(listed[0].iconUrl).toContain('data:image/svg+xml;charset=utf-8,');
     expect(decodeURIComponent(listed[0].iconUrl.split(',')[1])).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(listed[1].iconUrl).toBe('/assets/icons8-mail-94.png');
+    expect(listed[1].iconUrl).toBe('/assets/mail.svg');
     expect(listed[2].iconUrl).toBe('data:image/png;base64,aGVsbG8=');
     expect(listed[3].iconUrl).toBeNull();
   });

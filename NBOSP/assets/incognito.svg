@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Incognito icon">
+  <defs>
+    <linearGradient id="ic-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#86efac"/>
+      <stop offset="0.55" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#15803d"/>
+    </linearGradient>
+    <linearGradient id="ic-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dcfce7"/>
+      <stop offset="1" stop-color="#86efac"/>
+    </linearGradient>
+    <linearGradient id="ic-amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="ic-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="ic-crown-clip">
+      <path d="M27.5 18 H68.5 L75.5 45 H20.5 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- fedora hat crown & brim -->
+  <g filter="url(#ic-ds)">
+    <path d="M27.5 18 H68.5 L75.5 45 H20.5 Z" fill="url(#ic-body)" stroke="url(#ic-body)" stroke-width="2.4" stroke-linejoin="round"/>
+    <g clip-path="url(#ic-crown-clip)">
+      <!-- crown top highlight -->
+      <rect x="20" y="17" width="56" height="8" fill="url(#ic-top)" opacity="0.55"/>
+      <!-- recessed hatband -->
+      <rect x="18" y="36.5" width="60" height="5.5" fill="#14532d" opacity="0.38"/>
+    </g>
+    <!-- hat brim overlapping crown bottom by 2.5px -->
+    <rect x="14" y="42.5" width="68" height="6.5" rx="3.25" fill="url(#ic-body)"/>
+  </g>
+
+  <!-- foreground warm amber glasses -->
+  <g filter="url(#ic-ds)">
+    <!-- bridge tucked 2px into both lenses -->
+    <path d="M40.5 61.5 Q48 57.5 55.5 61.5" fill="none" stroke="url(#ic-amber)" stroke-width="4.5" stroke-linecap="round"/>
+    <!-- left & right lenses -->
+    <circle cx="32" cy="63" r="10.5" fill="url(#ic-amber)"/>
+    <circle cx="64" cy="63" r="10.5" fill="url(#ic-amber)"/>
+    <!-- recessed inner lens rims -->
+    <circle cx="32" cy="63" r="7.2" fill="none" stroke="#92400e" stroke-width="1.6" opacity="0.32"/>
+    <circle cx="64" cy="63" r="7.2" fill="none" stroke="#92400e" stroke-width="1.6" opacity="0.32"/>
+  </g>
+</svg>

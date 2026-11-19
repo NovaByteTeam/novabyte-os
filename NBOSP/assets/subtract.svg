@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Subtract icon">
+  <defs>
+    <!-- Primary 3-stop vibrant pink gradient -->
+    <linearGradient id="sub-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f9a8d4"/>
+      <stop offset="0.55" stop-color="#ec4899"/>
+      <stop offset="1" stop-color="#be185d"/>
+    </linearGradient>
+
+    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    <linearGradient id="sub-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fce7f3"/>
+      <stop offset="1" stop-color="#f9a8d4"/>
+    </linearGradient>
+
+    <!-- Warm amber accent gradient for the minus bar -->
+    <linearGradient id="sub-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- Proportional drop shadow for 96x96 viewBox -->
+    <filter id="sub-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Borderless rounded square tile with soft drop shadow -->
+  <g filter="url(#sub-ds)">
+    <!-- Base tile -->
+    <rect x="14" y="14" width="68" height="68" rx="17" fill="url(#sub-body)"/>
+
+    <!-- Subtle inner bevel ring (mirroring the cylinder rim detail) -->
+    <rect x="18" y="18" width="60" height="60" rx="13.5" fill="none" stroke="#831843" stroke-width="2" opacity="0.35"/>
+
+    <!-- Top glossy edge highlight -->
+    <path d="M26 16.5h44" fill="none" stroke="url(#sub-top)" stroke-width="2" stroke-linecap="round" opacity="0.75"/>
+
+    <!-- Floating minus bar with secondary drop shadow -->
+    <g filter="url(#sub-ds)">
+      <rect x="28" y="43.5" width="40" height="9" rx="4.5" fill="url(#sub-accent)"/>
+    </g>
+  </g>
+</svg>

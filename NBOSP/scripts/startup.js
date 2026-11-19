@@ -48,20 +48,27 @@ function getMainWindowOptions(kiosk = process.env.NBOSP_KIOSK === '1') {
  * @param {string} appDir Absolute path to the NBOSP directory
  */
 async function bootstrap(appDir) {
-  // Parallel initialization of environment and SSL certificates
-  await Promise.all([ensureEnv(appDir), ensureCerts(appDir)]);
+  // Parallel initialization of environment and SSL certificates.
+  const [, certificateTrusted] = await Promise.all([ensureEnv(appDir), ensureCerts(appDir)]);
 
-  if (process.env.HTTPS !== 'true') {
-    const envPath = path.join(getRuntimeDataDir(appDir), '.env');
-    try {
-      const content = await fs.promises.readFile(envPath, 'utf8');
-      if (!/^HTTPS=.*$/m.test(content)) {
-        await fs.promises.appendFile(envPath, '\nHTTPS=true\n');
+  if (certificateTrusted) {
+    if (process.env.HTTPS !== 'true') {
+      const envPath = path.join(getRuntimeDataDir(appDir), '.env');
+      try {
+        const content = await fs.promises.readFile(envPath, 'utf8');
+        if (!/^HTTPS=.*$/m.test(content)) {
+          await fs.promises.appendFile(envPath, '\nHTTPS=true\n');
+        }
+      } catch (_) {
+        // Best effort fallback if .env is missing or unreadable
       }
-    } catch (_) {
-      // Best effort fallback if .env is missing or unreadable
+      process.env.HTTPS = 'true';
     }
-    process.env.HTTPS = 'true';
+  } else {
+    // ensureCerts() could not install the local CA into the host trust store.
+    // Keep the OS usable over loopback HTTP rather than opening a TLS page
+    // whose certificate the embedded browser is guaranteed not to trust.
+    process.env.HTTPS = 'false';
   }
 
   // Validate port input to avoid NaN or invalid range URLs. ensureEnv has
@@ -72,7 +79,8 @@ async function bootstrap(appDir) {
   /* v8 ignore start */
   const port = Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535 ? rawPort : 3003;
   /* v8 ignore stop */
-  const appUrl = `https://localhost:${port}`;
+  const protocol = process.env.HTTPS === 'true' ? 'https' : 'http';
+  const appUrl = `${protocol}://localhost:${port}`;
 
   // Global rejection safety net with full stack trace observability
   process.on('unhandledRejection', (reason) => {

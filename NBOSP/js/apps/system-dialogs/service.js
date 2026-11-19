@@ -947,14 +947,11 @@ const SystemDialogs = (() => {
           // MIME-only accept lists and no-accept save flows.
           const ext = activeType || impliedExtension(opts);
           const name = firstFreeName(cwd, NEW_FILE_BASE, ext);
-          await fs.promises.writeFile(path.join(cwd, name), '');
-          setStatus('');
-          await renderGrid();
-          selectEntry(name, false);
-          // Pre-fill the save-mode filename input so Save can happen
-          // immediately (still editable for a rename-before-save).
           nameInput.value = name;
-          confirmBtn.disabled = !nameInput.value.trim();
+          confirmBtn.disabled = false;
+          setStatus('');
+          // Defer filesystem writes until the caller confirms the save; a
+          // cancelled Save As dialog must not leave an empty file behind.
           requestAnimationFrame(() => { nameInput.focus(); nameInput.select(); });
         } catch (error) {
           reportCreateFailure(_t('apps.sysdialog.createFileFailed', { message: error.message }), error);
@@ -1127,6 +1124,30 @@ const SystemDialogs = (() => {
         const fullPath = path.join(cwd, name);
 
         if (isSave) {
+          try {
+            await fs.promises.lstat(fullPath);
+            if (typeof window.showModal !== 'function') {
+              setStatus(_t('apps.sysdialog.overwriteConfirmationUnavailable'), true);
+              return;
+            }
+            const choice = await window.showModal(
+              _t('apps.sysdialog.fileExistsTitle'),
+              _t('apps.sysdialog.fileExistsBody', { name }),
+              [
+                { label: _t('common.cancel'), value: null },
+                { label: _t('apps.sysdialog.overwrite'), value: 'overwrite', primary: true },
+              ]
+            );
+            if (choice !== 'overwrite') return;
+          } catch (error) {
+            if (error.code !== 'ENOENT') {
+              setStatus(_t('apps.sysdialog.saveFailed'), true);
+              if (typeof Notify !== 'undefined') {
+                Notify.show({ title: _t('apps.sysdialog.saveFailed'), body: error.message, type: 'error' });
+              }
+              return;
+            }
+          }
           persistLastDir(cwd);
           finish({ path: fullPath, name });
         } else if (pathOnly) {

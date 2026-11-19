@@ -15,18 +15,7 @@ import nodePath from 'node:path';
 
 import nodeCrypto from 'node:crypto';
 
-// The real host svgIcon (from js/core/utils/base-utils.js, loaded by the
-// harness) emits `src="/assets/icons8-<name>-94.png"` for PNG icons; the
-// browser app rewrites those through window.__novaUnrestrictedPackage.files.
-// A proxy serves ANY icon filename (base64 of its own path) so every icon
-// renders and each icon name stays distinguishable in assertions.
-const iconB64 = (pngName) => Buffer.from(`icons/icons8-${pngName}-94.png`).toString('base64');
-const packageFiles = new Proxy({}, {
-  get(_target, key) {
-    const k = String(key);
-    return k.startsWith('icons/') ? Buffer.from(k).toString('base64') : undefined;
-  },
-});
+// Browser UI icons use the shared SVG assets in /assets.
 
 function makeOS() {
   const store = new Map();
@@ -52,7 +41,6 @@ function browserStubs(overrides = {}) {
   return {
     ...overrides,
     extra: {
-      __novaUnrestrictedPackage: { files: packageFiles },
       OS: makeOS(),
       Notify: makeNotify(),
       ContextMenu: makeContextMenu(),
@@ -510,8 +498,8 @@ describe('Browser app (js/apps/browser)', () => {
     enter(window, urlBar);
     expect(urlBar.value).toBe('example.com/some/page');
     const urlIcon = content.querySelector('.browser-url-icon');
-    // lock maps to the icons8-lock PNG through the package files
-    expect(urlIcon.innerHTML).toContain(iconB64('lock'));
+    // lock maps to the custom lock SVG through the package files
+    expect(urlIcon.innerHTML).toContain('/assets/lock.svg');
     expect(content.querySelector('.browser-security-warning').style.display).toBe('none');
 
     urlBar.value = 'http://example.com/insecure';
@@ -561,11 +549,11 @@ describe('Browser app (js/apps/browser)', () => {
     enter(window, urlBar);
 
     const starBtn = content.querySelector('button[aria-label="Bookmark"]');
-    expect(starBtn.innerHTML).toContain(iconB64('star'));
+    expect(starBtn.innerHTML).toContain('/assets/star.svg');
     starBtn.click();
-    // star-filled maps to the icons8-rating asset
-    expect(starBtn.innerHTML).toContain(iconB64('rating'));
-    expect(starBtn.innerHTML).not.toContain(iconB64('star'));
+    // star-filled maps to the rating SVG asset
+    expect(starBtn.innerHTML).toContain('/assets/rating.svg');
+    expect(starBtn.innerHTML).not.toContain('/assets/star.svg');
     expect(starBtn.style.color).toBe('var(--accent)');
     expect(notify.calls.some((c) => c.title === 'Bookmark added')).toBe(true);
 

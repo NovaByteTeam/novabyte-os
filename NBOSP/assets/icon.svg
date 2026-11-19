@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="NovaByte OS Logo">
+  <defs>
+    <linearGradient id="nbos-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="0.55" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="nbos-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e0f2fe" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#7dd3fc" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="nbos-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <clipPath id="nbos-clip">
+      <path d="M248 58.1 Q256 53.3 264 58.1 L423.5 149.9 Q431.5 154.7 431.5 163.7 V348.3 Q431.5 357.3 423.5 362.1 L264 453.9 Q256 458.7 248 453.9 L88.5 362.1 Q80.5 357.3 80.5 348.3 V163.7 Q80.5 154.7 88.5 149.9 Z"/>
+    </clipPath>
+    <filter id="nbos-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- main sky-blue hexagonal OS chassis -->
+  <g filter="url(#nbos-ds)">
+    <g clip-path="url(#nbos-clip)">
+      <rect x="64" y="48" width="384" height="416" fill="url(#nbos-body)"/>
+      <!-- slim upper-bevel rim highlight -->
+      <path d="M256 50.7 L74.7 154.7 L86.4 161.6 L256 64 L425.6 161.6 L437.3 154.7 Z" fill="url(#nbos-top)"/>
+      <!-- recessed middle hexagon groove -->
+      <polygon points="256,98.7 392,177.1 392,334.9 256,413.3 120,334.9 120,177.1" fill="none" stroke="#1e3a8a" stroke-width="9.5" stroke-linejoin="round" opacity="0.32"/>
+      <!-- recessed inner hexagon chamber -->
+      <polygon points="256,141.3 355.2,198.4 355.2,313.6 256,370.7 156.8,313.6 156.8,198.4" fill="#1e3a8a" fill-opacity="0.14" stroke="#1e3a8a" stroke-width="7.5" stroke-linejoin="round" opacity="0.4"/>
+    </g>
+  </g>
+
+  <!-- unified warm amber NB vector monogram -->
+  <g filter="url(#nbos-ds)">
+    <!-- N -->
+    <path d="M168 306.7 V205.3 Q168 200 173.3 200 H187.7 Q192 200 194.7 203.7 L232 260.3 V205.3 Q232 200 237.3 200 H249.6 Q254.9 200 254.9 205.3 V306.7 Q254.9 312 249.6 312 H235.7 Q231.5 312 228.8 308.3 L190.9 251.2 V306.7 Q190.9 312 185.6 312 H173.3 Q168 312 168 306.7 Z" fill="url(#nbos-accent)"/>
+    <!-- B (even-odd cutouts for upper & lower bowls) -->
+    <path fill-rule="evenodd" d="M273.1 205.3 Q273.1 200 278.4 200 H316.8 C337.1 200 349.3 210.1 349.3 227.2 C349.3 238.9 342.9 247.5 332.8 251.7 C345.6 256 353.6 266.1 353.6 280.5 C353.6 300.3 339.7 312 317.3 312 H278.4 Q273.1 312 273.1 306.7 Z M295.5 219.2 V244.3 H313.6 C322.1 244.3 326.9 239.5 326.9 231.5 C326.9 223.5 322.1 219.2 313.6 219.2 Z M295.5 262.9 V292.3 H315.2 C325.3 292.3 330.7 287.5 330.7 277.9 C330.7 268.3 324.8 262.9 315.2 262.9 Z" fill="url(#nbos-accent)"/>
+  </g>
+</svg>

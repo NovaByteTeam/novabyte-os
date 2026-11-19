@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Globe icon">
+  <defs>
+    <linearGradient id="gl-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="0.55" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="gl-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fef3c7"/>
+      <stop offset="1" stop-color="#fde68a"/>
+    </linearGradient>
+    <linearGradient id="gl-blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bae6fd"/>
+      <stop offset="0.55" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <filter id="gl-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="gl-clip">
+      <circle cx="48" cy="48" r="34"/>
+    </clipPath>
+  </defs>
+
+  <!-- gold globe sphere -->
+  <g filter="url(#gl-ds)">
+    <g clip-path="url(#gl-clip)">
+      <circle cx="48" cy="48" r="34" fill="url(#gl-body)"/>
+      <!-- top highlight crescent -->
+      <ellipse cx="48" cy="23" rx="30" ry="13" fill="url(#gl-top)" opacity="0.55"/>
+      <!-- recessed latitude parallels & inner rim -->
+      <line x1="14" y1="32" x2="82" y2="32" stroke="#92400e" stroke-width="2" opacity="0.32"/>
+      <line x1="14" y1="64" x2="82" y2="64" stroke="#92400e" stroke-width="2" opacity="0.32"/>
+      <circle cx="48" cy="48" r="32.5" fill="none" stroke="#92400e" stroke-width="1.8" opacity="0.3"/>
+    </g>
+  </g>
+
+  <!-- foreground sky-blue focal meridian ellipse & equator -->
+  <g filter="url(#gl-ds)">
+    <g clip-path="url(#gl-clip)">
+      <ellipse cx="48" cy="48" rx="16.5" ry="32.2" fill="none" stroke="url(#gl-blue)" stroke-width="3.6"/>
+      <rect x="14" y="46.2" width="68" height="3.6" rx="1.8" fill="url(#gl-blue)"/>
+    </g>
+  </g>
+</svg>

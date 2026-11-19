@@ -73,6 +73,14 @@ const FS = {
   async setUserRoot(uid, options = {}) {
     const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
     if (!scope || !scope.enabled()) return false;
+    // Drop the previous mount before changing the worker's owner. If the
+    // worker call fails, keeping the old cache would expose the departed
+    // account's tree to the newly active session.
+    this.files.clear();
+    this._childrenByParent.clear();
+    this.rootId = null;
+    this.specialFolders = {};
+    this.updateSearchIndex();
     if (options && options.guest) {
       // Guest trees are volatile and unique per session — never reused, and
       // previous sessions' rows are dead weight (their owner id can never

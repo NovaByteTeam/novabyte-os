@@ -2,6 +2,7 @@
 
 const fs    = require('fs');
 const https = require('https');
+const http  = require('http');
 const path  = require('path');
 
 // ── Plain-HTTP request on the HTTPS port ────────────────────────────────────
@@ -77,6 +78,11 @@ function respondPlainHttpOverRawSocket(socket) {
 }
 
 function configureSSL(app) {
+  if (process.env.HTTPS !== 'true') {
+    console.warn('[SSL Core] Local CA is not trusted; using loopback HTTP.');
+    return { server: http.createServer(app) };
+  }
+
   const dataDir = process.env.NBOSP_DATA_DIR || path.resolve(__dirname, '..', '..');
   const keyPath  = path.join(dataDir, 'cert.key');
   const certPath = path.join(dataDir, 'cert.crt');

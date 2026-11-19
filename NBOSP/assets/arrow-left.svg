@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Arrow Left icon">
+  <defs>
+    <linearGradient id="al-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="0.55" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="al-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fef3c7" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#fde68a" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="al-accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="0.55" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <clipPath id="al-clip">
+      <path d="M15.5 46.5 L42.5 20.5 Q44.5 18.5 44.5 21.3 V36 H77.5 Q80 36 80 38.5 V57.5 Q80 60 77.5 60 H44.5 V74.7 Q44.5 77.5 42.5 75.5 L15.5 49.5 Q14 48 15.5 46.5 Z"/>
+    </clipPath>
+    <filter id="al-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#al-ds)">
+    <g clip-path="url(#al-clip)">
+      <rect x="13" y="18" width="68" height="60" fill="url(#al-body)"/>
+      <path d="M80 36 H44.5 V19 L14.5 47.5 L16.2 49 L44.5 21.8 V38 H80 Z" fill="url(#al-top)"/>
+    </g>
+  </g>
+
+  <g filter="url(#al-ds)">
+    <rect x="33" y="45.5" width="34" height="5" rx="2.5" fill="url(#al-accent)"/>
+  </g>
+</svg>

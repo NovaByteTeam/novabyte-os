@@ -629,13 +629,20 @@ async function switchUser() {
   const manager = sessionManager();
   if (manager?.suspendForSwitch) {
     try {
-      await manager.suspendForSwitch();
-    } catch (_) {
-      // authFetch never throws, but if anything above failed mid-teardown
-      // the picker is still the right next surface.
+      const result = await manager.suspendForSwitch();
+      if (!result?.ok && !result?.sessionRevoked) {
+        const statusEl = document.getElementById('lock-status');
+        if (statusEl) statusEl.textContent = result?.message || _t('apps.session.switchFailed');
+        return false;
+      }
+    } catch (error) {
+      const statusEl = document.getElementById('lock-status');
+      if (statusEl) statusEl.textContent = error?.message || _t('apps.session.switchFailed');
+      return false;
     }
   }
   await showLoginPicker();
+  return true;
 }
 
 async function showLoginPicker() {
@@ -898,8 +905,7 @@ async function selectAccountForAuth(user, { resumable = false } = {}) {
         color: 'var(--accent)', fontSize: '12px', cursor: 'pointer',
       });
       switchBtn.addEventListener('click', async () => {
-        await manager.suspendForSwitch();
-        await showLoginPicker();
+        await switchUser();
       });
       card.appendChild(switchBtn);
     }

@@ -59,7 +59,7 @@
     'external-link': '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
   });
 
-  // Aliases for icons that are served as PNGs from /assets/icons8-*.png.
+  // Aliases for icons served as cleanly named SVGs from /assets.
   // Names that already resolve via UI_ICONS or ICON_SPECIAL above are omitted
   // here because they would be unreachable.
   const ICON_MAP = Object.freeze({
@@ -164,20 +164,20 @@
     'briefcase': 'briefcase',
     'list': 'document',
     'move': 'arrow-right',
-    'shuffle': 'shuffle-96',
+    'shuffle': 'shuffle',
     'repeat': 'repeat',
     'default-apps': 'services'
   });
 
-  // Icons that need a non-standard PNG filename suffix. Checked before
+  // Icons that use a distinct icon name. Checked before
   // ICON_MAP so the special path wins when present.
   const ICON_SPECIAL = Object.freeze({
-    'shuffle': 'shuffle-96',
-    'repeat': 'repeat-button-96',
-    'pause': 'pause-96',
-    'rename': 'rename-96',
-    'maximize': 'fullscreen-96',
-    'registry': 'registry-96',
+    'shuffle': 'shuffle',
+    'repeat': 'repeat-button',
+    'pause': 'pause',
+    'rename': 'rename',
+    'maximize': 'fullscreen',
+    'registry': 'registry',
   });
 
   // Cache of already-rendered icon HTML keyed by `${name}|${size}`. The output
@@ -1034,7 +1034,7 @@
     // Web apps (WebAppManager) store their icon as a plain emoji character
     // (e.g. the '🌐' default) rather than a UI_ICONS key or icons8 name.
     // Without this check that string falls through to the icons8 <img>
-    // branch below, requests a nonexistent '/assets/icons8-🌐-94.png', 404s,
+    // branch below, requests a nonexistent '/assets/🌐.svg', 404s,
     // and gets hidden by data-hide-on-error — leaving pinned web apps with
     // no icon on the desktop/taskbar. Render emoji as text instead.
     if (typeof name === 'string' && isEmoji(name)) {
@@ -1065,9 +1065,7 @@
       // string — escape it: an attacker-chosen key must not be able to
       // break out of the src attribute (quote-escape → attribute
       // injection) even though it only produces a 404-ing image.
-      const localPath = (specialName
-        ? '/assets/icons8-' + specialName + '.png'
-        : '/assets/icons8-' + i8name + '-94.png');
+      const localPath = '/assets/' + (specialName || i8name) + '.svg';
       const safePath = escapeAttr(localPath);
       html = '<img src="' + safePath + '" width="' + safeSize + '" height="' + safeSize +
         '" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;"' +

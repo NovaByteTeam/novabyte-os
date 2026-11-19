@@ -114,7 +114,8 @@ function establishSession(req, res, account, cb) {
         // route honours it — no current secret required while it is set.
         s.mustChangePin = !!account.must_change_pin;
         if (!s.csrfToken) s.csrfToken = generateCSRFToken();
-        s.save(() => {
+        s.save((saveError) => {
+            if (saveError) return cb(saveError);
             usersDb.registerSessionSid(req.sessionID, account.uid);
             cb(null, {
                 sessionId: req.sessionID,
@@ -148,6 +149,17 @@ function requireActiveSession(req, res, next) {
     if (s.lockedAt) {
         return res.status(403).json({ success: false, code: 'SESSION_LOCKED', message: 'This session is locked — unlock it first' });
     }
+    const account = usersDb.getUser(s.uid);
+    if (!account || account.status === 'disabled') {
+        return res.status(403).json({ success: false, code: 'ACCOUNT_DISABLED', message: 'This account is unavailable' });
+    }
+    if (account.locked) {
+        return res.status(403).json({ success: false, code: 'ACCOUNT_LOCKED', message: 'Account locked — an administrator must unlock it' });
+    }
+    s.role = account.role;
+    if (s.mustChangePin && req.path !== '/change-pin') {
+        return res.status(403).json({ success: false, code: 'MUST_CHANGE_PIN', message: 'Change your temporary PIN before continuing' });
+    }
     next();
 }
 
@@ -163,7 +175,17 @@ function requireAdminRole(req, res, next) {
     if (s.lockedAt) {
         return res.status(403).json({ success: false, code: 'SESSION_LOCKED', message: 'This session is locked — unlock it first' });
     }
-    if (!usersDb.ADMIN_ROLES.has(s.role)) {
+    const account = usersDb.getUser(s.uid);
+    if (!account || account.status === 'disabled') {
+        return res.status(403).json({ success: false, code: 'ACCOUNT_DISABLED', message: 'This account is unavailable' });
+    }
+    if (account.locked) {
+        return res.status(403).json({ success: false, code: 'ACCOUNT_LOCKED', message: 'Account locked — an administrator must unlock it' });
+    }
+    if (s.mustChangePin) {
+        return res.status(403).json({ success: false, code: 'MUST_CHANGE_PIN', message: 'Change your temporary PIN before continuing' });
+    }
+    if (!usersDb.ADMIN_ROLES.has(account.role)) {
         usersDb.logEvent(s.uid, 'admin.denied', s.uname, 'warn', { path: req.originalUrl });
         return res.status(403).json({ success: false, code: 'ADMIN_REQUIRED', message: 'An administrator account is required' });
     }
@@ -172,7 +194,26 @@ function requireAdminRole(req, res, next) {
 
 function requireOwnerRole(req, res, next) {
     const s = req.session || {};
-    if (!s.uid || s.role !== 'owner') {
+    if (!s.uid) {
+        return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', message: 'Sign in with the owner account' });
+    }
+    if (s.suspended) {
+        return res.status(403).json({ success: false, code: 'SESSION_SUSPENDED', message: 'This session is suspended — resume it first' });
+    }
+    if (s.lockedAt) {
+        return res.status(403).json({ success: false, code: 'SESSION_LOCKED', message: 'This session is locked — unlock it first' });
+    }
+    const account = usersDb.getUser(s.uid);
+    if (!account || account.status === 'disabled') {
+        return res.status(403).json({ success: false, code: 'ACCOUNT_DISABLED', message: 'This account is unavailable' });
+    }
+    if (account.locked) {
+        return res.status(403).json({ success: false, code: 'ACCOUNT_LOCKED', message: 'Account locked — an administrator must unlock it' });
+    }
+    if (s.mustChangePin) {
+        return res.status(403).json({ success: false, code: 'MUST_CHANGE_PIN', message: 'Change your temporary PIN before continuing' });
+    }
+    if (account.role !== 'owner') {
         return res.status(403).json({ success: false, code: 'OWNER_REQUIRED', message: 'The owner account is required' });
     }
     next();
@@ -385,8 +426,11 @@ router.post('/logout', (req, res) => {
     const s = req.session || {};
     const uid = s.uid || null;
     const uname = s.uname || null;
-    usersDb.unregisterSessionSid(req.sessionID);
-    req.session.destroy(() => {
+    req.session.destroy((error) => {
+        if (error) {
+            return res.status(500).json({ success: false, code: 'SESSION_ERROR', message: 'Could not end session' });
+        }
+        usersDb.unregisterSessionSid(req.sessionID);
         if (uid) usersDb.logEvent(uid, 'auth.logout', uname, 'info', null);
         res.clearCookie('connect.sid');
         res.json({ success: true, data: { signedOut: true } });
@@ -401,7 +445,10 @@ router.post('/lock', (req, res) => {
         return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', message: 'No active session to lock' });
     }
     s.lockedAt = Date.now();
-    s.save(() => {
+    s.save((error) => {
+        if (error) {
+            return res.status(500).json({ success: false, code: 'SESSION_ERROR', message: 'Could not lock session' });
+        }
         usersDb.logEvent(s.uid, 'session.lock', s.uname, 'info', null);
         res.json({ success: true, data: { locked: true } });
     });
@@ -424,7 +471,10 @@ router.post('/suspend', (req, res) => {
         usersDb.registerSessionSid(req.sessionID, s.uid);
     }
     s.suspended = true;
-    s.save(() => {
+    s.save((error) => {
+        if (error) {
+            return res.status(500).json({ success: false, code: 'SESSION_ERROR', message: 'Could not suspend session' });
+        }
         usersDb.logEvent(s.uid, 'session.suspend', s.uname, 'info', null);
         res.json({ success: true, data: { suspended: true } });
     });
@@ -454,7 +504,10 @@ router.post('/reverify', (req, res) => {
     s.suspended = false;
     s.lockedAt = null;
     if (!s.csrfToken) s.csrfToken = generateCSRFToken();
-    s.save(() => {
+    s.save((error) => {
+        if (error) {
+            return res.status(500).json({ success: false, code: 'SESSION_ERROR', message: 'Could not resume session' });
+        }
         usersDb.logEvent(s.uid, 'session.resume', s.uname, 'info', { via: result.via });
         res.json({
             success: true,
@@ -470,7 +523,7 @@ router.post('/reverify', (req, res) => {
 
 // Change own PIN (also the forced new-PIN sheet after an admin reset or
 // first-login-after-temporary-PIN).
-router.post('/change-pin', (req, res) => {
+router.post('/change-pin', requireActiveSession, (req, res) => {
     const s = req.session || {};
     const { currentSecret, newPin } = req.body || {};
     if (!s.uid) {
@@ -497,11 +550,16 @@ router.post('/change-pin', (req, res) => {
         return res.status(400).json({ success: false, code: 'INVALID_PIN', message: err.message });
     }
     s.mustChangePin = false;
-    s.save(() => res.json({ success: true, data: { changed: true } }));
+    s.save((error) => {
+        if (error) {
+            return res.status(500).json({ success: false, code: 'SESSION_ERROR', message: 'PIN changed, but session state could not be saved' });
+        }
+        res.json({ success: true, data: { changed: true } });
+    });
 });
 
 // Change own passphrase.
-router.post('/change-passphrase', (req, res) => {
+router.post('/change-passphrase', requireActiveSession, (req, res) => {
     const s = req.session || {};
     const { currentSecret, passphrase } = req.body || {};
     if (!s.uid) {
@@ -773,6 +831,19 @@ router.post('/webauthn/login/finish', (req, res) => {
     if (!entry || entry.uid !== uid) {
         return res.status(400).json({ success: false, code: 'WEBAUTHN_INVALID', message: 'Unknown, expired or cross-account challenge' });
     }
+    const user = usersDb.getUser(uid);
+    if (!user) {
+        return res.status(404).json({ success: false, code: 'UNKNOWN_ACCOUNT', message: 'Unknown account' });
+    }
+    if (user.status === 'disabled') {
+        return res.status(423).json({ success: false, code: 'ACCOUNT_DISABLED', message: 'This account is disabled' });
+    }
+    if (user.locked) {
+        return res.status(423).json({ success: false, code: 'ACCOUNT_LOCKED', message: 'Account locked — an administrator must unlock it' });
+    }
+    if (usersDb.isTemporarilyLocked(uid)) {
+        return res.status(429).json({ success: false, code: 'LOCKOUT', message: 'Too many attempts — try again soon', retryAfterMs: usersDb.remainingLockoutMs(uid) });
+    }
     const credential = usersDb.getWebauthnCredential(credentialId);
     if (!credential || credential.uid !== uid) {
         usersDb.recordAuthFailure(uid);
@@ -809,13 +880,19 @@ router.post('/webauthn/login/finish', (req, res) => {
     if (authData.length < 37) {
         return res.status(400).json({ success: false, code: 'WEBAUTHN_INVALID', message: 'Authenticator data too short' });
     }
+    const flags = authData[32];
+    if ((flags & 0x01) === 0 || (flags & 0x04) === 0) {
+        usersDb.recordAuthFailure(uid);
+        usersDb.logEvent(uid, 'auth.webauthn.flags', user.username, 'warn', { userPresent: !!(flags & 0x01), userVerified: !!(flags & 0x04) });
+        return res.status(401).json({ success: false, code: 'WEBAUTHN_INVALID', message: 'Authenticator did not confirm user presence and verification' });
+    }
     const expectedRpIdHash = crypto.createHash('sha256').update('localhost').digest();
     const actualRpIdHash = authData.subarray(0, 32);
     if (!crypto.timingSafeEqual(actualRpIdHash, expectedRpIdHash)) {
         usersDb.logEvent(uid, 'auth.webauthn.rpid', usersDb.getUser(uid)?.username || uid, 'warn', null);
         return res.status(401).json({ success: false, code: 'WEBAUTHN_INVALID', message: 'Authenticator data RP ID hash mismatch' });
     }
-    const counter = authData.length >= 37 ? authData.readUInt32BE(authData.length - 4) : 0;
+    const counter = authData.readUInt32BE(33);
     if (counter > 0 && counter <= (credential.sign_count || 0)) {
         usersDb.logEvent(uid, 'auth.webauthn.clone', usersDb.getUser(uid)?.username || uid, 'error', { credentialId: credentialId.slice(0, 12) + '…' });
         return res.status(401).json({ success: false, code: 'WEBAUTHN_CLONE', message: 'Authenticator signature counter regressed' });
@@ -823,7 +900,6 @@ router.post('/webauthn/login/finish', (req, res) => {
     usersDb.touchWebauthnUse(credentialId, counter);
     usersDb.resetAuthFailures(uid);
     usersDb.touchLogin(uid);
-    const user = usersDb.getUser(uid);
     usersDb.logEvent(uid, 'auth.success', user.username, 'info', { via: 'webauthn' });
     establishSession(req, res, user, (err, payload) => {
         if (err) {
@@ -834,13 +910,13 @@ router.post('/webauthn/login/finish', (req, res) => {
 });
 
 // Self-service: list own enrolled authenticators (Settings → Accounts).
-router.get('/webauthn/credentials', (req, res) => {
+router.get('/webauthn/credentials', requireActiveSession, (req, res) => {
     const s = req.session || {};
     if (!s.uid) return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', message: 'Sign in first' });
     res.json({ success: true, data: { credentials: usersDb.listWebauthnCredentials(s.uid) } });
 });
 
-router.delete('/webauthn/credentials/:credId', (req, res) => {
+router.delete('/webauthn/credentials/:credId', requireActiveSession, (req, res) => {
     const s = req.session || {};
     if (!s.uid) return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', message: 'Sign in first' });
     const removed = usersDb.removeWebauthnCredential(s.uid, req.params.credId, s.uid);
@@ -863,6 +939,61 @@ function legacyUsersStorageRoot() {
     return path.join(os.homedir(), '.local', 'share', 'novabyte', 'users');
 }
 
+function existingUserStorageDir(root, segment) {
+    if (!segment || segment === '.' || segment === '..' || path.basename(segment) !== segment) {
+        throw new Error('Invalid account storage segment');
+    }
+
+    const home = path.resolve(os.homedir());
+    const rootPath = path.resolve(root);
+    const relativeRoot = path.relative(home, rootPath);
+    if (relativeRoot.startsWith(`..${path.sep}`) || relativeRoot === '..' || path.isAbsolute(relativeRoot)) {
+        throw new Error(`Account storage root is outside the home directory: ${root}`);
+    }
+
+    let current = home;
+    for (const part of relativeRoot.split(path.sep).filter(Boolean)) {
+        current = path.join(current, part);
+        let partStat;
+        try { partStat = fs.lstatSync(current); }
+        catch (err) {
+            if (err.code === 'ENOENT') return null;
+            throw err;
+        }
+        if (partStat.isSymbolicLink() || !partStat.isDirectory()) {
+            throw new Error(`Account storage path contains a non-directory or symlink: ${current}`);
+        }
+    }
+
+    let rootStat;
+    try { rootStat = fs.lstatSync(root); }
+    catch (err) {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+    }
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+        throw new Error(`Account storage root is not a real directory: ${root}`);
+    }
+
+    const dir = path.join(root, segment);
+    let dirStat;
+    try { dirStat = fs.lstatSync(dir); }
+    catch (err) {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+    }
+    if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
+        throw new Error(`Account storage path is not a real directory: ${dir}`);
+    }
+
+    const realRoot = fs.realpathSync(root);
+    const realDir = fs.realpathSync(dir);
+    if (!realDir.startsWith(`${realRoot}${path.sep}`)) {
+        throw new Error(`Account storage path escapes its root: ${dir}`);
+    }
+    return dir;
+}
+
 function userStorageDirs(user) {
     // Every on-disk home this account may still occupy: the current
     // ~/users/<username> tree first, then the legacy nested-layout
@@ -871,12 +1002,16 @@ function userStorageDirs(user) {
     const name = String(user?.username || '');
     const uid = String(user?.uid || '');
     const dirs = [];
-    if (name) dirs.push(path.join(usersStorageRoot(), name));
+    if (name) {
+        const dir = existingUserStorageDir(usersStorageRoot(), name);
+        if (dir) dirs.push(dir);
+    }
     if (name || uid) {
         const base = legacyUsersStorageRoot();
         for (const seg of [name, uid]) {
             if (!seg) continue;
-            const dir = path.join(base, seg);
+            const dir = existingUserStorageDir(base, seg);
+            if (!dir) continue;
             if (!dirs.includes(dir)) dirs.push(dir);
         }
     }
@@ -1018,6 +1153,7 @@ router.post('/admin/users/:uid/credentials/pin', requireAdminRole, (req, res) =>
 });
 
 router.post('/admin/users/:uid/credentials/passphrase', requireAdminRole, (req, res) => {
+    if (!requireSelfPinTarget(req, res, req.params.uid)) return;
     const { passphrase } = req.body || {};
     try {
         const updated = usersDb.setCredential(req.params.uid, 'passphrase',
@@ -1050,36 +1186,73 @@ router.delete('/admin/users/:uid', requireAdminRole, (req, res) => {
     try {
         user = usersDb.getUser(req.params.uid);
         if (!user) throw Object.assign(new Error('No such account'), { code: 'NOT_FOUND' });
-        const result = usersDb.deleteUser(req.params.uid, mode, actorUid(req));
-        // Row-level guards passed — perform the file work for every on-disk
-        // tree the account occupies (current ~/users/<name> + any legacy
-        // nested-layout roots still holding bytes).
         const storageDirs = userStorageDirs(user).filter(dir => fs.existsSync(dir));
         const backupDir = path.join(sharedRoot(), 'admin-backups');
+        let archived = [];
+
         if (mode === 'archive' && storageDirs.length) {
-            fs.mkdirSync(backupDir, { recursive: true });
-            const stamp = new Date().toISOString().slice(0, 10);
-            const baseName = `${user.username}-${stamp}-${String(user.uid).slice(0, 8)}`;
-            const archived = [];
             try {
-                let suffix = 0;
-                for (const dir of storageDirs) {
-                    const target = suffix === 0
-                        ? path.join(backupDir, baseName)
-                        : path.join(backupDir, `${baseName}-legacy-${suffix}`);
-                    suffix++;
-                    fs.cpSync(dir, target, { recursive: true });
-                    fs.rmSync(dir, { recursive: true, force: true });
+                fs.mkdirSync(backupDir, { recursive: true });
+                const stamp = new Date().toISOString().slice(0, 10);
+                const baseName = `${user.username}-${stamp}-${String(user.uid).slice(0, 8)}`;
+                for (let index = 0; index < storageDirs.length; index += 1) {
+                    const suffix = index === 0 ? '' : `-legacy-${index}`;
+                    let target = path.join(backupDir, `${baseName}${suffix}`);
+                    let collision = 1;
+                    while (fs.existsSync(target)) {
+                        target = path.join(backupDir, `${baseName}${suffix}-${collision++}`);
+                    }
+                    fs.cpSync(storageDirs[index], target, { recursive: true, errorOnExist: true, force: false });
                     archived.push(target);
                 }
-                result.archivedTo = archived.length === 1 ? archived[0] : archived;
             } catch (err) {
-                result.archiveError = err.message;
+                for (const target of archived) {
+                    try { fs.rmSync(target, { recursive: true, force: true }); } catch (cleanupError) {
+                        console.error('[Auth] Could not remove incomplete account archive:', cleanupError);
+                    }
+                }
+                return res.status(500).json({
+                    success: false,
+                    code: 'ARCHIVE_FAILED',
+                    message: `Account was not deleted because its storage could not be archived: ${err.message}`,
+                });
+            }
+        }
+
+        let result;
+        try {
+            result = usersDb.deleteUser(req.params.uid, mode, actorUid(req));
+        } catch (err) {
+            for (const target of archived) {
+                try { fs.rmSync(target, { recursive: true, force: true }); } catch (cleanupError) {
+                    console.error('[Auth] Could not remove archive after account deletion was refused:', cleanupError);
+                }
+            }
+            throw err;
+        }
+
+        const cleanupErrors = [];
+        if (mode === 'archive' && storageDirs.length) {
+            result.archivedTo = archived.length === 1 ? archived[0] : archived;
+            for (const dir of storageDirs) {
+                try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {
+                    cleanupErrors.push({ path: dir, message: err.message });
+                }
             }
         } else if (mode === 'wipe' && storageDirs.length) {
             for (const dir of storageDirs) {
-                try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { }
+                try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {
+                    cleanupErrors.push({ path: dir, message: err.message });
+                }
             }
+        }
+        if (cleanupErrors.length) {
+            return res.status(500).json({
+                success: false,
+                code: 'STORAGE_CLEANUP_FAILED',
+                message: 'The account was deleted, but some storage could not be removed.',
+                data: { ...result, cleanupErrors },
+            });
         }
         res.json({ success: true, data: result });
     } catch (err) {
@@ -1134,11 +1307,22 @@ router.post('/admin/wipe', requireOwnerRole, (req, res) => {
     usersDb.wipeAll(req.session.uid);
     // Also drop every per-user storage root — the account trees and the
     // legacy nested roots — so the machine returns to first-boot state.
-    try {
-        for (const root of [usersStorageRoot(), legacyUsersStorageRoot()]) {
+    const cleanupErrors = [];
+    for (const root of [usersStorageRoot(), legacyUsersStorageRoot()]) {
+        try {
             if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: true });
+        } catch (err) {
+            cleanupErrors.push({ path: root, message: err.message });
         }
-    } catch (_) { }
+    }
+    if (cleanupErrors.length) {
+        return res.status(500).json({
+            success: false,
+            code: 'STORAGE_CLEANUP_FAILED',
+            message: 'Account records were wiped, but some user storage could not be removed.',
+            data: { accountsWiped: true, cleanupErrors },
+        });
+    }
     res.json({ success: true, data: { wiped: true } });
 });
 

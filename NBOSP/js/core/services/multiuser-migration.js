@@ -159,49 +159,38 @@
       return { skipped: 'no-legacy-state' };
     }
 
-    // Stamp the scope flags BEFORE the storage schemas open: NovaByte_FS
-    // and NovaByte_AppStorage v2 upgrades stamp unscoped rows with the
-    // legacy owner uid from here.
-    if (scope) {
-      scope.setLegacyOwnerUid(ownerUid);
-      scope.enable();
-    }
+    // Keep the owner available to the later boot-time schema migration even
+    // if a storage move fails; do not mark the migration complete until the
+    // physical/web moves succeed.
+    if (scope) scope.setLegacyOwnerUid(ownerUid);
 
     if (isLinuxRuntime()) {
       try {
         moveStorageToOwner(ownerUid, { username: ownerUsername, registry, scope, legacy });
       } catch (err) {
-        warn('storage move failed (data stays at the legacy roots):', err);
+        warn('storage move failed; migration will retry on a later boot:', err);
+        return { skipped: 'storage-move-failed', ownerUid };
       }
     } else {
       try {
         moveWebStorageToOwner(ownerUid, { username: ownerUsername, registry });
       } catch (err) {
         warn('web storage move failed:', err);
+        return { skipped: 'storage-move-failed', ownerUid };
       }
-      // NovaByte_FS (IndexedDB): stamp every unscoped 3.0.2 row with the
-      // owner's uid. The worker's stampOwner() method existed but was never
-      // called by anything, so after the migration a login re-rooted onto
-      // "rows owned by uid" — which is empty — and the account's whole
-      // pre-existing tree vanished from every view. This is the wiring the
-      // header's step 4 always promised: stamp, then the first login mounts
-      // the exact tree the machine always had. Idempotent behind the
-      // 'nova_fs_owner_stamped' settings marker, so re-running is a no-op.
-      try {
-        if (typeof OS !== 'undefined' && OS?.workers?.fs?.call) {
-          const stamped = await OS.workers.fs.call('stampOwner', ownerUid);
-          if (stamped && typeof stamped.stamped === 'number' && stamped.stamped > 0) {
-            log(`stamped ${stamped.stamped} legacy filesystem rows to the owner`);
-          }
-        }
-      } catch (err) {
-        warn('legacy filesystem stamping failed (rows stay unscoped):', err);
-      }
+    }
+
+    // Schema upgrades and the filesystem worker run later in boot. Enable
+    // account scoping only after physical/web storage moves succeed; the
+    // filesystem worker stamps IndexedDB rows before mounting the VFS.
+    if (scope) {
+      scope.enable();
     }
 
     // The credential keys are deleted at migration time: users.db owns
     // credentials now, and their presence in HKNS would make the legacy
     // lock screen fire on the next boot.
+    let migrationMarked = false;
     if (registry) {
       try {
         registry.remove('HKNS/security/lockPin', { actor: 'migration' });
@@ -213,8 +202,18 @@
       try {
         registry.set(MULTI_USER_FLAG, true, { type: 'REG_BOOL', source: 'migration', actor: 'migration' });
         registry.set(MIGRATION_MARKER, { version: 1, at: Date.now(), ownerUid }, { type: 'REG_JSON', source: 'migration', actor: 'migration' });
+        migrationMarked = true;
       } catch (err) {
         warn('marker write failed:', err);
+      }
+    }
+    if (migrationMarked && !isLinuxRuntime()) {
+      try {
+        for (const hive of ['HKNU', 'HKNA', 'HKND']) {
+          localStorage.removeItem(`nova_registry_hive_${hive}`);
+        }
+      } catch (err) {
+        warn('legacy web hive cleanup failed:', err);
       }
     }
 
@@ -355,18 +354,13 @@
     // Registry hives: localStorage keys nova_registry_hive_<HIVE> →
     // nova_registry_hive_u_<segment>_<HIVE> (the mounted-hive layout).
     const segment = ownerSegment(ownerUid, username);
-    try {
-      for (const hive of ['HKNU', 'HKNA', 'HKND']) {
-        const from = `nova_registry_hive_${hive}`;
-        const to = `nova_registry_hive_u_${segment}_${hive}`;
-        const raw = localStorage.getItem(from);
-        if (raw !== null) {
-          localStorage.setItem(to, raw);
-          localStorage.removeItem(from);
-        }
+    for (const hive of ['HKNU', 'HKNA', 'HKND']) {
+      const from = `nova_registry_hive_${hive}`;
+      const to = `nova_registry_hive_u_${segment}_${hive}`;
+      const raw = localStorage.getItem(from);
+      if (raw !== null && localStorage.getItem(to) === null) {
+        localStorage.setItem(to, raw);
       }
-    } catch (err) {
-      warn('web hive move failed:', err);
     }
     // NovaByte_FS / NovaByte_AppStorage stamp through their v2 upgrades at
     // next open; the LS_MAP keys mirror into per-user files through the

@@ -12,7 +12,7 @@ function validateEnvironment() {
     if (!val) {
       errors.push(`${key} is missing or empty`);
     } else if (!/^[0-9a-f]{32,}$/i.test(val)) {
-      errors.push(`${key} must be a valid hex string (at least 32 characters), got "${val.slice(0, 20)}..."`);
+      errors.push(`${key} must be a valid hex string (at least 32 characters)`);
     }
   }
 

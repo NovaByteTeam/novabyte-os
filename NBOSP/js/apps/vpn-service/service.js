@@ -62,20 +62,11 @@
   }
 
   function syncStatusForApp(appId) {
-    try {
-      const fs = require('fs');
-      const content = fs.readFileSync('/run/novabyte-vpn/status', 'utf8');
-      const [activeId, address] = content.trim().split(/\r?\n/);
-      return activeId === appId && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(address || '');
-    } catch (error) {
-      if (error.code === 'ENOENT') return false;
-      console.error('[VPNService] Could not read native VPN status:', error);
-      return true;
-    }
+    return state.active && state.providerId === appId;
   }
 
   function isPublicIPv4(address) {
-    if (require('net').isIPv4(address) !== 1) return false;
+    if (require('net').isIPv4(address) !== 4) return false;
     const [a, b] = address.split('.').map(Number);
     return a !== 0 && a !== 10 && a !== 127
       && !(a === 100 && b >= 64 && b <= 127)
@@ -148,7 +139,7 @@
     const agent = pinnedAgent(status.address, address);
     try {
       const { WebSocket } = require('undici');
-      const socket = new WebSocket(target.toString(), protocols, { dispatcher: agent });
+      const socket = new WebSocket(target.toString(), { protocols, dispatcher: agent });
       let disposed = false;
       return {
         socket,

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Profile icon">
+  <defs>
+    <!-- Primary 3-stop cyan gradient -->
+    <linearGradient id="prf-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#67e8f9"/>
+      <stop offset="0.55" stop-color="#06b6d4"/>
+      <stop offset="1" stop-color="#0e7490"/>
+    </linearGradient>
+
+    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    <linearGradient id="prf-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cffafe"/>
+      <stop offset="1" stop-color="#67e8f9"/>
+    </linearGradient>
+
+    <!-- Warm amber accent gradient for the floating head -->
+    <linearGradient id="prf-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- Proportional drop shadow for 96x96 viewBox -->
+    <filter id="prf-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Borderless profile bust with soft drop shadow -->
+  <g filter="url(#prf-ds)">
+    <!-- Shoulders / torso base with softly rounded lower corners -->
+    <path d="M18 76c2-17.5 13-26.5 30-26.5s28 9 30 26.5a5 5 0 0 1-5 5.5H23a5 5 0 0 1-5-5.5z" fill="url(#prf-body)"/>
+
+    <!-- Subtle inner collar/shoulder bevel (mirroring cylinder rim detail) -->
+    <path d="M23.5 76.5c1.8-14 11-21.5 24.5-21.5s22.7 7.5 24.5 21.5" fill="none" stroke="#164e63" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+
+    <!-- Floating warm amber head with secondary drop shadow -->
+    <g filter="url(#prf-ds)">
+      <circle cx="48" cy="30.5" r="15.5" fill="url(#prf-accent)"/>
+      <!-- Subtle glossy top-left arc highlight -->
+      <path d="M39.5 25a11.5 11.5 0 0 1 13.5-4.5" fill="none" stroke="#fef9c3" stroke-width="2.2" stroke-linecap="round" opacity="0.75"/>
+    </g>
+  </g>
+</svg>

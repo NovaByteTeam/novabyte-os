@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Flash On icon">
+  <defs>
+    <linearGradient id="fo-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="0.55" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="fo-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bae6fd"/>
+      <stop offset="1" stop-color="#7dd3fc"/>
+    </linearGradient>
+    <linearGradient id="fo-amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="fo-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="fo-clip">
+      <path d="M52 12 L21 53 H43 L41 84 L75 39 H52 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- outer sky-blue flash bolt -->
+  <g filter="url(#fo-ds)">
+    <path d="M52 12 L21 53 H43 L41 84 L75 39 H52 Z" fill="url(#fo-body)" stroke="url(#fo-body)" stroke-width="2.4" stroke-linejoin="round"/>
+    <g clip-path="url(#fo-clip)">
+      <!-- upper facet highlight -->
+      <rect x="19" y="11" width="58" height="23" fill="url(#fo-top)" opacity="0.55"/>
+    </g>
+  </g>
+
+  <!-- inner warm amber flash core -->
+  <g filter="url(#fo-ds)">
+    <path d="M50.5 23.5 L32.5 48.5 H46.5 L45 70 L64 43.5 H50.5 Z" fill="url(#fo-amber)" stroke="url(#fo-amber)" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+</svg>

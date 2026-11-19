@@ -10,7 +10,6 @@
     'com.nbosp.permissions',
     'com.nbosp.sysaccess',
   ]);
-  const appManagerPackageFiles = window.__novaUnrestrictedPackage?.files || {};
   const osSvgIcon = window.svgIcon;
 
   function svgIcon(name, size = 16) {
@@ -18,12 +17,7 @@
       throw new Error('NovaByte icon renderer is unavailable');
     }
 
-    return osSvgIcon(name, size).replace(/src="\/assets\/([^"]+)"/g, (attribute, fileName) => {
-      const encoded = appManagerPackageFiles[`icons/${fileName}`];
-      if (!encoded) return attribute;
-      const mime = fileName.toLowerCase().endsWith('.svg') ? 'image/svg+xml' : 'image/png';
-      return `src="data:${mime};base64,${encoded}"`;
-    });
+    return osSvgIcon(name, size);
   }
 
   // Used only by the legacy launch fallback below. Keep its v2 storage

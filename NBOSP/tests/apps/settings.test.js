@@ -348,7 +348,7 @@ describe("'Settings' app (js/apps/settings)", () => {
   it('saves desktop icon size through the desktopIconSize setting', async () => {
     const { content, nbs } = await loadSettings();
     expect(sidebarBtn(content, 'VPN').querySelector('img').getAttribute('src'))
-      .toBe('/assets/icons8-vpn-icon-94.png');
+      .toBe('/assets/vpn-icon.svg');
     sidebarBtn(content, 'Accessibility').click();
 
     const iconSizeGroup = [...content.querySelectorAll('.nook-group')]
@@ -396,6 +396,7 @@ describe("'Settings' app (js/apps/settings)", () => {
     sidebarBtn(content, 'About').click();
     const about = content.querySelector('.nook-content');
 
+    expect(about.querySelector('.nook-about-body img')?.getAttribute('src')).toBe('/assets/icon.svg');
     expect(about.textContent).toContain('Software Information');
     expect(about.textContent).toContain('NovaByte Version');
     expect(about.textContent).toContain('v3.0.2');

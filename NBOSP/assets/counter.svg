@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Counter icon">
+  <defs>
+    <!-- 3-stop vertical emerald-green gradient for main stopwatch casing -->
+    <linearGradient id="ct-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bbf7d0"/>
+      <stop offset="0.55" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#15803d"/>
+    </linearGradient>
+
+    <!-- Lighter mint-green inner dial face gradient -->
+    <linearGradient id="ct-dial" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dcfce7"/>
+      <stop offset="1" stop-color="#86efac"/>
+    </linearGradient>
+
+    <!-- Vertical warm amber gradient for consistent top-lit crown, pusher & timer hands -->
+    <linearGradient id="ct-amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- Proportional NovaReg drop shadow -->
+    <filter id="ct-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Main Stopwatch Body, Top Crown & Side Pusher -->
+  <g filter="url(#ct-ds)">
+    <!-- Top crown stem & cap (overlaps 2px into casing to prevent anti-aliasing seam) -->
+    <rect x="44.5" y="16" width="7" height="10" rx="2" fill="url(#ct-body)"/>
+    <rect x="39" y="12" width="18" height="6" rx="3" fill="url(#ct-amber)"/>
+
+    <!-- Angled side reset pusher at 45 degrees -->
+    <g transform="translate(70 30) rotate(45)">
+      <rect x="-3" y="-7" width="6" height="11" rx="2.5" fill="url(#ct-amber)"/>
+    </g>
+
+    <!-- Outer emerald casing -->
+    <circle cx="48" cy="53" r="29" fill="url(#ct-body)"/>
+
+    <!-- Inner recessed mint dial face -->
+    <circle cx="48" cy="53" r="21.5" fill="url(#ct-dial)"/>
+    <circle cx="48" cy="53" r="21.5" fill="none" stroke="#14532d" stroke-width="1.4" opacity="0.28"/>
+
+    <!-- Recessed cardinal tick marks -->
+    <rect x="46.6" y="34.5" width="2.8" height="5" rx="1.4" fill="#14532d" opacity="0.38"/>
+    <rect x="46.6" y="66.5" width="2.8" height="5" rx="1.4" fill="#14532d" opacity="0.38"/>
+    <rect x="29.5" y="51.6" width="5" height="2.8" rx="1.4" fill="#14532d" opacity="0.38"/>
+    <rect x="61.5" y="51.6" width="5" height="2.8" rx="1.4" fill="#14532d" opacity="0.38"/>
+  </g>
+
+  <!-- Unified single-path foreground timer hands & center pivot with secondary elevation -->
+  <g filter="url(#ct-ds)">
+    <path d="M48 40.8 A2.2 2.2 0 0 1 50.2 43 V51.7 L60.1 57.5 A2.2 2.2 0 1 1 57.9 61.3 L47.1 55 A2.2 2.2 0 0 1 45.8 53 V43 A2.2 2.2 0 0 1 48 40.8 Z" fill="url(#ct-amber)"/>
+    <circle cx="48" cy="53" r="3.6" fill="url(#ct-body)"/>
+  </g>
+</svg>

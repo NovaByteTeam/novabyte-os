@@ -39,7 +39,14 @@ fi
 nbosp_log_dir=/var/log/nbosp
 nbosp_cache_dir=/var/cache/nbosp
 mkdir -p "$nbosp_log_dir" "$nbosp_cache_dir"
-chown nbosp:nbosp "$nbosp_log_dir" "$nbosp_cache_dir" 2>/dev/null || true
+if [ -L "$nbosp_log_dir" ] || [ ! -d "$nbosp_log_dir" ] ||
+   [ -L "$nbosp_cache_dir" ] || [ ! -d "$nbosp_cache_dir" ]; then
+  echo "NBOSP kiosk: refusing unsafe log or cache directory" >&2
+  exit 1
+fi
+chown root:nbosp "$nbosp_log_dir" 2>/dev/null || exit 1
+chmod 0750 "$nbosp_log_dir" 2>/dev/null || exit 1
+chown nbosp:nbosp "$nbosp_cache_dir" 2>/dev/null || true
 for f in nbosp-kiosk.log vmusr.log nbosp-gl-debug.log \
          xwayland-debug.log xwayland-probe.log xwayland-probe-strace.log \
          xwayland-probe.strace xwayland.strace; do
@@ -53,6 +60,23 @@ done
 # The cache is disposable by definition — once XDG_CACHE_HOME points
 # elsewhere nothing recreates it, so drop the old copy entirely.
 [ -d /home/nbosp/.cache ] && rm -rf /home/nbosp/.cache 2>/dev/null || true
+
+prepare_log_file() {
+  log_file="$nbosp_log_dir/$1"
+  log_owner="$2"
+  log_mode="$3"
+  [ ! -L "$log_file" ] || rm -f "$log_file"
+  : > "$log_file" || return 1
+  chown "$log_owner" "$log_file" && chmod "$log_mode" "$log_file"
+}
+
+for f in kiosk.log gl-debug.log; do
+  prepare_log_file "$f" root:nbosp 0640 || exit 1
+done
+for f in xwayland-debug.log xwayland-probe.log xwayland-probe-strace.log \
+         xwayland-probe.strace xwayland.strace; do
+  prepare_log_file "$f" nbosp:nbosp 0660 || exit 1
+done
 
 GL_DEBUG_LOG="$nbosp_log_dir/gl-debug.log"
 
@@ -88,7 +112,7 @@ nbosp_gl_debug_setup() {
 # Installed by S99nbosp (NBOSP_GL_DEBUG). wlroots runs this instead of Xwayland.
 LOG=/var/log/nbosp/xwayland-debug.log
 echo "=== $(date) Xwayland wrapper: $*" >> "$LOG"
-export LD_DEBUG=libs LD_DEBUG_OUTPUT=/var/log/nbosp/xwayland-ld
+export LD_DEBUG=libs
 # strace is opt-in (NBOSP_GL_STRACE=1). As the parent of Xwayland it can break
 # labwc's startup handshake, which killed the first debug boot.
 if [ "@STRACE@" = 1 ] && [ -x /usr/bin/strace ]; then
@@ -112,8 +136,8 @@ XWRAP
   sed -i "s/@STRACE@/${NBOSP_GL_STRACE:-0}/" /run/nbosp-debug-bin/Xwayland
   chmod 0755 /run/nbosp-debug-bin/Xwayland
   rm -f /var/log/nbosp/xwayland-debug.log /var/log/nbosp/xwayland-ld.* /var/log/nbosp/xwayland.strace
-  : > /var/log/nbosp/xwayland-debug.log
-  chown nbosp:nbosp /var/log/nbosp/xwayland-debug.log 2>/dev/null || true
+  prepare_log_file xwayland-debug.log nbosp:nbosp 0660 || return 1
+  prepare_log_file xwayland.strace nbosp:nbosp 0660 || return 1
 
   # WLR_XWAYLAND is honoured by wlroots; the PATH prefix is a fallback in case
   # it execs plain "Xwayland". Values must not contain quotes or dollar signs.
@@ -178,9 +202,13 @@ nbosp_gl_debug_dump() {
   # Probe: a second Xwayland on :7 against the running labwc, with full verbosity.
   # Its log should say why glamor falls back, without touching labwc's own Xwayland.
   rm -f /var/log/nbosp/xwayland-probe.log
+  prepare_log_file xwayland-probe.log nbosp:nbosp 0660 || return 1
   su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/Xwayland :7 -rootless -verbose 10 -noreset > /var/log/nbosp/xwayland-probe.log 2>&1 & p=$!; sleep 6; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null; echo "probe exit handled" >> /var/log/nbosp/xwayland-probe.log'
   # Same probe under strace (failed calls only) to catch the lookup glamor trips on.
   rm -f /var/log/nbosp/xwayland-probe.strace
+  rm -f /var/log/nbosp/xwayland-probe-strace.log
+  prepare_log_file xwayland-probe.strace nbosp:nbosp 0660 || return 1
+  prepare_log_file xwayland-probe-strace.log nbosp:nbosp 0660 || return 1
   if [ -x /usr/bin/strace ]; then
     su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/strace -f -qq -Z -s 200 -o /var/log/nbosp/xwayland-probe.strace -e trace=file,ioctl,connect /usr/bin/Xwayland :8 -rootless -verbose 10 -noreset > /var/log/nbosp/xwayland-probe-strace.log 2>&1 & p=$!; sleep 8; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null' </dev/null >/dev/null 2>&1
   fi </dev/null >/dev/null 2>&1
@@ -256,7 +284,6 @@ nbosp_gl_debug_dump() {
     echo "===== END NBOSP GL DEBUG DUMP ====="
   } >> "$out" 2>&1
 
-  chown nbosp:nbosp "$out" 2>/dev/null || true
   cat "$out" > /dev/ttyS0 2>/dev/null || true
   cat "$out" >> /var/log/nbosp/kiosk.log 2>/dev/null || true
 }
@@ -284,9 +311,27 @@ case "$1" in
     mkdir -p "$runtime_dir"
     chown nbosp:nbosp "$runtime_dir"
     chmod 0700 "$runtime_dir"
-    mkdir -p /home/nbosp/.config/novabyte
-    mkdir -p /home/nbosp/.config/novabyte/runtime
-    chown nbosp:nbosp /home/nbosp/.config /home/nbosp/.config/novabyte /home/nbosp/.config/novabyte/runtime
+    ensure_nbosp_dir() {
+      dir="$1"
+      if [ -L "$dir" ]; then
+        echo "NBOSP kiosk: refusing symlinked user directory: $dir" >&2
+        return 1
+      fi
+      mkdir -p "$dir" || return 1
+      if [ ! -d "$dir" ] || [ -L "$dir" ]; then
+        echo "NBOSP kiosk: user directory is unsafe: $dir" >&2
+        return 1
+      fi
+      chown nbosp:nbosp "$dir"
+    }
+    if [ -L /home/nbosp ] ||
+       ! ensure_nbosp_dir /home/nbosp/.config ||
+       ! ensure_nbosp_dir /home/nbosp/.config/novabyte ||
+       ! ensure_nbosp_dir /home/nbosp/.config/novabyte/runtime ||
+       ! ensure_nbosp_dir /home/nbosp/.config/novabyte/Default; then
+      echo "NBOSP kiosk: could not safely prepare the user configuration directories" >&2
+      exit 1
+    fi
 
     attempt=0
     while [ "$attempt" -lt 30 ]; do
@@ -380,7 +425,9 @@ case "$1" in
     fi
     keyboard_layout=us
     keyboard_layout_file=/home/nbosp/.config/novabyte/keyboard-layout
-    if [ -f "$keyboard_layout_file" ]; then
+    if [ -L "$keyboard_layout_file" ]; then
+      echo "NBOSP kiosk: refusing symlinked keyboard layout; using us" >&2
+    elif [ -f "$keyboard_layout_file" ]; then
       keyboard_layout="$(cat "$keyboard_layout_file")"
     fi
     case "$keyboard_layout" in
@@ -397,6 +444,10 @@ case "$1" in
     # the Preferences file does not exist yet leaves user profile state (which
     # Chromium owns afterwards) untouched on later boots.
     profile_dir=/home/nbosp/.config/novabyte/Default
+    if [ -L "$profile_dir/Preferences" ]; then
+      echo "NBOSP kiosk: refusing symlinked Chromium preferences" >&2
+      exit 1
+    fi
     if [ ! -f "$profile_dir/Preferences" ]; then
       mkdir -p "$profile_dir" 2>/dev/null || true
       cat > "$profile_dir/Preferences" <<'PREFS'

@@ -14,54 +14,86 @@
 // life of the OS session.
 
 const ServerEventsBridge = {
-  _source: null,
+  _controller: null,
+  _retryTimer: null,
   _retryMs: 1000,
   _maxRetryMs: 30000,
+  _stopped: false,
 
   start() {
-    if (ServerEventsBridge._source) return; // already running
+    if (ServerEventsBridge._controller || ServerEventsBridge._retryTimer) return;
+    ServerEventsBridge._stopped = false;
     ServerEventsBridge._connect();
   },
 
-  _connect() {
-    let es;
-    try {
-      es = new EventSource('/api/events/stream');
-    } catch (e) {
-      console.error('[ServerEventsBridge] EventSource construction failed:', e.message);
-      ServerEventsBridge._scheduleReconnect();
-      return;
-    }
-    ServerEventsBridge._source = es;
+  stop() {
+    ServerEventsBridge._stopped = true;
+    clearTimeout(ServerEventsBridge._retryTimer);
+    ServerEventsBridge._retryTimer = null;
+    ServerEventsBridge._controller?.abort();
+    ServerEventsBridge._controller = null;
+  },
+
+  async _connect() {
+    if (ServerEventsBridge._stopped || ServerEventsBridge._controller) return;
+    const controller = new AbortController();
+    ServerEventsBridge._controller = controller;
     console.log('[ServerEventsBridge] Connecting to /api/events/stream...');
 
-    es.onopen = () => {
+    try {
+      const response = await fetch('/api/events/stream', {
+        headers: { Accept: 'text/event-stream' },
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Event stream returned HTTP ${response.status}`);
+      if (!response.body) throw new Error('Event stream response has no readable body');
       ServerEventsBridge._retryMs = 1000;
       console.log('[ServerEventsBridge] Connected');
-    };
 
-    es.onmessage = (evt) => {
-      try {
-        const entry = JSON.parse(evt.data);
-        console.log('[ServerEventsBridge] Received:', entry.app, entry.message);
-        if (typeof window.EventLog?.ingestRemote === 'function') {
-          window.EventLog.ingestRemote(entry);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (!controller.signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, '\n');
+        let boundary;
+        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const data = frame.split('\n')
+            .filter(line => line.startsWith('data:'))
+            .map(line => line.slice(5).replace(/^ /, ''))
+            .join('\n');
+          if (!data) continue;
+          try {
+            const entry = JSON.parse(data);
+            console.log('[ServerEventsBridge] Received:', entry.app, entry.message);
+            if (typeof window.EventLog?.ingestRemote === 'function') {
+              window.EventLog.ingestRemote(entry);
+            }
+          } catch (error) {
+            console.error('[ServerEventsBridge] Malformed frame:', error.message);
+          }
         }
-      } catch (e) {
-        console.error('[ServerEventsBridge] Malformed frame:', e.message);
       }
-    };
-
-    es.onerror = () => {
-      console.warn('[ServerEventsBridge] Connection error, scheduling reconnect...');
-      es.close();
-      ServerEventsBridge._source = null;
-      ServerEventsBridge._scheduleReconnect();
-    };
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        console.warn('[ServerEventsBridge] Connection error, scheduling reconnect:', error.message);
+      }
+    } finally {
+      if (ServerEventsBridge._controller === controller) {
+        ServerEventsBridge._controller = null;
+        if (!ServerEventsBridge._stopped) ServerEventsBridge._scheduleReconnect();
+      }
+    }
   },
 
   _scheduleReconnect() {
-    setTimeout(() => {
+    if (ServerEventsBridge._stopped || ServerEventsBridge._retryTimer) return;
+    ServerEventsBridge._retryTimer = setTimeout(() => {
+      ServerEventsBridge._retryTimer = null;
       ServerEventsBridge._connect();
     }, ServerEventsBridge._retryMs);
     ServerEventsBridge._retryMs = Math.min(ServerEventsBridge._retryMs * 2, ServerEventsBridge._maxRetryMs);

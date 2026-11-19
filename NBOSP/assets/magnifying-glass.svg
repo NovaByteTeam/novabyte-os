@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Magnifying Glass icon">
+  <defs>
+    <linearGradient id="mg-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="0.55" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="mg-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fef3c7"/>
+      <stop offset="1" stop-color="#fde68a"/>
+    </linearGradient>
+    <linearGradient id="mg-lens" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bae6fd"/>
+      <stop offset="0.55" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <filter id="mg-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="mg-ring-clip">
+      <circle cx="40" cy="40" r="25"/>
+    </clipPath>
+    <clipPath id="mg-lens-clip">
+      <circle cx="40" cy="40" r="17"/>
+    </clipPath>
+  </defs>
+
+  <!-- gold bezel & rotated handle base -->
+  <g filter="url(#mg-ds)">
+    <g transform="translate(40 40) rotate(45)">
+      <!-- tucked 3px inside the r=25 bezel for a seamless joint -->
+      <rect x="22" y="-5.5" width="36" height="11" rx="5.5" fill="url(#mg-body)"/>
+      <!-- recessed collar groove -->
+      <rect x="25.5" y="-5.5" width="3" height="11" fill="#92400e" opacity="0.38"/>
+    </g>
+
+    <g clip-path="url(#mg-ring-clip)">
+      <circle cx="40" cy="40" r="25" fill="url(#mg-body)"/>
+      <!-- top bezel highlight -->
+      <ellipse cx="40" cy="24" rx="22" ry="11" fill="url(#mg-top)" opacity="0.55"/>
+      <!-- recessed inner rim -->
+      <circle cx="40" cy="40" r="18.2" fill="none" stroke="#92400e" stroke-width="2" opacity="0.38"/>
+    </g>
+  </g>
+
+  <!-- sky-blue focal optical lens -->
+  <g filter="url(#mg-ds)">
+    <g clip-path="url(#mg-lens-clip)">
+      <circle cx="40" cy="40" r="17" fill="url(#mg-lens)"/>
+      <path d="M29 33 A13 13 0 0 1 48 28.5" fill="none" stroke="#e0f2fe" stroke-width="3.2" stroke-linecap="round" opacity="0.85"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Registry icon">
+  <defs>
+    <!-- Primary 3-stop warm amber-gold gradient -->
+    <linearGradient id="reg-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="0.55" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+
+    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    <linearGradient id="reg-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fef9c3"/>
+      <stop offset="1" stop-color="#fde68a"/>
+    </linearGradient>
+
+    <!-- Cool sky-blue accent gradient (matching your NovaReg cylinder) -->
+    <linearGradient id="reg-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+
+    <!-- Proportional drop shadow for 96x96 viewBox -->
+    <filter id="reg-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Borderless registry ledger card with soft drop shadow -->
+  <g filter="url(#reg-ds)">
+    <!-- Main registry sheet (centred cleanly at y=14 to y=82) -->
+    <rect x="17" y="14" width="62" height="68" rx="9" fill="url(#reg-body)"/>
+
+    <!-- Subtle inner ledger frame (mirroring the cylinder rim detail) -->
+    <rect x="21.5" y="18.5" width="53" height="59" rx="6" fill="none" stroke="#92400e" stroke-width="2" opacity="0.35"/>
+
+    <!-- Top gloss highlight bar -->
+    <path d="M27 16.5h42" fill="none" stroke="url(#reg-top)" stroke-width="2" stroke-linecap="round" opacity="0.75"/>
+
+    <!-- Solid rounded registry entry bars -->
+    <rect x="28" y="28" width="40" height="4.5" rx="2.25" fill="url(#reg-top)"/>
+    <rect x="28" y="40" width="40" height="4.5" rx="2.25" fill="url(#reg-top)" opacity="0.9"/>
+    <rect x="28" y="52" width="23" height="4.5" rx="2.25" fill="url(#reg-top)" opacity="0.85"/>
+
+    <!-- Subtle translucent footer divider groove (replacing the heavy dark stroke) -->
+    <rect x="28" y="68" width="40" height="3.6" rx="1.8" fill="#92400e" opacity="0.38"/>
+
+    <!-- Floating sky-blue verified registry badge/seal with secondary drop shadow -->
+    <g filter="url(#reg-ds)">
+      <circle cx="62" cy="54.25" r="7.5" fill="url(#reg-accent)"/>
+      <circle cx="62" cy="54.25" r="3" fill="#1e3a8a" opacity="0.55"/>
+    </g>
+  </g>
+</svg>

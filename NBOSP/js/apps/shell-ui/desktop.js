@@ -479,7 +479,10 @@ const OPFS = {
         this.available = false;
       }
       return this.available;
-    })();
+    })().catch(error => {
+      this._initPromise = null;
+      throw error;
+    });
     return this._initPromise;
   },
 
@@ -783,6 +786,9 @@ const OPFS = {
           db.createObjectStore('blobs');
         }
       };
+    }).catch(error => {
+      this._dbPromise = null;
+      throw error;
     });
     return this._dbPromise;
   },

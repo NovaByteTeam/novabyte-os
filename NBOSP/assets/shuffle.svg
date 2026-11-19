@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Shuffle icon">
+  <defs>
+    <!-- Primary 3-stop vibrant red gradient -->
+    <linearGradient id="sh-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fca5a5"/>
+      <stop offset="0.55" stop-color="#ef4444"/>
+      <stop offset="1" stop-color="#b91c1c"/>
+    </linearGradient>
+
+    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    <linearGradient id="sh-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fee2e2"/>
+      <stop offset="1" stop-color="#fca5a5"/>
+    </linearGradient>
+
+    <!-- Warm amber accent gradient for the overlapping forward path -->
+    <linearGradient id="sh-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- Proportional drop shadow for 96x96 viewBox -->
+    <filter id="sh-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Borderless shuffle arrows with soft drop shadow -->
+  <g filter="url(#sh-ds)">
+    <!-- Under-layer path: bottom-left rising smoothly to top-right (red gradient) -->
+    <path d="M16 67h11c16 0 22-38 38-38h13" fill="none" stroke="url(#sh-body)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M68 20l11 9-11 9" fill="none" stroke="url(#sh-body)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Subtle top highlight on the red upper curve -->
+    <path d="M66 28.5h11" fill="none" stroke="url(#sh-top)" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+
+    <!-- Over-layer path: top-left crossing cleanly to bottom-right (warm amber with secondary shadow) -->
+    <g filter="url(#sh-ds)">
+      <path d="M16 29h11c16 0 22 38 38 38h13" fill="none" stroke="url(#sh-accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M68 58l11 9-11 9" fill="none" stroke="url(#sh-accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>

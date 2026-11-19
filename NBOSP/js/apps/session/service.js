@@ -149,14 +149,20 @@
     }
   }
 
-  function teardownDesktop() {
-    try {
-      if (typeof OS !== 'undefined' && OS.windows) {
-        for (const id of [...OS.windows.keys()]) {
-          try { WM.closeWindow(id, { forceKill: true }); } catch (_) { }
+  async function teardownDesktop() {
+    if (typeof OS !== 'undefined' && OS.windows) {
+      const closes = [...OS.windows.keys()].map((id) => {
+        try {
+          return Promise.resolve(WM.closeWindow(id, { forceKill: true })).catch((err) => {
+            console.error(`[SessionManager] Could not close window ${id}:`, err);
+          });
+        } catch (err) {
+          console.error(`[SessionManager] Could not close window ${id}:`, err);
+          return Promise.resolve();
         }
-      }
-    } catch (_) { }
+      });
+      await Promise.all(closes);
+    }
     try { WM?.updateTaskbar?.(); } catch (_) { }
   }
 
@@ -202,27 +208,33 @@
     // 1. Registry: mount this account's HKNU/HKNA/HKND from its own files,
     //    addressed by the username segment (legacy uid segment fallback).
     try {
-      if (typeof NovaRegistry !== 'undefined' && NovaRegistry?.mountUserHives) {
-        const segment = username || user.uid;
-        NovaRegistry.mountUserHives(isGuest ? 'guest' : segment, { volatile: isGuest });
+      if (typeof NovaRegistry === 'undefined' || typeof NovaRegistry.mountUserHives !== 'function') {
+        throw new Error('Account registry mounts are unavailable');
       }
+      const segment = username || user.uid;
+      NovaRegistry.mountUserHives(isGuest ? 'guest' : segment, { volatile: isGuest });
     } catch (err) {
       console.error('[SessionManager] Mounting user hives failed:', err);
+      throw err;
     }
 
     // 2. Settings: re-hydrate the cache from the freshly mounted hives.
     try { await OS.settings.load(); } catch (err) {
       console.warn('[SessionManager] Settings re-hydration failed:', err);
+      throw err;
     }
 
     // 3. VFS: re-root the filesystem service onto this account's tree —
     //    ~/users/<username>/ itself (guests get their volatile tree).
     try {
-      if (typeof FS !== 'undefined' && FS?.setUserRoot) {
-        await FS.setUserRoot(isGuest ? 'guest' : user.uid, { guest: isGuest, username });
+      if (typeof FS === 'undefined' || typeof FS.setUserRoot !== 'function') {
+        throw new Error('Filesystem account mounts are unavailable');
       }
+      const mounted = await FS.setUserRoot(isGuest ? 'guest' : user.uid, { guest: isGuest, username });
+      if (mounted !== true) throw new Error('Filesystem account mount was refused');
     } catch (err) {
       console.error('[SessionManager] VFS re-root failed:', err);
+      throw err;
     }
 
     // 4. Re-apply the account's shell appearance.
@@ -310,6 +322,50 @@
     }
   }
 
+  async function mountSessionUser(user, options) {
+    try {
+      await mountUserScope(user, options);
+      return true;
+    } catch (error) {
+      console.error('[SessionManager] Account mount failed; ending the partial session:', error);
+      if (state.token) {
+        const result = await authFetch('/api/auth/logout', {
+          method: 'POST',
+          bearer: { token: state.token, csrfToken: state.csrfToken },
+        });
+        if (!result.ok && !['AUTH_REQUIRED', 'NO_SESSION'].includes(result.json?.code)) {
+          console.error('[SessionManager] Could not revoke the partially mounted session:', result.error || result.json?.message || result.status);
+        }
+      }
+      try { await teardownDesktop(); } catch (err) {
+        console.error('[SessionManager] Partial desktop teardown failed:', err);
+      }
+      try {
+        if (typeof NovaUserScope !== 'undefined') {
+          NovaUserScope.clearActive?.();
+          NovaUserScope.setActiveRole?.(null);
+        }
+      } catch (err) {
+        console.error('[SessionManager] Could not clear partial user scope:', err);
+      }
+      try {
+        if (typeof NovaRegistry !== 'undefined') NovaRegistry.unmountUserHives?.();
+      } catch (err) {
+        console.error('[SessionManager] Could not unmount partial user hives:', err);
+      }
+      try {
+        if (typeof FS !== 'undefined') await FS.setUserRoot?.(null);
+      } catch (err) {
+        console.error('[SessionManager] Could not restore the machine filesystem mount:', err);
+      }
+      state.status = 'loggedout';
+      state.uid = state.uname = state.displayName = state.role = null;
+      state.token = state.csrfToken = null;
+      state.mustChangePin = false;
+      return false;
+    }
+  }
+
   function applyLoginResult(data) {
     state.token = data.sessionId;
     state.csrfToken = data.csrfToken;
@@ -338,9 +394,11 @@
       return { ok: false, code: json?.code || `HTTP_${status}`, message: json?.message || _t('apps.session.loginFailed'), retryAfterMs: json?.retryAfterMs };
     }
     applyLoginResult(json.data);
-    suspendedSessions.delete(state.uid);
     state.status = 'active';
-    await mountUserScope(json.data.user);
+    if (!await mountSessionUser(json.data.user)) {
+      return { ok: false, code: 'USER_MOUNT_FAILED', message: _t('apps.session.mountFailed') };
+    }
+    suspendedSessions.delete(state.uid);
     emit('session:changed', { uid: state.uid, role: state.role, via: state.via, mustChangePin: state.mustChangePin });
     return { ok: true, user: json.data.user, mustChangePin: state.mustChangePin };
   }
@@ -391,9 +449,11 @@
       return { ok: false, code: finish.json?.code || 'WEBAUTHN_INVALID', message: finish.json?.message || _t('apps.session.biometricFailed') };
     }
     applyLoginResult(finish.json.data);
-    suspendedSessions.delete(state.uid);
     state.status = 'active';
-    await mountUserScope(finish.json.data.user);
+    if (!await mountSessionUser(finish.json.data.user)) {
+      return { ok: false, code: 'USER_MOUNT_FAILED', message: _t('apps.session.mountFailed') };
+    }
+    suspendedSessions.delete(state.uid);
     emit('session:changed', { uid: state.uid, role: state.role, via: 'webauthn' });
     // mustChangePin rides along so the lock screen can route a must-change
     // account onto the forced new-PIN card (same contract as login/unlock).
@@ -414,7 +474,9 @@
     }
     applyLoginResult(json.data);
     state.status = 'active';
-    await mountUserScope(json.data.user);
+    if (!await mountSessionUser(json.data.user)) {
+      return { ok: false, code: 'USER_MOUNT_FAILED', message: _t('apps.session.mountFailed') };
+    }
     emit('session:changed', { uid: state.uid, role: state.role, via: 'setup' });
     return { ok: true, user: json.data.user };
   }
@@ -427,10 +489,10 @@
     if (state.status === 'loggedout') return { ok: true };
     const uid = state.uid;
     const uname = state.uname;
+    await teardownDesktop();
     flushCurrentUserHives();
     discardGuestApps();
     flushLocalStorageToUser();
-    teardownDesktop();
     if (typeof NovaUserScope !== 'undefined') {
       NovaUserScope.clearActive();
       NovaUserScope.setActiveRole(null);
@@ -473,7 +535,9 @@
     // which handed the guest (and anyone watching) the last account's files.
     // Guests now mount their own volatile tree/hives/app roots through the
     // same sequence every other session uses.
-    await mountUserScope({ uid: 'guest', username: '', role: 'guest' }, { volatile: true });
+    if (!await mountSessionUser({ uid: 'guest', username: '', role: 'guest' }, { volatile: true })) {
+      return { ok: false, code: 'USER_MOUNT_FAILED', message: _t('apps.session.mountFailed') };
+    }
     // BUG (2026-11-15 audit, finding M10): this event carries uid:null and
     // no phase, and the lock screen's listener treats exactly that shape as
     // "user signed out" — so the login picker re-appeared over every guest
@@ -519,13 +583,15 @@
     if (bearer && bearer.token !== state.token) {
       // Resuming a parked session: adopt its identity back.
       applyLoginResult(result.json.data);
-      suspendedSessions.delete(result.json.data.user?.uid);
       state.mustChangePin = !!result.json.data.mustChangePin;
     }
     state.status = 'active';
     emit(wasSuspended ? 'session:resumed' : 'session:unlocked', { uid: state.uid });
     if (wasSuspended) {
-      await mountUserScope(result.json.data.user);
+      if (!await mountSessionUser(result.json.data.user)) {
+        return { ok: false, code: 'USER_MOUNT_FAILED', message: _t('apps.session.mountFailed') };
+      }
+      suspendedSessions.delete(result.json.data.user?.uid);
       emit('session:changed', { uid: state.uid, role: state.role, via: 'resume' });
     }
     return { ok: true, mustChangePin: !!result.json.data.mustChangePin };
@@ -543,14 +609,23 @@
     const parked = { token: state.token, csrfToken: state.csrfToken, uname: state.uname, role: state.role, parkedAt: Date.now() };
     const result = await authFetch('/api/auth/suspend', { method: 'POST' });
     const serverSessionMissing = ['AUTH_REQUIRED', 'NO_SESSION'].includes(result.json?.code);
+    if ((!result.ok || result.json?.success !== true) && !serverSessionMissing) {
+      return {
+        ok: false,
+        code: result.json?.code || `HTTP_${result.status}`,
+        message: result.json?.message || result.error || _t('apps.session.switchFailed'),
+      };
+    }
     if (uid && state.token && !serverSessionMissing) suspendedSessions.set(uid, parked);
     else if (serverSessionMissing && uid) suspendedSessions.delete(uid);
+    // Close windows before flushing so their final geometry is persisted to
+    // the departing account's hive, never to the next account's.
+    await teardownDesktop();
     // Memory-disciplined switch: apps close (the snapshot restores layout
     // on return), hives and user-data keys flush into the departing tree.
     flushCurrentUserHives();
     discardGuestApps();
     flushLocalStorageToUser();
-    teardownDesktop();
     // The departing account's dev HUD comes down with its session (the
     // lock gate hides it too); the next account's mountUserScope re-applies
     // its own dev surface. OS.dnd/OS.volume need no reset — the next mount
@@ -575,7 +650,7 @@
     }
     if (!serverSessionMissing) emit('session:suspended', { uid });
     emit('session:changed', { uid: null, switchedFrom: uid, sessionRevoked: serverSessionMissing });
-    return { ok: result.ok && result.json?.success !== false, parked: serverSessionMissing ? null : parked, sessionRevoked: serverSessionMissing };
+    return { ok: !serverSessionMissing, parked: serverSessionMissing ? null : parked, sessionRevoked: serverSessionMissing };
   }
 
   /** Switch to another account by authenticating as them (picker flow). */
@@ -604,8 +679,6 @@
       }
       return result;
     }
-    await mountUserScope({ uid, username: parked.uname, role: parked.role });
-    emit('session:changed', { uid, role: parked.role, via: 'resume' });
     return result;
   }
 

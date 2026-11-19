@@ -332,7 +332,7 @@ describe('Contacts app (js/apps/contacts/app.js) — e2e coverage', () => {
       const emailRow = infoRow(content, 'ada@example.com');
       expect(emailRow).toBeTruthy();
       expect(emailRow.style.cursor).toBe('pointer');
-      expect(emailRow.querySelector('img').getAttribute('src')).toBe('/assets/icons8-mail-94.png');
+      expect(emailRow.querySelector('img').getAttribute('src')).toBe('/assets/mail.svg');
       emailRow.dispatchEvent(new window.Event('mouseenter'));
       expect(emailRow.style.background).toBe('var(--bg-hover)');
       emailRow.dispatchEvent(new window.Event('mouseleave'));
@@ -348,7 +348,7 @@ describe('Contacts app (js/apps/contacts/app.js) — e2e coverage', () => {
       const phoneRow = infoRow(content, '+1 555 0100');
       expect(phoneRow.style.cursor).toBe('pointer');
       const img = phoneRow.querySelector('img');
-      expect(img.getAttribute('src')).toBe('/assets/icons8-call-94.png');
+      expect(img.getAttribute('src')).toBe('/assets/call.svg');
       expect(img.width).toBe(15);
       expect(img.draggable).toBe(false);
       img.dispatchEvent(new window.Event('error'));

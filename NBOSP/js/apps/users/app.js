@@ -642,7 +642,9 @@ registerApp({
           toast(_t('apps.users.signInUnavailable'), true);
           return;
         }
-        transition.catch(error => toast(error?.message || _t('apps.users.signInUnavailable'), true));
+        transition.then(result => {
+          if (result === false) toast(_t('apps.users.signInUnavailable'), true);
+        }).catch(error => toast(error?.message || _t('apps.users.signInUnavailable'), true));
       }, { signal });
       actions.appendChild(copy);
       actions.appendChild(signIn);

@@ -39,13 +39,46 @@
   // app id. Bundled system packages are machine-wide and stay at apps/<id>.
   // `app` is optional; lookups by bare id fall back to the account's tree.
   function storagePathForApp(id, app) {
+    const appId = safeAppId(id);
+    if (!appId || appId === '.' || appId === '..') {
+      throw new Error('Invalid app id for package storage');
+    }
     const state = sysState();
     const machineWide = app && typeof state?.isMachineApp === 'function' && state.isMachineApp(app);
     const owner = machineWide || typeof state?.scopedUid !== 'function'
       ? ''
       : String(state.scopedUid() || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (owner === '.' || owner === '..') throw new Error('Invalid account id for package storage');
     const root = owner ? `${APP_ROOT}/@users/${owner}` : APP_ROOT;
-    return `${root}/${safeAppId(id)}`;
+    return `${root}/${appId}`;
+  }
+
+  function resolveStoragePath(app) {
+    const id = app?.id;
+    const appId = safeAppId(id);
+    if (!appId || appId === '.' || appId === '..') {
+      throw new Error('Invalid app id for package storage');
+    }
+
+    const expected = storagePathForApp(id, app);
+    const stored = app.storagePath;
+    if (!stored || stored === expected) return expected;
+
+    // The original single-user installs lived at apps/<id>. Only the legacy
+    // owner may clean up that location after moving to per-user storage.
+    const state = sysState();
+    const userScope = typeof window !== 'undefined' ? window.NovaUserScope : null;
+    const currentUid = typeof state?.scopedUid === 'function' ? state.scopedUid() : '';
+    const legacyOwnerUid = typeof userScope?.legacyOwnerUid === 'function'
+      ? userScope.legacyOwnerUid()
+      : '';
+    const legacyPath = `${APP_ROOT}/${appId}`;
+    if (stored === legacyPath && currentUid && currentUid === legacyOwnerUid &&
+        !(typeof state?.isMachineApp === 'function' && state.isMachineApp(app))) {
+      return legacyPath;
+    }
+
+    throw new Error(`Package storage path is outside the app's account scope: ${stored}`);
   }
 
   function normalizePackagePath(path) {
@@ -90,7 +123,7 @@
       meta[key] = value;
     }
     meta.storageVersion = extra.storageVersion || meta.storageVersion || STORAGE_VERSION;
-    meta.storagePath = extra.storagePath || meta.storagePath || storagePathForApp(meta.id);
+    meta.storagePath = extra.storagePath || storagePathForApp(meta.id, meta);
     if (Number.isFinite(extra.fileCount)) meta.fileCount = extra.fileCount;
     if (Number.isFinite(extra.packageSize)) meta.packageSize = extra.packageSize;
     return meta;
@@ -143,54 +176,48 @@
 
   async function removeStoredFiles(appOrMeta) {
     await ensureReady();
-    const storagePath = appOrMeta?.storagePath || storagePathForApp(appOrMeta?.id);
-    if (!storagePath) return false;
+    const storagePath = resolveStoragePath(appOrMeta);
 
-    let index = null;
-    try { index = await readFileIndex(storagePath); }
-    catch { index = null; }
+    const index = await readFileIndex(storagePath);
 
     if (Array.isArray(index?.files)) {
       for (const file of index.files) {
-        const path = file.storagePath || `${storagePath}/files/${file.path}`;
-        await OPFS.deleteBlob(path).catch(() => {});
+        let relPath;
+        try {
+          relPath = normalizePackagePath(file?.path);
+        } catch {
+          // Ignore malformed index entries; never let them choose a deletion path.
+          continue;
+        }
+        await OPFS.deleteBlob(`${storagePath}/files/${relPath}`);
       }
     }
 
-    await OPFS.deleteBlob(`${storagePath}/files.index.json`).catch(() => {});
-    await OPFS.deleteBlob(`${storagePath}/app.json`).catch(() => {});
-    await OPFS.deleteBlob(`${storagePath}/manifest.json`).catch(() => {});
-    await OPFS.deletePath(storagePath, true).catch(() => {});
+    await OPFS.deleteBlob(`${storagePath}/files.index.json`);
+    await OPFS.deleteBlob(`${storagePath}/app.json`);
+    await OPFS.deleteBlob(`${storagePath}/manifest.json`);
+    await OPFS.deletePath(storagePath, true);
     return true;
   }
 
-  async function installApp(appData) {
-    if (!appData?.id) throw new Error('App id is required');
-    if (!appData.files || typeof appData.files !== 'object') throw new Error('Package files are required');
-
-    await ensureReady();
-
-    const storagePath = storagePathForApp(appData.id, appData);
-    await removeStoredFiles({ id: appData.id, storagePath }).catch(() => {});
-
-    // Reinstalling an app that predates per-account storage (legacy owner
-    // upgrading it) moves it to the new tree; clear the old copy so it
-    // isn't orphaned. Only ever this account's own entry, so it can't touch
-    // another user's files.
-    const previous = loadRegistry().find(app => app.id === appData.id);
-    if (previous?.storagePath && previous.storagePath !== storagePath) {
-      await removeStoredFiles(previous).catch(() => {});
-    }
-    await OPFS.ensureDirectory(`${storagePath}/files`).catch(() => null);
-
-    const fileIndex = [];
-    let packageSize = 0;
-
+  function preparePackageFiles(appData) {
+    const files = [];
     for (const [rawPath, encoded] of Object.entries(appData.files)) {
       if (typeof encoded !== 'string') continue;
       const relPath = normalizePackagePath(rawPath);
-      const filePath = `${storagePath}/files/${relPath}`;
       const blob = base64ToBlob(encoded, guessMime(relPath));
+      files.push({ relPath, blob });
+    }
+    return files;
+  }
+
+  async function writePackageFiles(appData, storagePath, preparedFiles) {
+    await OPFS.ensureDirectory(`${storagePath}/files`);
+
+    const fileIndex = [];
+    let packageSize = 0;
+    for (const { relPath, blob } of preparedFiles) {
+      const filePath = `${storagePath}/files/${relPath}`;
       await OPFS.writeBlob(filePath, blob, blob.type || 'application/octet-stream');
       packageSize += blob.size || 0;
       fileIndex.push({
@@ -214,8 +241,59 @@
     }, null, 2), 'application/json');
     await OPFS.writeText(`${storagePath}/manifest.json`, JSON.stringify(appData.manifest || metadata, null, 2), 'application/json');
     await OPFS.writeText(`${storagePath}/app.json`, JSON.stringify(metadata, null, 2), 'application/json');
-
     return metadata;
+  }
+
+  async function installApp(appData) {
+    if (!appData?.id) throw new Error('App id is required');
+    if (!appData.files || typeof appData.files !== 'object') throw new Error('Package files are required');
+
+    await ensureReady();
+
+    const storagePath = storagePathForApp(appData.id, appData);
+    const preparedFiles = preparePackageFiles(appData);
+    const previous = loadRegistry().find(app => app.id === appData.id);
+    let previousPackage = null;
+    let previousStoragePath = null;
+    let previousFiles = null;
+    if (previous) {
+      previousStoragePath = resolveStoragePath(previous);
+      previousPackage = await hydrateApp(previous, { migrateLegacy: false });
+      if (!previousPackage?.files || typeof previousPackage.files !== 'object') {
+        throw new Error(`Cannot safely replace ${appData.id}: the previous package contents are unavailable`);
+      }
+      previousFiles = preparePackageFiles(previousPackage);
+    }
+
+    try {
+      await removeStoredFiles({ id: appData.id, storagePath });
+      const metadata = await writePackageFiles(appData, storagePath, preparedFiles);
+
+      // Reinstalling an app that predates per-account storage (legacy owner
+      // upgrading it) moves it to the new tree; remove the old copy only after
+      // the replacement has been fully written.
+      if (previous && previousStoragePath !== storagePath) {
+        try { await removeStoredFiles(previous); }
+        catch (error) {
+          console.warn('[NovaAppPackageStore] Could not remove legacy package storage for', appData.id, error);
+        }
+      }
+      return metadata;
+    } catch (error) {
+      let rollbackError = null;
+      try {
+        await removeStoredFiles({ id: appData.id, storagePath });
+        if (previousPackage) {
+          await writePackageFiles(previousPackage, previousStoragePath, previousFiles);
+        }
+      } catch (failure) {
+        rollbackError = failure;
+      }
+      if (rollbackError) {
+        throw new Error(`Failed to persist ${appData.id}; restoring its previous package also failed: ${rollbackError.message}`, { cause: error });
+      }
+      throw error;
+    }
   }
 
   async function hydrateApp(app, options = {}) {
@@ -230,22 +308,22 @@
       return { ...app, ...metadata, files: app.files };
     }
 
-    const storagePath = app.storagePath || storagePathForApp(app.id);
     try {
+      const storagePath = resolveStoragePath(app);
       const index = await readFileIndex(storagePath);
       if (!Array.isArray(index?.files)) throw new Error('Stored package file index is missing');
 
       const files = {};
       for (const file of index.files) {
         const relPath = normalizePackagePath(file.path);
-        const blob = await OPFS.getBlob(file.storagePath || `${storagePath}/files/${relPath}`);
+        const blob = await OPFS.getBlob(`${storagePath}/files/${relPath}`);
         if (!blob) throw new Error(`Stored package file is missing: ${relPath}`);
         files[relPath] = await blobToBase64(blob);
       }
       return { ...app, storagePath, files };
     } catch (error) {
       console.warn('[NovaAppPackageStore] Failed to hydrate package', app.id, error);
-      return { ...app, storagePath, _loadError: error?.message || String(error) };
+      return { ...app, _loadError: error?.message || String(error) };
     }
   }
 
@@ -307,7 +385,7 @@
     const owner = String(uid || '').replace(/[^a-zA-Z0-9_-]/g, '_');
     if (!owner) return false;
     await ensureReady();
-    await OPFS.deletePath(`${APP_ROOT}/@users/${owner}`, true).catch(() => {});
+    await OPFS.deletePath(`${APP_ROOT}/@users/${owner}`, true);
     return true;
   }
 

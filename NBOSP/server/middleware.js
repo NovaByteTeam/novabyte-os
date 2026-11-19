@@ -404,19 +404,33 @@ function setupMiddleware(app) {
     const legacyAdminAllowed = () => {
         if (!usersDbModule) return isAdminEnabled();
         try { return !usersDbModule.hasAccounts() && isAdminEnabled(); }
-        catch (_) { return isAdminEnabled(); }
+        catch (error) {
+            console.error('[Middleware] Could not verify whether accounts exist; disabling legacy admin mode:', error);
+            return false;
+        }
     };
     app.use((req, res, next) => {
         const s = req.session;
         if (s && s.uid && s.uname) {
-            const adminRole = s.role === 'owner' || s.role === 'admin';
+            let account = null;
+            try {
+                account = usersDbModule?.getUser(s.uid) || null;
+            } catch (error) {
+                console.error('[Middleware] Could not refresh the signed-in account role:', error);
+            }
+            if (account) s.role = account.role;
+            const activeAccount = account
+                && account.status !== 'disabled'
+                && !account.locked;
+            const adminRole = activeAccount
+                && usersDbModule?.ADMIN_ROLES?.has(account.role) === true;
             req.user = {
                 id: s.uid,
                 uid: s.uid,
                 role: adminRole ? 'admin' : 'user',
-                uname: s.uname,
-                suspended: !!s.suspended,
-                locked: !!s.lockedAt,
+                uname: account?.username || s.uname,
+                suspended: !!s.suspended || !activeAccount,
+                locked: !!s.lockedAt || !!account?.locked,
             };
         } else {
             req.user = {

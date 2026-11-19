@@ -52,6 +52,34 @@ const DEFAULT_POLICIES = Object.freeze({
     idleLockMaxMinutes: 60,
 });
 
+function isValidPolicyValue(key, value) {
+    switch (key) {
+        case 'guestAccess':
+        case 'showUsernamesOnPicker':
+        case 'closeAppsOnSwitch':
+        case 'singleAccountWipe':
+            return typeof value === 'boolean';
+        case 'maxSuspendedSessionsPerAccount':
+            return value === null || (Number.isSafeInteger(value) && value >= 0);
+        case 'lockoutThresholds':
+            return value !== null && typeof value === 'object' && !Array.isArray(value)
+                && Number.isSafeInteger(value.warn) && value.warn > 0
+                && Number.isSafeInteger(value.short) && value.short > value.warn
+                && Number.isSafeInteger(value.lock) && value.lock > value.short;
+        case 'lockoutShortMs':
+            return Number.isSafeInteger(value) && value >= 5000 && value <= 600000;
+        case 'lockoutExtendedMs':
+            return Number.isSafeInteger(value) && value >= 5000 && value <= 3600000;
+        case 'defaultUserQuotaBytes':
+            return Number.isSafeInteger(value)
+                && value >= MIN_USER_QUOTA_BYTES && value <= MAX_USER_QUOTA_BYTES;
+        case 'idleLockMaxMinutes':
+            return Number.isSafeInteger(value) && value >= 1 && value <= 240;
+        default:
+            return false;
+    }
+}
+
 // ── Hashing ────────────────────────────────────────────────────────────────
 
 function scryptHex(secret, saltHex, params = SCRYPT_PARAMS) {
@@ -264,13 +292,9 @@ function getPolicyBlock() {
     const merged = { ...DEFAULT_POLICIES };
     for (const row of rows) {
         try {
-            merged[row.key] = JSON.parse(row.value);
+            const value = JSON.parse(row.value);
+            if (isValidPolicyValue(row.key, value)) merged[row.key] = value;
         } catch (_) { /* corrupted row: default wins */ }
-    }
-    if (!Number.isSafeInteger(merged.defaultUserQuotaBytes) ||
-        merged.defaultUserQuotaBytes < MIN_USER_QUOTA_BYTES ||
-        merged.defaultUserQuotaBytes > MAX_USER_QUOTA_BYTES) {
-        merged.defaultUserQuotaBytes = DEFAULT_USER_QUOTA_BYTES;
     }
     policyCache = merged;
     return merged;
@@ -284,9 +308,8 @@ function setPolicies(patch) {
             'INSERT INTO policies (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
         for (const [key, value] of entries) {
             if (!(key in DEFAULT_POLICIES)) throw new Error(`Unknown account policy '${key}'`);
-            if (key === 'defaultUserQuotaBytes' &&
-                (!Number.isSafeInteger(value) || value < MIN_USER_QUOTA_BYTES || value > MAX_USER_QUOTA_BYTES)) {
-                throw new Error('Default storage quota must be between 1 GB and 32 GB');
+            if (!isValidPolicyValue(key, value)) {
+                throw new Error(`Invalid value for account policy '${key}'`);
             }
             upsert.run(key, JSON.stringify(value));
         }

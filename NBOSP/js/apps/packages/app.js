@@ -739,10 +739,10 @@ registerApp({
             installedDate: new Date().toISOString(),
           };
 
-          if (PackageStore?.installApp) {
+          if (PackageStore?.toMetadata && PackageStore?.loadRegistry && PackageStore?.saveRegistry) {
             try {
-              const meta = await PackageStore.installApp(appData);
-              const list = PackageStore.loadRegistry ? PackageStore.loadRegistry() : [];
+              const meta = PackageStore.toMetadata(appData);
+              const list = PackageStore.loadRegistry();
               const idx = list.findIndex(a => a.id === appData.id);
               const entry = { ...(idx > -1 ? list[idx] : {}), ...meta, ...appData, id: appData.id };
               if (idx > -1) list[idx] = entry; else list.push(entry);

@@ -16,7 +16,6 @@ const { mountRoutes } = require('../routes');
 const { setupFaviconRoutes, closeFaviconDb } = require('../favicons');
 const usersDb = require('../security/users-db');
 const { setupFrameCheckProxy, setupAppNetworkProxy, setupEmailImageProxy } = require('../proxies');
-const { setupEventsRoutes } = require('./events-routes');
 const { moduleOverrides } = require('./module-overrides');
 
 // Global error handlers
@@ -182,7 +181,6 @@ setupFaviconRoutes(app);
 setupFrameCheckProxy(app);
 setupAppNetworkProxy(app);
 setupEmailImageProxy(app);
-setupEventsRoutes(app);
 
 // 5. Manifest and version endpoints
 app.get('/manifest.json', (req, res) => {

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Lightning icon">
+  <defs>
+    <linearGradient id="lt-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="0.55" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="lt-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ede9fe"/>
+      <stop offset="1" stop-color="#c4b5fd"/>
+    </linearGradient>
+    <linearGradient id="lt-core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="lt-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="lt-clip">
+      <path d="M51 13 L20 53 H43 L40 83 L76 37 H52 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- outer purple lightning bolt -->
+  <g filter="url(#lt-ds)">
+    <path d="M51 13 L20 53 H43 L40 83 L76 37 H52 Z" fill="url(#lt-body)" stroke="url(#lt-body)" stroke-width="2.5" stroke-linejoin="round"/>
+    <g clip-path="url(#lt-clip)">
+      <!-- upper facet highlight -->
+      <polygon points="18,12 78,12 78,34 18,34" fill="url(#lt-top)" opacity="0.5"/>
+    </g>
+  </g>
+
+  <!-- inner warm amber energy bolt -->
+  <g filter="url(#lt-ds)">
+    <path d="M50 24 L31 49 H46.5 L44.5 70 L65 42.5 H50.5 Z" fill="url(#lt-core)" stroke="url(#lt-core)" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+</svg>

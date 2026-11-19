@@ -82,7 +82,6 @@ function setupPushRoutes(app) {
       clearInterval(heartbeat);
       detach();
     }
-    req.on('close', cleanup);
     res.on('close', cleanup);
     res.on('finish', cleanup);
     res.on('error', cleanup);

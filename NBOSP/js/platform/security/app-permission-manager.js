@@ -586,7 +586,7 @@ const AppPermissionManager = (() => {
     if (state && typeof state.appPermissions === 'function') {
       try {
         const fromRegistry = state.appPermissions();
-        if (Array.isArray(fromRegistry) && fromRegistry.length > 0) raw = JSON.stringify(fromRegistry);
+        if (Array.isArray(fromRegistry)) raw = JSON.stringify(fromRegistry);
       } catch (_) { /* fall through to localStorage */ }
     }
     const storage = getLocalStorage();

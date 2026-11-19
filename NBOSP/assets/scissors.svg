@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Scissors icon">
+  <defs>
+    <!-- Primary 3-stop vibrant purple gradient -->
+    <linearGradient id="scs-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="0.55" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#6d28d9"/>
+    </linearGradient>
+
+    <!-- Lighter highlight gradient (matching the cylinder lid) -->
+    <linearGradient id="scs-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ede9fe"/>
+      <stop offset="1" stop-color="#c4b5fd"/>
+    </linearGradient>
+
+    <!-- Warm amber accent gradient for the handle rings & pivot -->
+    <linearGradient id="scs-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <!-- Proportional drop shadow for 96x96 viewBox -->
+    <filter id="scs-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Borderless scissors with soft drop shadow -->
+  <g filter="url(#scs-ds)">
+    <!-- Under-blade: starts cleanly under the bottom ring centre-edge to top-right tip -->
+    <path d="M33 61 79 20" fill="none" stroke="url(#scs-body)" stroke-width="6.5" stroke-linecap="round"/>
+
+    <!-- Over-blade: starts cleanly under the top ring centre-edge to bottom-right tip -->
+    <path d="M33 35 79 76" fill="none" stroke="url(#scs-body)" stroke-width="6.5" stroke-linecap="round"/>
+
+    <!-- Subtle glossy highlight along the upper blade edge -->
+    <path d="M36 37 76 73" fill="none" stroke="url(#scs-top)" stroke-width="1.8" stroke-linecap="round" opacity="0.75"/>
+
+    <!-- Floating warm amber handle loops & exact-centre pivot screw -->
+    <g filter="url(#scs-ds)">
+      <circle cx="26" cy="30" r="11" fill="none" stroke="url(#scs-accent)" stroke-width="6.5"/>
+      <circle cx="26" cy="66" r="11" fill="none" stroke="url(#scs-accent)" stroke-width="6.5"/>
+      <!-- Pivot screw placed at exact mathematical intersection (56, 55.5) -> symmetric at (53.5, 48) -->
+      <circle cx="53.5" cy="48" r="3.4" fill="url(#scs-accent)"/>
+    </g>
+  </g>
+</svg>
