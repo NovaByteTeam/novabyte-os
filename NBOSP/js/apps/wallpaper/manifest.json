@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.wallpaper",
   "name": "Wallpaper",
-  "icon": "/assets/service-wallpaper.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Applies built-in and custom desktop wallpapers across the NovaByte shell.",
   "version": "3.0.2",

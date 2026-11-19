@@ -46,7 +46,7 @@ describe('Console app (js/apps/devconsole)', () => {
     expect(app.defaultSize).toEqual([600, 500]);
     expect(app.minSize).toEqual([400, 300]);
     // The icon is an inline base64 SVG data URL, not an icon-set key
-    expect(app.icon).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(app.icon).toBe('assets/icon.svg');
     expect(typeof app.init).toBe('function');
   });
 

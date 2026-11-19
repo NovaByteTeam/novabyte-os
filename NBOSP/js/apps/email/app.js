@@ -3,7 +3,7 @@
 registerApp({
   id: 'com.nbosp.email',
   name: 'Email',
-  icon: '/assets/email.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   version: '3.0.2',
   description: 'IMAP · POP3 · Exchange',
   defaultSize: [860, 580],
@@ -1744,7 +1744,7 @@ registerApp({
       if (Notification.permission === 'granted') {
         new Notification(acct.name || _t('apps.email.notify.newMailTitle', { email: acct.email, count: newUnread.length }), {
           body: decodeEntities(newUnread[0].subject),
-          icon: '/assets/apple-touch-icon.svg',
+          icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
         });
       }
       notify(_t('apps.email.notify.newIn', { count: newUnread.length, account: acct.name || acct.email }));

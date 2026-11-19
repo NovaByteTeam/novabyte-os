@@ -1,5 +1,5 @@
 registerApp({
-  id: 'com.nbosp.gallery', name: 'Gallery', icon: '/assets/gallery.svg',
+  id: 'com.nbosp.gallery', name: 'Gallery', icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   version: '3.0.2',
   description: 'Image Viewer',
   defaultSize: [840, 580], minSize: [500, 360],

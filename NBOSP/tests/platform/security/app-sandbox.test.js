@@ -263,6 +263,24 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(fakeIpc).toHaveBeenCalledWith('nova:storage:set', { key: 'large', value: 'value' });
   });
 
+  it('uses the active account quota for sandbox storage instead of a fixed limit', async () => {
+    const previousScope = globalThis.NovaUserScope;
+    const storageQuotaBytes = vi.fn().mockResolvedValue(7 * 1024 * 1024);
+    globalThis.NovaUserScope = {
+      enabled: () => true,
+      uid: () => 'u-quota',
+      storageQuotaBytes,
+    };
+    try {
+      await expect(AppSandbox._internal.storageUserQuotaBytes('u-quota'))
+        .resolves.toBe(7 * 1024 * 1024);
+      expect(storageQuotaBytes).toHaveBeenCalledOnce();
+    } finally {
+      if (previousScope === undefined) delete globalThis.NovaUserScope;
+      else globalThis.NovaUserScope = previousScope;
+    }
+  });
+
   it('exposes novaOS v2 settings and ready facades with normalized results', async () => {
     const sandboxWindow = { nova: { ipc: vi.fn() } };
     const calls = [];

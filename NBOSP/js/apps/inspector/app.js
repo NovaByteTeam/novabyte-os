@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.inspector',
   name: 'Inspector',
   version: '3.0.2',
-  icon: '/assets/inspector.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Inspect registered apps and open windows on NovaByte OS',
   category: 'developer',
   devOnly: true,

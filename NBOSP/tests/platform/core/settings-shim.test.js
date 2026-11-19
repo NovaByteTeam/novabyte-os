@@ -73,6 +73,7 @@ function freshOS({ legacyStore = {}, workerFail = false } = {}) {
           workerCalls.push([method, ...args]);
           if (workerFail) throw new Error('worker down');
           if (method === 'getAllSettings') return legacyStore;
+          if (method === 'putSetting') legacyStore[args[0]] = args[1];
           return undefined;
         },
       },
@@ -97,6 +98,7 @@ function settingsEvents(bus) {
 beforeEach(() => {
   // Tests must never read or write the real user settings file.
   Shim._internal.setLinuxRuntime(false);
+  Shim._internal.clearLockWallpaperIdCache();
 });
 
 afterEach(() => {
@@ -260,6 +262,37 @@ describe('settings shim (js/platform/core/settings-shim.js)', () => {
   });
 
   describe('load() — hydration & legacy adoption', () => {
+    it('mirrors each user lock wallpaper preset by UID for pre-auth lookup', async () => {
+      const { OS, workerCalls } = freshOS({ legacyStore: {} });
+      const originalScope = globalThis.NovaUserScope;
+      globalThis.NovaUserScope = {
+        enabled: () => true,
+        uid: () => 'u-sam',
+      };
+
+      try {
+        const Reg = attachAll(OS);
+        Reg.mountUserHives('sam');
+        Reg.set('HKNU/shell/lockWallpaper', 'stock-purple', { type: 'REG_SZ' });
+
+        await OS.settings.load();
+
+        expect(workerCalls).toContainEqual([
+          'putSetting',
+          '__lockWallpaperId:user:u-sam',
+          'stock-purple',
+        ]);
+        expect(await Shim.peekLockWallpaperId('u-sam')).toBe('stock-purple');
+        expect(await Shim.peekLockWallpaperId('u-other')).toBeNull();
+
+        OS.settings.set('lockWallpaperId', 'stock-red');
+        expect(await Shim.peekLockWallpaperId('u-sam')).toBe('stock-red');
+      } finally {
+        if (originalScope === undefined) delete globalThis.NovaUserScope;
+        else globalThis.NovaUserScope = originalScope;
+      }
+    });
+
     it('moves the legacy machine lock wallpaper preset into the first mounted user hive', async () => {
       const { OS } = freshOS({ legacyStore: {} });
       const Reg = attachAll(OS);

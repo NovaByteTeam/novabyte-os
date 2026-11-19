@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.permissions',
   name: 'Permissions',
   version: '3.0.2',
-  icon: '/assets/permissions.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Review, grant, and revoke permissions across registered apps',
   category: 'developer',
   devOnly: true,

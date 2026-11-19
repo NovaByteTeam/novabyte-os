@@ -167,7 +167,7 @@ function keyInfo(path, resolveAppName) {
 registerApp({
   id: 'com.nbosp.novareg',
   name: 'NovaReg',
-  icon: '/assets/novareg.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Edit the NovaByte Registry',
   category: 'developer',
   version: '1.2.0',

@@ -10,7 +10,7 @@ async function readJson(relativePath) {
 }
 
 describe('system service and app-specific icons', () => {
-  it('uses shared assets for all embedded developer-app icons', async () => {
+  it('keeps developer-app icons inside their own packages', async () => {
     const appDirectories = await readdir(path.join(root, 'js/apps'), { withFileTypes: true });
     const manifests = await Promise.all(appDirectories
       .filter(entry => entry.isDirectory())
@@ -28,10 +28,10 @@ describe('system service and app-specific icons', () => {
 
     for (const app of manifests.filter(app => app &&
       (app.manifest.category === 'developer' || app.manifest.categories?.includes('developer')))) {
-      expect(app.manifest.icon).toBe(`/assets/${app.directory}.svg`);
+      expect(app.manifest.icon).toBe('assets/icon.svg');
       const source = await readFile(path.join(root, 'js/apps', app.directory, 'app.js'), 'utf8');
-      expect(source).toContain(`icon: '/assets/${app.directory}.svg'`);
-      expect(await readFile(path.join(root, 'assets', `${app.directory}.svg`), 'utf8')).toContain('<svg');
+      expect(source).not.toContain(`/assets/${app.directory}.svg`);
+      expect(await readFile(path.join(root, 'js/apps', app.directory, app.manifest.icon), 'utf8')).toContain('<svg');
     }
   });
 
@@ -60,8 +60,8 @@ describe('system service and app-specific icons', () => {
     for (const service of services) {
       const app = manifestsById.get(service.id);
       expect(app, `${service.id} package manifest`).toBeDefined();
-      expect(app.manifest.icon, `${service.id} icon`).toMatch(/^\/assets\/[A-Za-z0-9._/-]+$/);
-      expect(await readFile(path.join(root, app.manifest.icon.slice(1)))).toBeInstanceOf(Buffer);
+      expect(app.manifest.icon, `${service.id} icon`).toBe('assets/icon.svg');
+      expect(await readFile(path.join(root, 'js/apps', app.directory, app.manifest.icon))).toBeInstanceOf(Buffer);
     }
   });
 
@@ -83,14 +83,14 @@ describe('system service and app-specific icons', () => {
       const categories = manifest.categories ?? [manifest.category];
       if (serviceIds.has(manifest.id) || categories.includes('developer')) continue;
 
-      expect(manifest.icon, `${entry.name} manifest icon`).toBe(`/assets/${entry.name}.svg`);
-      const appSource = await readFile(path.join(root, 'assets', `${entry.name}.svg`), 'utf8');
+      expect(manifest.icon, `${entry.name} manifest icon`).toBe('assets/icon.svg');
+      const appSource = await readFile(path.join(root, 'js/apps', entry.name, manifest.icon), 'utf8');
       expect(appSource, `${entry.name} SVG`).toContain('<svg');
 
       try {
         const runtimeSource = await readFile(path.join(root, 'js/apps', entry.name, 'app.js'), 'utf8');
         if (entry.name !== 'launcher') {
-          expect(runtimeSource, `${entry.name} runtime icon`).toContain(`icon: '/assets/${entry.name}.svg'`);
+          expect(runtimeSource, `${entry.name} runtime icon`).not.toContain(`/assets/${entry.name}.svg`);
         }
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;

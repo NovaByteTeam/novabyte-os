@@ -105,7 +105,7 @@
   registerApp({
     id: APP_ID,
     name: 'Install NovaByte',
-    icon: '/assets/install-nbosp.svg',
+    icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
     version: '3.0.2',
     description: 'Install NovaByte OS to a selected disk.',
     defaultSize: [680, 520],

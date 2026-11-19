@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.search',
   name: 'Search',
   version: '3.0.2',
-  icon: '/assets/search.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'System Search',
   defaultSize: [640, 500],
   minSize: [420, 300],

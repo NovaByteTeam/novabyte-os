@@ -1550,7 +1550,7 @@ registerApp({
   id: 'com.nbosp.terminal',
   name: 'Terminal',
   version: '3.0.2',
-  icon: '/assets/terminal.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Terminal',
   defaultSize: [700, 460],
   minSize: [420, 260],

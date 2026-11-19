@@ -299,7 +299,7 @@
       id: 'com.nbosp.calculator',
       name: 'Calculator',
       version: '3.0.2',
-      icon: '/assets/calculator.svg',
+      icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
       category: 'utilities',
       permissions: [],
       defaultSize: [320, 440],

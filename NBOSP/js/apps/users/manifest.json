@@ -4,7 +4,7 @@
   "author": "DirazCoder",
   "description": "Admin console for accounts: create, edit, reset, disable, delete, machine policies and the per-user audit feed.",
   "version": "3.0.2",
-  "icon": "/assets/users.svg",
+  "icon": "assets/icon.svg",
   "category": "admin",
   "categories": ["admin", "system"],
   "entry": "index.html",

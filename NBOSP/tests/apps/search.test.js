@@ -76,7 +76,7 @@ describe("'Search' app (js/apps/search)", () => {
     expect(app.name).toBe('Search');
     expect(app.version).toBe('3.0.2');
     expect(app.description).toBe('System Search');
-    expect(app.icon).toBe('search');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.defaultSize).toEqual([640, 500]);
     expect(app.minSize).toEqual([420, 300]);
   });

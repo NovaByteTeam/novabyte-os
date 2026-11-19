@@ -6,7 +6,7 @@
   "description": "Edit the NovaByte Registry — the hierarchical configuration database the OS is driven by. (default) values, REG_MULTI_SZ/REG_EXPAND_SZ, links, per-key ACLs, audit, snapshots, .nvreg files, find & favorites.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/novareg.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     880,

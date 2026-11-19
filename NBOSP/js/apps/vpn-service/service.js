@@ -206,10 +206,20 @@
     }).filter(Boolean);
   }
 
+  function getInstalledProviderApp(appId) {
+    const registered = AppRegistry.getApp(appId);
+    if (registered) return registered;
+    const installed = window.NovaAppPackageStore?.loadRegistry?.();
+    return Array.isArray(installed) ? installed.find((app) => app?.id === appId) || null : null;
+  }
+
   async function registerProvider(appId, config) {
     requireAppId(appId);
-    const app = AppRegistry.getApp(appId);
-    if (!app || app.system === true || app.type === 'webapp') {
+    const app = getInstalledProviderApp(appId);
+    const isSystemApp = app?.system === true ||
+      app?.source === 'system-bundle' ||
+      (app?.verified === true && app?.signer === 'NovaByte System' && app?.manifest?.system === true);
+    if (!app || isSystemApp || app.type === 'webapp') {
       throw new Error('Only installed sandboxed NovaApps can provide a device VPN.');
     }
     if (!hasProviderPermission(appId)) {

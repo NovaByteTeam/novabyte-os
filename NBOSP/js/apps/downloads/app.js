@@ -1,5 +1,5 @@
 registerApp({
-  id: 'com.nbosp.downloads', name: 'Downloads', icon: '/assets/downloads.svg',
+  id: 'com.nbosp.downloads', name: 'Downloads', icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   version: '3.0.2',
   description: 'Download Manager',
   defaultSize: [580, 460], minSize: [400, 300],

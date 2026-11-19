@@ -75,7 +75,7 @@ describe("'Music' app (js/apps/music)", () => {
     expect(app.name).toBe('Music');
     expect(app.version).toBe('3.0.2');
     expect(app.description).toBe('Music Player');
-    expect(app.icon).toBe('music');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.defaultSize).toEqual([520, 520]);
     expect(app.minSize).toEqual([360, 380]);
     expect(typeof app.init).toBe('function');

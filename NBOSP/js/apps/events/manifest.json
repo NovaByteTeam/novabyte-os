@@ -6,7 +6,7 @@
   "description": "Review a unified timeline of console output, permission activity, and package events.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/events.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     700,

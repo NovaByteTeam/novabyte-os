@@ -282,6 +282,67 @@ describe('SessionManager (js/apps/session service)', () => {
     expect(manager.isActive()).toBe(true);
   });
 
+  it('falls back to fresh login when a reset has revoked a parked session', async () => {
+    let loginCount = 0;
+    const { manager, calls } = await loadSessionManager({
+      routes: {
+        'POST /api/auth/login': () => {
+          loginCount++;
+          return {
+            status: 200,
+            json: {
+              success: true,
+              data: {
+                sessionId: `sid-${loginCount}`,
+                csrfToken: `csrf-${loginCount}`,
+                user: { uid: 'u1', username: 'ada', displayName: 'Ada', role: 'owner', pinLength: 4 },
+                mustChangePin: loginCount === 2,
+                via: loginCount === 2 ? 'temporary-pin' : 'pin',
+              },
+            },
+          };
+        },
+        'POST /api/auth/suspend': () => ({ status: 200, json: { success: true, data: { suspended: true } } }),
+        'POST /api/auth/reverify': () => ({
+          status: 401,
+          json: { success: false, code: 'AUTH_REQUIRED', message: 'No session to re-verify' },
+        }),
+      },
+    });
+
+    await manager.login({ uid: 'u1', secret: '1234' });
+    await manager.suspendForSwitch();
+    calls.length = 0;
+
+    const result = await manager.resumeUser('u1', '654321');
+
+    expect(result).toMatchObject({ ok: true, mustChangePin: true });
+    expect(manager.state().mustChangePin).toBe(true);
+    expect(manager.suspendedUsers()).toHaveLength(0);
+    expect(calls.map(call => call.url)).toEqual(['/api/auth/reverify', '/api/auth/login']);
+  });
+
+  it('does not park a session when the server says it was revoked', async () => {
+    const { manager } = await loadSessionManager({
+      routes: {
+        'POST /api/auth/login': () => ({
+          status: 200,
+          json: { success: true, data: { sessionId: 'sid-A', csrfToken: 'tA', user: { uid: 'u1', username: 'ada', displayName: 'Ada', role: 'owner', pinLength: 4 } } },
+        }),
+        'POST /api/auth/suspend': () => ({
+          status: 401,
+          json: { success: false, code: 'AUTH_REQUIRED', message: 'No session' },
+        }),
+      },
+    });
+
+    await manager.login({ uid: 'u1', secret: '1234' });
+    const result = await manager.suspendForSwitch();
+
+    expect(result.sessionRevoked).toBe(true);
+    expect(manager.suspendedUsers()).toHaveLength(0);
+  });
+
   it('logout tears the session down: scope cleared, hives unmounted, VFS re-rooted to the machine tree, server session ended', async () => {
     const { manager, calls, mounts } = await loadSessionManager({
       routes: {

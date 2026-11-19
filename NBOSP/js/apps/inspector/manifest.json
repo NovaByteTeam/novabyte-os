@@ -6,7 +6,7 @@
   "description": "Inspect registered apps and currently open windows in NovaByte OS.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/inspector.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     700,

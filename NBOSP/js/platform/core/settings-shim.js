@@ -69,6 +69,8 @@
   const CUSTOM_WALLPAPER_STORAGE_PREFIX = '__customWallpaper:';
   const LEGACY_CUSTOM_WALLPAPER_KEY = `${CUSTOM_WALLPAPER_STORAGE_PREFIX}legacy`;
   const LOCK_CUSTOM_WALLPAPER_STORAGE_PREFIX = '__lockCustomWallpaper:';
+  const LOCK_WALLPAPER_ID_STORAGE_PREFIX = '__lockWallpaperId:';
+  const lockWallpaperIdsByUid = new Map();
   let attachedOS = null;
 
   function isMultiUserMode() {
@@ -87,6 +89,45 @@
       ? LOCK_CUSTOM_WALLPAPER_STORAGE_PREFIX
       : CUSTOM_WALLPAPER_STORAGE_PREFIX;
     return `${prefix}user:${uid}`;
+  }
+
+  function lockWallpaperIdStorageKey(uid) {
+    if (typeof uid !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(uid)) return null;
+    return `${LOCK_WALLPAPER_ID_STORAGE_PREFIX}user:${uid}`;
+  }
+
+  function activeUserUid() {
+    if (!isMultiUserMode() || typeof NovaUserScope.uid !== 'function') return null;
+    const uid = NovaUserScope.uid();
+    return typeof uid === 'string' && uid ? uid : null;
+  }
+
+  function persistLockWallpaperId(OS, uid, value, logger) {
+    const key = lockWallpaperIdStorageKey(uid);
+    if (!key) return Promise.resolve(false);
+    const id = typeof value === 'string' && value ? value : 'stock-blue';
+    lockWallpaperIdsByUid.set(uid, id);
+    if (isLinuxRuntime()) {
+      writeLegacyStore(OS, {}, logger, () => ({ [key]: id }));
+      return Promise.resolve(true);
+    }
+    const worker = OS?.workers?.fs;
+    if (!worker || typeof worker.call !== 'function') {
+      logger?.error('Cannot persist the per-user lock wallpaper preset: filesystem worker is unavailable');
+      return Promise.resolve(false);
+    }
+    try {
+      return Promise.resolve(worker.call('putSetting', key, id)).then(
+        () => true,
+        (error) => {
+          logger?.error('Failed to persist the per-user lock wallpaper preset', error);
+          return false;
+        }
+      );
+    } catch (error) {
+      logger?.error('Failed to persist the per-user lock wallpaper preset', error);
+      return Promise.resolve(false);
+    }
   }
 
   function readLegacyStore(OS) {
@@ -150,6 +191,18 @@
         return null;
       }
       return image;
+    });
+  }
+
+  function peekLockWallpaperId(uid) {
+    const key = lockWallpaperIdStorageKey(uid);
+    if (!key) return Promise.resolve(null);
+    if (lockWallpaperIdsByUid.has(uid)) return Promise.resolve(lockWallpaperIdsByUid.get(uid));
+    return Promise.resolve(readLegacyStore(attachedOS || {})).then((raw) => {
+      const id = raw?.[key];
+      if (typeof id !== 'string' || !id) return null;
+      lockWallpaperIdsByUid.set(uid, id);
+      return id;
     });
   }
 
@@ -265,6 +318,9 @@
         logger.error(`Failed to commit setting "${key}" to ${path} — using legacy store`, err);
         writeLegacyStore(OS, this._cache, logger, (cache) => ({ [storageKey]: cache[key] }));
       }
+      if (key === 'lockWallpaperId') {
+        persistLockWallpaperId(OS, activeUserUid(), value, logger);
+      }
       bus.emit('settings:changed', { key, value });
       return true;
     };
@@ -284,6 +340,7 @@
           const keys = Object.keys(raw).filter((key) =>
             !key.startsWith(CUSTOM_WALLPAPER_STORAGE_PREFIX)
             && !key.startsWith(LOCK_CUSTOM_WALLPAPER_STORAGE_PREFIX)
+            && !key.startsWith(LOCK_WALLPAPER_ID_STORAGE_PREFIX)
           );
           if (keys.length) {
             const adopted = reg.adoptLegacySettings((key) => raw[key], keys);
@@ -296,6 +353,10 @@
           if (typeof reg.remove === 'function') migrateSettingsScopes(reg, logger);
         } catch (_) { /* migration is best-effort; hydration still runs */ }
         this._cache = hydrateFromRegistry(OS, reg);
+        const uid = activeUserUid();
+        if (uid) {
+          await persistLockWallpaperId(OS, uid, this._cache.lockWallpaperId || 'stock-blue', logger);
+        }
         // Excluded keys never enter the hive — serve them from the legacy
         // store on every boot.
         for (const key of reg.SETTINGS_EXCLUDED_KEYS) {
@@ -317,6 +378,9 @@
       if (!key) return;
       if (event.type === null) delete s._cache[key]; // value/key removed → defaults apply again
       else s._cache[key] = cloneValue(event.value);
+      if (key === 'lockWallpaperId') {
+        persistLockWallpaperId(OS, activeUserUid(), event.type === null ? 'stock-blue' : event.value, logger);
+      }
       bus.emit('settings:changed', { key, value: event.type === null ? undefined : s._cache[key] });
     });
 
@@ -332,9 +396,11 @@
     readLegacyStore,
     writeLegacyStore,
     peekLockWallpaper,
+    peekLockWallpaperId,
     // Test hooks — never used by the shell.
     _internal: {
       setLinuxRuntime(value) { platformIsLinux = value === true; },
+      clearLockWallpaperIdCache() { lockWallpaperIdsByUid.clear(); },
     },
   };
 

@@ -26,7 +26,7 @@ describe('Contacts app (js/apps/contacts)', () => {
     expect(app.id).toBe('com.nbosp.contacts');
     expect(app.name).toBe('Contacts');
     expect(app.version).toBe('3.0.2');
-    expect(app.icon).toBe('users');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.defaultSize).toEqual([640, 500]);
     expect(app.minSize).toEqual([440, 320]);
     expect(typeof app.init).toBe('function');

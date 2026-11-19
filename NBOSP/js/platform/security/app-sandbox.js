@@ -6992,8 +6992,8 @@ const AppSandbox = (() => {
     // the whole account's AppStorage footprint, not just this app's.
     if (owner) {
       const userUsage = await storageOwnerUsageBytes(owner, db);
-      const userQuota = storageUserQuotaBytes();
-      if (userUsage - existing + valueBytes > userQuota) {
+      const userQuota = await storageUserQuotaBytes(owner);
+      if (userQuota !== null && userUsage - existing + valueBytes > userQuota) {
         const err = new Error('Account storage quota exceeded');
         err.code = 'STORAGE_FULL';
         throw err;
@@ -7007,9 +7007,24 @@ const AppSandbox = (() => {
     });
   }
 
-  /** Default per-account storage ceiling (2 GB) — admin-adjustable later. */
-  function storageUserQuotaBytes() {
-    return 2 * 1024 * 1024 * 1024;
+  async function storageUserQuotaBytes(owner) {
+    const scope = typeof NovaUserScope !== 'undefined' ? NovaUserScope : null;
+    if (!scope?.enabled?.()) return null;
+    const uid = String(scope.uid?.() || '');
+    if (!uid || /^guest(?:_|$)/.test(uid)) return null;
+    if (uid !== owner || typeof scope.storageQuotaBytes !== 'function') {
+      const error = new Error('The active account storage quota is unavailable.');
+      error.code = 'STORAGE_QUOTA_UNAVAILABLE';
+      throw error;
+    }
+    const quotaBytes = await scope.storageQuotaBytes();
+    if (quotaBytes === null) return null;
+    if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 0) {
+      const error = new Error('The active account storage quota is invalid.');
+      error.code = 'STORAGE_QUOTA_UNAVAILABLE';
+      throw error;
+    }
+    return quotaBytes;
   }
 
   /** The active account's total AppStorage footprint (one index pass). */
@@ -7158,7 +7173,10 @@ const AppSandbox = (() => {
       return respond(webview, 'nova:storage:set', requestId, { success: true });
     } catch (e) {
       if (e && e.code === 'STORAGE_FULL') {
-        return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', 'Per-app storage quota exceeded');
+        return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', e.message || 'Storage quota exceeded');
+      }
+      if (e && e.code === 'STORAGE_QUOTA_UNAVAILABLE') {
+        return respondError(webview, 'nova:storage:set', requestId, e.code, e.message);
       }
       return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', 'Failed to write to storage');
     }
@@ -15130,6 +15148,7 @@ const AppSandbox = (() => {
       deliverShareTarget,
       normalizedShareTargetMimes,
       shareTargetMatches,
+      storageUserQuotaBytes,
       deliverPushMessage,
       flushPushQueue,
       loadPushState,

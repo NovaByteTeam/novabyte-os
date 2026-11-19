@@ -219,7 +219,7 @@ describe('TextEdit app (js/apps/textedit/app.js) — e2e coverage', () => {
     expect(app.name).toBe('TextEdit');
     expect(app.version).toBe('3.0.2');
     expect(app.description).toBe('Text Editor');
-    expect(app.icon).toBe('pen-tool');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.defaultSize).toEqual([680, 500]);
     expect(app.minSize).toEqual([360, 260]);
     expect(typeof app.init).toBe('function');

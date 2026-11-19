@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.perf',
   name: 'Perf Monitor',
   version: '3.0.2',
-  icon: '/assets/perf.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Live FPS, memory, DOM node count, long task, and network tracking',
   category: 'developer',
   devOnly: true,

@@ -1,7 +1,7 @@
 registerApp({
   id: 'com.nbosp.devconsole',
   name: 'Console',
-  icon: '/assets/devconsole.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Evaluate JS in the OS context',
   category: 'developer',
   version: '3.0.2',

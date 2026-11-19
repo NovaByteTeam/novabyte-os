@@ -2987,7 +2987,13 @@
       "updateFailed": "Update failed (last-admin guard?)",
       "resetFailed": "Reset failed",
       "temporaryPinTitle": "Temporary PIN — {{name}}",
-      "temporaryPinBody": "Valid for 15 minutes. The account must choose a new PIN at its next sign-in. Both ends are logged to the audit feed.",
+      "temporaryPinBody": "Valid for 15 minutes. Select this account on the lock screen and enter this code on its PIN keypad. You will then choose a new PIN.",
+      "temporaryPinInstructions": "This code is shown only once and expires in 15 minutes. At the lock screen, select your account and enter it on the PIN keypad. You will then choose a new PIN.",
+      "copyTemporaryPin": "Copy temporary PIN",
+      "temporaryPinCopied": "Temporary PIN copied.",
+      "temporaryPinCopyFailed": "Clipboard unavailable. Select and copy the PIN manually.",
+      "continueToSignIn": "Continue to sign in",
+      "signInUnavailable": "The sign-in screen is unavailable. Keep this PIN and try again.",
       "done": "Done",
       "deleteTitle": "Delete — {{name}}",
       "delete": {
@@ -3041,10 +3047,11 @@
       "retry": "Retry",
       "confirmPin": "Confirm PIN",
       "pinMismatch": "The PINs do not match.",
+      "resetPinSelfOnly": "You can reset only your own PIN.",
       "resetPinSelfWarning": "Reset the PIN for {{name}}?",
       "resetPinSelfWarningBody": "Resetting your own PIN signs you out of this account everywhere — every session is revoked. You will sign back in with the temporary PIN shown next and then choose a new one.",
       "resetPinSelfWarningConfirm": "Reset and sign out",
-      "resetPinSelfWarningDone": "Your PIN was reset. Sign back in with this temporary PIN — you will be asked to choose a new one."
+      "resetPinSelfWarningDone": "This code is shown only once and expires in 15 minutes. At the lock screen, select your account and enter it on the PIN keypad. You will then choose a new PIN."
     },
     "events": {
       "gate": {

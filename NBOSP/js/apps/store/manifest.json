@@ -6,7 +6,7 @@
   "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/store.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "permissions": [],
   "optionalPermissions": [],

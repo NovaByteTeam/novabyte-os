@@ -80,7 +80,7 @@ describe('Downloads app (js/apps/downloads/app.js) — e2e coverage', () => {
     expect(app.name).toBe('Downloads');
     expect(app.version).toBe('3.0.2');
     expect(app.description).toBe('Download Manager');
-    expect(app.icon).toBe('download');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.defaultSize).toEqual([580, 460]);
     expect(app.minSize).toEqual([400, 300]);
     expect(typeof app.init).toBe('function');

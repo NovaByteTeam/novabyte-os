@@ -21,7 +21,7 @@ describe('Calendar app (js/apps/calendar)', () => {
     expect(app.id).toBe('com.nbosp.calendar');
     expect(app.name).toBe('Calendar');
     expect(app.version).toBe('3.0.2');
-    expect(app.icon).toBe('calendar');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.defaultSize).toEqual([860, 580]);
     expect(app.minSize).toEqual([600, 440]);
     expect(typeof app.init).toBe('function');

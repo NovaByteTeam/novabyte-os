@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.packages',
   name: 'Packages',
   version: '3.0.2',
-  icon: '/assets/packages.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Sign and verify app packages for NovaByte OS',
   category: 'developer',
   devOnly: true,

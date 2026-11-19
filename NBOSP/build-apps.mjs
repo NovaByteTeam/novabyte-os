@@ -9,6 +9,8 @@
  * Every file in the app folder is bundled (manifest, html, js, css,
  * assets/, images, fonts, whatever's there), recursing into
  * subdirectories.
+ * Package-local icon files under assets/ are embedded as data URLs in the
+ * packaged manifest so icon rendering never depends on the global assets dir.
  *
  * The one exception is _package-meta.json — that's leftover metadata
  * from a previous build, not something the app loads at runtime, so
@@ -409,6 +411,34 @@ async function packageApp(appDir) {
     files[relPath] = buf.toString(
       'base64'
     );
+  }
+
+  if (typeof manifest.icon === 'string' && manifest.icon.startsWith('assets/')) {
+    const iconData = files[manifest.icon];
+    if (typeof iconData !== 'string') {
+      throw new Error(`Manifest icon "${manifest.icon}" is missing from ${appDir}`);
+    }
+
+    const extension = path.extname(manifest.icon).toLowerCase();
+    const mimeTypes = {
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.ico': 'image/x-icon',
+    };
+    const mimeType = mimeTypes[extension];
+    if (!mimeType) {
+      throw new Error(`Unsupported package icon type "${extension}" in ${appDir}`);
+    }
+
+    manifest.icon = `data:${mimeType};base64,${iconData}`;
+    files['manifest.json'] = Buffer.from(
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      'utf8',
+    ).toString('base64');
   }
 
   // Preserve a manifest-declared alternate entry from the existing package

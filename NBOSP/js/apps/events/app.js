@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.events',
   name: 'Events',
   version: '3.0.2',
-  icon: '/assets/events.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Unified timeline of console output, permission events, and package events',
   category: 'developer',
   devOnly: true,

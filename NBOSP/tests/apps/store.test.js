@@ -101,7 +101,7 @@ describe("'Store' app (js/apps/store)", () => {
     expect(app.id).toBe('com.nbosp.store');
     expect(app.name).toBe('Store');
     expect(app.version).toBe('3.0.2');
-    expect(app.icon).toBe('store');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.description).toMatch(/install apps/);
     expect(app.defaultSize).toEqual([1020, 680]);
     expect(app.minSize).toEqual([720, 480]);

@@ -81,7 +81,7 @@ describe('Files app (js/apps/files)', () => {
     expect(app.id).toBe('com.nbosp.files');
     expect(app.name).toBe('Files');
     expect(app.version).toBe('3.0.2');
-    expect(app.icon).toBe('folder-open');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.defaultSize).toEqual([780, 520]);
     expect(app.minSize).toEqual([480, 340]);
     // Extension → MIME fallback map exposed for external callers

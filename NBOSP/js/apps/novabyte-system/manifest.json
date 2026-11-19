@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.novabyte-system",
   "name": "NovaByte System",
-  "icon": "/assets/service-novabyte-system.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Coordinates system preferences, security policy, and guest hardware controls through OS services.",
   "version": "3.0.2",

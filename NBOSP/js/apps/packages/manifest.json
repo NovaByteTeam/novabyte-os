@@ -6,7 +6,7 @@
   "description": "Sign and verify NovaByte app packages and their integrity metadata.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/packages.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     520,

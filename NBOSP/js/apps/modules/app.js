@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.modules',
   name: 'Modules',
   version: '3.0.2',
-  icon: '/assets/modules.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Hot-reload OS JS modules without restarting NovaByte OS',
   category: 'developer',
   devOnly: true,

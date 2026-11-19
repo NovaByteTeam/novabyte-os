@@ -2,314 +2,314 @@
   {
     "id": "com.nbosp.appmanager",
     "file": "js/apps/com.nbosp.appmanager.novaapp",
-    "cacheKey": "b9c1c965918854f5a62d6d9d994147bc8d70ff081b0ebcf0b38ae4a28cba94e3"
+    "cacheKey": "e9e42e51fbc06170a35ff861e46005914ef5d5f01d284367b6e5eb2e734e03e2"
   },
   {
     "id": "com.nbosp.browser",
     "file": "js/apps/com.nbosp.browser.novaapp",
-    "cacheKey": "e69dae8b23a1d79fe47092493f8cdcb5f0ff5c7d2f408ded96fceb19e1917890"
+    "cacheKey": "93102a87313a302a7e8fc52f6eb1265c5bec9e7917dc057a39f0d3f4db1fe38e"
   },
   {
     "id": "com.nbosp.calculator",
     "file": "js/apps/com.nbosp.calculator.novaapp",
-    "cacheKey": "27deaf47ec9b1c7cbef7fe3a85d39c06bc4163c1c433d4e2c5de8ef5bb008313"
+    "cacheKey": "a9e6b102159ccae2ca28fa69e6eab3dc4854982aa36ba99fd011abe85cff6f22"
   },
   {
     "id": "com.nbosp.calendar",
     "file": "js/apps/com.nbosp.calendar.novaapp",
-    "cacheKey": "d919542afb49c66c9967bc731ffd5cd5988a6989b3d34f07b4f80ef48ddc49b4"
+    "cacheKey": "1e26ac30df09066f1d6c3f2071479e721b2916662d0a448dd78b8e4e0c0c1594"
   },
   {
     "id": "com.nbosp.clock",
     "file": "js/apps/com.nbosp.clock.novaapp",
-    "cacheKey": "62b583a253d20087b5a751b391a316096662426a04418a2746ee49f06ecc872c"
+    "cacheKey": "f09ee18217b1e4dd2f4ff7f68ca592bb1ad0aa269c4b92e1383e025cfbbf5822"
   },
   {
     "id": "com.nbosp.contacts",
     "file": "js/apps/com.nbosp.contacts.novaapp",
-    "cacheKey": "bfda959adf945994a4d5014c3c8ae5d8b089502a45efe277aed03e497a11f956"
+    "cacheKey": "65f920360edca628a63bd3abd9602f9d926529abd221bed1fd148db0fdbd984c"
   },
   {
     "id": "com.nbosp.devconsole",
     "file": "js/apps/com.nbosp.devconsole.novaapp",
-    "cacheKey": "4a3a522b32366390db19ca53676db1073159bbcaff63d3a1d4a21412385e934b"
+    "cacheKey": "182e01b98622dfd9fe0f5e5b5dc4c8ffc23902c3b9d9e5905d91c5773cac3e67"
   },
   {
     "id": "com.nbosp.downloads",
     "file": "js/apps/com.nbosp.downloads.novaapp",
-    "cacheKey": "e18333d7c4279b967709e831a9b99e0d9d0a955a1a558d6dc4bf0ad1d907ad50"
+    "cacheKey": "e21aca2731ef4cee6725853e46eebe7319a6b30c62314727cb4fdab52eb739bd"
   },
   {
     "id": "com.nbosp.email",
     "file": "js/apps/com.nbosp.email.novaapp",
-    "cacheKey": "2a99b7eb4b3edc813800c67c0304e4ee04d2f6519da09de7cf4fa65bb4219dbb"
+    "cacheKey": "945b30e2016d5d43927834b01dfcb4970c33e976a3f95aa63fe615ab0c251582"
   },
   {
     "id": "com.nbosp.events",
     "file": "js/apps/com.nbosp.events.novaapp",
-    "cacheKey": "9c76b9b1a6a0393953594966fee9859fe97a3f247c10cd7bb67bd38af4de2ef5"
+    "cacheKey": "08411299029e530c7e3d739f0668d6bb50b9537debb9a02382528fbc393453c6"
   },
   {
     "id": "com.nbosp.gallery",
     "file": "js/apps/com.nbosp.gallery.novaapp",
-    "cacheKey": "d9807a1174741577fb9858285dfa086e1301daa05b9a5419d861faf0e76bb7a7"
+    "cacheKey": "358b46fd06c8231a6bf38dad3a5c4d25d26c60cec5c015255fc13a47ae41c4d6"
   },
   {
     "id": "com.nbosp.inspector",
     "file": "js/apps/com.nbosp.inspector.novaapp",
-    "cacheKey": "9e84831f277879f634a91e10822ac756492c2fb1a42d9a0378b3f435b766d27a"
+    "cacheKey": "f8c8a1e5195ac3444c5fcadc1b44aac922ff6ddd9fc3600300f1dd356e3fe20a"
   },
   {
     "id": "com.nbosp.install",
     "file": "js/apps/com.nbosp.install.novaapp",
-    "cacheKey": "6c66e9603517f1dbfac2202e293921eecd98b60079da5bf22eabaa08a41ac4f4"
+    "cacheKey": "008b692de3470ad2264662b81672372c0652c6aa490535e3a8c708acca3bb6df"
   },
   {
     "id": "com.nbosp.modules",
     "file": "js/apps/com.nbosp.modules.novaapp",
-    "cacheKey": "2e7ed09d1a1df96071888731de84f4c16f04cb9fa044c0477d7885954931f43b"
+    "cacheKey": "cbf7e35d2fa2f002b34b4bedc78fe90b965ceb1f00b4e31e32d640f4d9e7bf14"
   },
   {
     "id": "com.nbosp.music",
     "file": "js/apps/com.nbosp.music.novaapp",
-    "cacheKey": "c70ac62aea1e161ad572486e263f2ec924fb18bab48e1e0f1baf3ef39e83e288"
+    "cacheKey": "97fbcf8bc06343e37bd92a5f085f5c1edd1f144819c8fc2b602d2c1cbbf90de5"
   },
   {
     "id": "com.nbosp.packages",
     "file": "js/apps/com.nbosp.packages.novaapp",
-    "cacheKey": "a95987744bd977f5aacacf97b7f9be5ba2c04c1abef06025cf071b4c077f31bd"
+    "cacheKey": "957e4d82634a037e93feef731077835ee40ae3135977140717834e33f3b86a6c"
   },
   {
     "id": "com.nbosp.perf",
     "file": "js/apps/com.nbosp.perf.novaapp",
-    "cacheKey": "2e810d5cd69696feb951c8ad754d6a23c144617f60e7de1fdc49413b838d26b4"
+    "cacheKey": "e7a4db3c62c39f4bc105678367f5f80f54ffffab5247a997f8db129a8a3757b2"
   },
   {
     "id": "com.nbosp.permissions",
     "file": "js/apps/com.nbosp.permissions.novaapp",
-    "cacheKey": "a81e35b72b098e811056a40e2729234e6eddbc8017232b90428bc5d9fb86df73"
+    "cacheKey": "a09a3d9ccae2d3c57d39792098850050a0cd8977f0948927a00bd1c53bfeb339"
   },
   {
     "id": "com.nbosp.textedit",
     "file": "js/apps/com.nbosp.textedit.novaapp",
-    "cacheKey": "86d73bd07911b487e2996d27e3c02c1d112370bb1f14d7510180585516ffef3f"
+    "cacheKey": "349e325546311229c083a9897eb88fbf26461d01cbb9a2549c65286f7900ab20"
   },
   {
     "id": "com.nbosp.search",
     "file": "js/apps/com.nbosp.search.novaapp",
-    "cacheKey": "7575c2b5a0e0e76d769b3506c9e97d68b9815cf46c07995430e717a34c9cebf0"
+    "cacheKey": "c3d5d4636ebd1ca2459fda42ce891cff8a5da7bd5cdb93ea6dda1c0949fe9ffb"
   },
   {
     "id": "com.nbosp.settings",
     "file": "js/apps/com.nbosp.settings.novaapp",
-    "cacheKey": "c0b6c970e4f70fa482a4dde3c10a3dc200c2a8a8c23d6f1fc034fddc252f7a1f"
+    "cacheKey": "45d83b2a7b630d7404c9f84ebfabe3fa4548524967705abb727f9c4d257d2572"
   },
   {
     "id": "com.nbosp.terminal",
     "file": "js/apps/com.nbosp.terminal.novaapp",
-    "cacheKey": "5941633decde56fc3726b2fcc122abd588270ec2e18b559223ce8d332d21517d"
+    "cacheKey": "19c73cc6cd3cb18dcef5b50575f2186d7639ca15e0594c82fa7dccfefa9bfd5e"
   },
   {
     "id": "com.nbosp.sysaccess",
     "file": "js/apps/com.nbosp.sysaccess.novaapp",
-    "cacheKey": "d3d1bac860befbb0fa3ab076762a2a362e57fe5d29e260ba7cf9a56c7af6f57e"
+    "cacheKey": "cea79b994fc9f5828b6374795718d3661241d164148fd8ae7b6a16edce58057d"
   },
   {
     "id": "com.nbosp.files",
     "file": "js/apps/com.nbosp.files.novaapp",
-    "cacheKey": "871ede9bcf30c0ed37956dae0030f6ef5f69e04f2de1da1e66af9613761d4b3e"
+    "cacheKey": "6759aad9ab0270fd2ad6f15fbf87f909d7bd3b9df5da257049dddd1e06e68b55"
   },
   {
     "id": "com.nbosp.store",
     "file": "js/apps/com.nbosp.store.novaapp",
-    "cacheKey": "7f91479ba3228c2b3d63910108386f46adacc4c7a2ac896b079a6747c71709bf"
+    "cacheKey": "590d46a1a4d62bec2a55c1fd595dd88546a4182d47b71a126279d4b69c5a3794"
   },
   {
     "id": "com.nbosp.service.app-loader-optimiser",
     "file": "js/apps/com.nbosp.service.app-loader-optimiser.novaapp",
-    "cacheKey": "b3a6b11a753d9a16cd87a0482216bddac2f44541515eb509727e8086be4786ad",
+    "cacheKey": "5d0a145b3c00c5e43e31cdbe40b66f239a3fdfd06a589481229a18b8e8ec529f",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.background-apps",
     "file": "js/apps/com.nbosp.service.background-apps.novaapp",
-    "cacheKey": "cdc04b5aeb783d023904ca88f0cb37f66f6c9035fa1a4a38127d2122ea035c9a",
+    "cacheKey": "dc4a46083b93c6d38a794e24ddd5217fed5a8aaea2c5c9ed7a7bcb263c2f5ef2",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.calendar-notifier",
     "file": "js/apps/com.nbosp.service.calendar-notifier.novaapp",
-    "cacheKey": "14bc638ff35ef4d450260929ae16d052c8f12647fd5b2f06f3df3aec2f5f9e46",
+    "cacheKey": "507c5114e79665a7d26e2530db295b1b3f40168bd84940a24a705ea65f0ee52a",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.debug-overlay",
     "file": "js/apps/com.nbosp.service.debug-overlay.novaapp",
-    "cacheKey": "c18927dfb7333cc65a454a2e27e64c1d2ea5daee965344bf7f64fe8b2905e53b",
+    "cacheKey": "5ba02978647eabf68a408ec822879097133cb2f04776be22e614c2f454962e9f",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.default-apps",
     "file": "js/apps/com.nbosp.service.default-apps.novaapp",
-    "cacheKey": "18a60d1c08c27dd864229b83026b2229f912832513b7e0ecdf14d8c8a97f483f",
+    "cacheKey": "8224fd3506cc152da4ccb09c3b746657f8ed269cce43514098161cae469eb111",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.downloads-history",
     "file": "js/apps/com.nbosp.service.downloads-history.novaapp",
-    "cacheKey": "208a8f623d5afbd97e971cbe1f685cbfeaa4013769d1b67b06682eae57b39484",
+    "cacheKey": "2a58557e4f814c282364a1e985d331eaef4a96e1e1679f823cb7c8576bb23d3b",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.event-log",
     "file": "js/apps/com.nbosp.service.event-log.novaapp",
-    "cacheKey": "b241740c9b46fdef20d350e21ebac6d738fb5b458c4b44b5b729a5fecaadd610",
+    "cacheKey": "62acca0c636eb11ae3a250312c23aa01b65322f7e991e2d7eb55806c8a50086e",
     "systemService": true
   },
   {
     "id": "com.nbosp.launcher",
     "file": "js/apps/com.nbosp.launcher.novaapp",
-    "cacheKey": "42394e8961ce8cea9a366a089ea2b641aa907cc31a2816d026cabd911d480d13"
+    "cacheKey": "524ccc9db0a970ab30fdf28b7a7ca7c5ad70d01fe8dca0739791781f3d556f20"
   },
   {
     "id": "com.nbosp.service.lock-screen",
     "file": "js/apps/com.nbosp.service.lock-screen.novaapp",
-    "cacheKey": "8c3ef6fb5c92821ee93f92f2254ce60a1881901011ff1e3460ce08b8b38ac142",
+    "cacheKey": "6c595a7057ab844814f07d73c0aaada1c020229e106638760f1776ed93b3b953",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.network-activity-log",
     "file": "js/apps/com.nbosp.service.network-activity-log.novaapp",
-    "cacheKey": "24ca0e4f5a37f6bafe4f80f90e5876a22823c37d576ac94f36f0e40058098875",
+    "cacheKey": "88ac3c4cc7cde3a20525514630244721eb92973125d4ad95313ada5cef76a100",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.notifications",
     "file": "js/apps/com.nbosp.service.notifications.novaapp",
-    "cacheKey": "721a5c12c972364b84a6145418562f3d48fc5a6c82ede0cbc4af69cdd31ab71d",
+    "cacheKey": "d1f45f333293b25d7cc48fefdb3518088db02592b5b1e1f60ea2b19ca07fb814",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.registry",
     "file": "js/apps/com.nbosp.service.registry.novaapp",
-    "cacheKey": "a739e71bf3f1ab7cbb04bc82555cd7edd6b886e89d3937ec927c9264b496a239",
+    "cacheKey": "22725c831239c62c3f9b3b6445013e50dd21ba4e64a7102a85111fac2b867c09",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.scanner",
     "file": "js/apps/com.nbosp.service.scanner.novaapp",
-    "cacheKey": "680295e20103f3d08e6c9b168580beeb0c219eed4ec7c7472afa81ff269d4a9a",
+    "cacheKey": "2324ab9ce1a465b5e588fae67a30b54dbf7ac8ea688f77c61f504df93e4138d1",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.screenshots",
     "file": "js/apps/com.nbosp.service.screenshots.novaapp",
-    "cacheKey": "0706185402db8b118119d31d43883815ddd7051fe55af2f12989b196b10824cd",
+    "cacheKey": "b4cbc06bf3dfd84f4b1dd5e5f99fffeb0a76645510f8b825d73c020b502d2daa",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.search-index",
     "file": "js/apps/com.nbosp.service.search-index.novaapp",
-    "cacheKey": "6c2c4a3ebca653554ff95f7cded46fec5fba07c3f6fb1f9ccf4619c91bdebd77",
+    "cacheKey": "fbb53a5ff961dbb2340887d9da4eb7b647937c48e7f50e3572b7b59a38f35ec8",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.server-events-bridge",
     "file": "js/apps/com.nbosp.service.server-events-bridge.novaapp",
-    "cacheKey": "5c6d45e5be61dde506b702301295398f8360776d45a8a1f353d562ecf635ca30",
+    "cacheKey": "26ca5f83e76c702d0331edc55616d21d1ed9e2524d18058b9407c3896c66ad31",
     "systemService": true
   },
   {
     "id": "com.nbosp.shell-ui",
     "file": "js/apps/com.nbosp.shell-ui.novaapp",
-    "cacheKey": "db538075fc76fe32b10b9db223cf3017f39c3fa1b16d3df61a52d8fc7864fc9c",
+    "cacheKey": "55bfd076885329702e4fa1a9ec40c20af1634cac822e94c09241b331f014e777",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.store-updates",
     "file": "js/apps/com.nbosp.service.store-updates.novaapp",
-    "cacheKey": "3b2725e3519bf110d13feac8c7cac35cdeeb45789a466150f3f372fd059fcead",
+    "cacheKey": "696a84ac73cebd99cf94ceb4b97675a8e9f0b8cca18c5bc7e87e57edba212ad2",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.system-dialogs",
     "file": "js/apps/com.nbosp.service.system-dialogs.novaapp",
-    "cacheKey": "d473ecc0a0efb1604824f2fd082fbda856853b4cc6f58614d90c20e92f9bf109",
+    "cacheKey": "e2b4bca144c984355832ec9d9e302be55bb91271bbd5927099775e9af3f755c8",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.system-events",
     "file": "js/apps/com.nbosp.service.system-events.novaapp",
-    "cacheKey": "9dcd8e5be0bf49e1b9be872040963f3730cd6d13f662ac1a7b3c670437f4c56f",
+    "cacheKey": "70068a69c0650a1212dbf54f5c56327eac2404544cb016b174ec5a82910f68b0",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.tray",
     "file": "js/apps/com.nbosp.service.tray.novaapp",
-    "cacheKey": "f9c6e60c6a81f8b5074320215167669473daefac0972594d2e65a915aaf8a4df",
+    "cacheKey": "c533fd756f22318e21bf80d59af74ea31276e230134f1dc5fdb9226510afe98e",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.wallpaper",
     "file": "js/apps/com.nbosp.service.wallpaper.novaapp",
-    "cacheKey": "b3eea382fb51dba13c64d8c221c6cfb56e118eee84e282a334768d7289a9d4b5",
+    "cacheKey": "b842809d7317452a22859c2103ea61781086123a61bc967b8c363ae89a715b96",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.system-webview",
     "file": "js/apps/com.nbosp.service.system-webview.novaapp",
-    "cacheKey": "c2bb442b4e6da8656073de65c924a90b4e244c445ec7d576bf765c12cab97022",
+    "cacheKey": "5576f5a121d5cb9416e7aa36cb1600621cbca6f641897094b6abb2d2732c46ed",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.novabyte-system",
     "file": "js/apps/com.nbosp.service.novabyte-system.novaapp",
-    "cacheKey": "b74284b7f1365920826e6ae26ed2b12b89cb0cb569765c520ad82662b380977a",
+    "cacheKey": "a4d8a83aa8594175e1de66679fdb4fbdaaf32825f5ddc4904b6f95ef270cdc42",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.easteregg",
     "file": "js/apps/com.nbosp.service.easteregg.novaapp",
-    "cacheKey": "26ea68d562b3b62dbd060803d92b55860402094bdeec36a3561a44c3a07adeb6",
+    "cacheKey": "13d5f329f706a996804abff0c7188d2e61b801644a363175a4bd1deffd01c973",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.media-store",
     "file": "js/apps/com.nbosp.service.media-store.novaapp",
-    "cacheKey": "54c24cca756945ff11dcc5b0a167de6b7a67515ac256515fb4f479ab9ca87933",
+    "cacheKey": "5864dfdd48bc91a565e2e395022c90b96ccac60a6fc79f512f77c6731beaab1b",
     "systemService": true
   },
   {
     "id": "com.nbosp.novareg",
     "file": "js/apps/com.nbosp.novareg.novaapp",
-    "cacheKey": "3e52c80cd0653972ec52551aee6afc7dd1169cadddf18e9dc36acf32f911ab0a"
+    "cacheKey": "090eeb69af3500fb5cad5e50346c3d785738b310938f996cffb8ead2153bc06e"
   },
   {
     "id": "com.nbosp.service.session",
     "file": "js/apps/com.nbosp.service.session.novaapp",
-    "cacheKey": "a8435d86f55b488a83f907caa32110f5544d13013d2ee2d8c369003af2c7a638",
+    "cacheKey": "8fe217c13899d0d10a6d598c0a9d564343bb7082542705935618f31c5732e859",
     "systemService": true
   },
   {
     "id": "com.nbosp.users",
     "file": "js/apps/com.nbosp.users.novaapp",
-    "cacheKey": "eff730314aefeecf806193890c4eee6d150284acc1d95e5337b548e2a02685ff"
+    "cacheKey": "9fd1dcfd5104714393ed90c0730668549848b46ad844b0aef4ac263150b37cbe"
   },
   {
     "id": "com.nbosp.setup",
     "file": "js/apps/com.nbosp.setup.novaapp",
-    "cacheKey": "f41afc7d5cf55de6642263c30f16a7e14c8a71d615a5807ccccd86deba15533b"
+    "cacheKey": "7cac29fb90257285ea500eb168bff8337576dd71ab236ae05c1a149dbee90589"
   },
   {
     "id": "com.nbosp.localisation",
     "file": "js/apps/com.nbosp.localisation.novaapp",
-    "cacheKey": "0e81b50d0c4e75c6ffbef8674480e4ab628792e135f106af0cbaf5d2c3f56382",
+    "cacheKey": "56d1668215e944e3eaf8a6c06ed90afbf936d0519087cf0c44ef14f1503f71d6",
     "systemService": true
   },
   {
     "id": "com.nbosp.service.vpn",
     "file": "js/apps/com.nbosp.service.vpn.novaapp",
-    "cacheKey": "4355dba5163b1d8bb036981303047afcad95a7ff6d9fb197d14bb6d8be8c0c74",
+    "cacheKey": "0a5c9397074e24d0ef389440bd00c09fb970d015ab76a87cb05ab692ac0e2f65",
     "systemService": true
   }
 ]

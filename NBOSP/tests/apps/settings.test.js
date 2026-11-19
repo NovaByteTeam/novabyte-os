@@ -93,7 +93,7 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(app.id).toBe('com.nbosp.settings');
     expect(app.name).toBe('Settings');
     expect(app.version).toBe('3.0.2');
-    expect(app.icon).toBe('/assets/settings.svg');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.defaultSize).toEqual([700, 500]);
     expect(app.minSize).toEqual([500, 400]);
     expect(typeof app.init).toBe('function');
@@ -145,11 +145,18 @@ describe("'Settings' app (js/apps/settings)", () => {
   });
 
   it('renders all 13 sidebar sections and navigates between them', async () => {
-    const { content } = await loadSettings();
+    const icon = 'data:image/svg+xml;base64,PHN2Zy8+';
+    const os = {
+      username: 'nova',
+      lockPin: null,
+      version: '3.0.2',
+      dnd: false,
+      apps: { 'com.nbosp.settings': { icon } },
+    };
+    const { content } = await loadSettings({ os });
     const buttons = [...content.querySelectorAll('.nook-section-btn')];
     expect(content.querySelector('.nook-sidebar-brand')).toBeTruthy();
-    expect(content.querySelector('.nook-sidebar-brand img')?.getAttribute('src'))
-      .toBe('/assets/settings.svg');
+    expect(content.querySelector('.nook-sidebar-brand img')?.getAttribute('src')).toBe(icon);
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
       'Appearance', 'Accessibility', 'Desktop', 'System', 'Date and Region',
       'Connectivity', 'VPN', 'Storage', 'Notifications', 'Privacy', 'Root Access',

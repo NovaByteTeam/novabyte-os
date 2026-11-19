@@ -6,7 +6,7 @@
   "description": "Reload JavaScript modules in the running OS without a full restart.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/modules.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     600,

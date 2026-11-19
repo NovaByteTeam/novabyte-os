@@ -26,7 +26,7 @@ registerApp({
   id: 'com.nbosp.users',
   name: 'Users',
   version: '3.0.2',
-  icon: '/assets/users.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Admin console for accounts: create, edit, reset, disable, delete, machine policies and the per-user audit feed.',
   category: 'admin',
   permissions: [],
@@ -291,6 +291,7 @@ registerApp({
     function renderUsers() {
       body.innerHTML = '';
       if (listProblem) body.appendChild(buildListProblemBanner());
+      const currentUid = window.SessionManager?.state?.()?.uid ?? null;
       const toolbar = createEl('div', { className: 'nbusers-toolbar' });
       toolbar.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600', textContent: _t('apps.users.accountsCount', { count: usersCache.length }) }));
       const addBtn = createEl('button', { className: 'nbusers-btn primary nbusers-add-btn' });
@@ -384,7 +385,9 @@ registerApp({
             actions.appendChild(mkBtn(_t('apps.users.actions.unlock'), '', () => adminAction('accounts.unlock', { uid: user.uid }, 'unlock'), _t('apps.users.actions.unlockTitle')));
           }
         }
-        actions.appendChild(mkBtn(_t('apps.users.actions.resetPin'), '', () => resetCredential(user), _t('apps.users.actions.resetPinTitle')));
+        if (currentUid && currentUid === user.uid) {
+          actions.appendChild(mkBtn(_t('apps.users.actions.resetPin'), '', () => resetCredential(user), _t('apps.users.actions.resetPinTitle')));
+        }
         actions.appendChild(mkBtn(_t('apps.users.actions.forceOut'), 'ghost', () => adminAction('accounts.forceLogout', { uid: user.uid }, 'force-logout'), _t('apps.users.actions.forceOutTitle')));
         if (user.role !== 'owner') {
           actions.appendChild(mkBtn(_t('apps.users.actions.delete'), 'danger', () => renderDeleteUser(user), _t('apps.users.actions.deleteTitle')));
@@ -584,12 +587,14 @@ registerApp({
       // which used to make the whole account list "disappear" on the next
       // fetch. Confirm the sign-out-everywhere consequence first.
       const currentUid = window.SessionManager?.state?.()?.uid ?? null;
-      if (currentUid && currentUid === user.uid) {
-        const confirmed = await confirmResetPinSelf(user);
-        if (!confirmed) {
-          await refresh();
-          return;
-        }
+      if (!currentUid || currentUid !== user.uid) {
+        toast(_t('apps.users.resetPinSelfOnly'), true);
+        return;
+      }
+      const confirmed = await confirmResetPinSelf(user);
+      if (!confirmed) {
+        await refresh();
+        return;
       }
       const result = await adminUsers('accounts.resetCredential', { uid: user.uid });
       if (!result?.success) {
@@ -597,23 +602,43 @@ registerApp({
         return;
       }
       const data = result.data || {};
-      // The temporary PIN is shown exactly once.
+      const temporaryPin = typeof data.temporaryPin === 'string' ? data.temporaryPin : '';
+      if (!/^\d{6}$/.test(temporaryPin)) {
+        toast(_t('apps.users.resetFailed'), true);
+        return;
+      }
       body.innerHTML = '';
       body.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600;margin-bottom:4px', textContent: _t('apps.users.temporaryPinTitle', { name: user.displayName || user.username }) }));
-      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px;max-width:460px', textContent: currentUid === user.uid ? _t('apps.users.resetPinSelfWarningDone') : _t('apps.users.temporaryPinBody') }));
+      body.appendChild(createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-bottom:16px;max-width:460px', textContent: _t('apps.users.temporaryPinInstructions') }));
       const pinCard = createEl('div', {
-        style: 'display:inline-block;padding:18px 26px;border-radius:12px;border:1px dashed var(--accent);font-size:26px;letter-spacing:6px;font-weight:700;color:var(--accent);background:var(--bg-overlay);',
-        textContent: String(data.temporaryPin || ''),
+        style: 'display:inline-block;padding:18px 26px;border-radius:12px;border:1px dashed var(--accent);font-size:26px;letter-spacing:6px;font-weight:700;color:var(--accent);background:var(--bg-overlay);user-select:all;',
+        textContent: temporaryPin,
       });
       body.appendChild(pinCard);
-      const back = createEl('button', { className: 'nbusers-btn', textContent: _t('apps.users.done') });
-      back.style.marginTop = '16px';
-      // Refresh is deferred to THIS click: awaiting refresh() straight after
-      // the reset wiped the temporary-PIN card before it was ever seen (and
-      // a self-reset just killed this session — the deferred refresh then
-      // lands on the session-expired banner instead of erasing the card).
-      back.addEventListener('click', () => { refresh(); }, { signal });
-      body.appendChild(back);
+      const actions = createEl('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-top:16px' });
+      const copy = createEl('button', { className: 'nbusers-btn ghost', textContent: _t('apps.users.copyTemporaryPin') });
+      copy.addEventListener('click', async () => {
+        try {
+          const clipboard = window.navigator?.clipboard;
+          if (typeof clipboard?.writeText !== 'function') throw new Error('Clipboard unavailable');
+          await clipboard.writeText(temporaryPin);
+          toast(_t('apps.users.temporaryPinCopied'));
+        } catch {
+          toast(_t('apps.users.temporaryPinCopyFailed'), true);
+        }
+      }, { signal });
+      const signIn = createEl('button', { className: 'nbusers-btn primary', textContent: _t('apps.users.continueToSignIn') });
+      signIn.addEventListener('click', () => {
+        const transition = window.LockScreenService?.switchUser?.();
+        if (!transition || typeof transition.then !== 'function') {
+          toast(_t('apps.users.signInUnavailable'), true);
+          return;
+        }
+        transition.catch(error => toast(error?.message || _t('apps.users.signInUnavailable'), true));
+      }, { signal });
+      actions.appendChild(copy);
+      actions.appendChild(signIn);
+      body.appendChild(actions);
     }
 
     function renderDeleteUser(user) {

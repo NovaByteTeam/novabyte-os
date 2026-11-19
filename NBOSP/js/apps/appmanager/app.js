@@ -1227,7 +1227,7 @@ registerApp({
   id: APP_MANAGER_ID,
   name: 'App Manager',
   version: '3.0.2',
-  icon: '/assets/appmanager.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Install, manage, and customise .novaapp packages and web apps',
   defaultSize: [980, 640],
   minSize: [720, 480],

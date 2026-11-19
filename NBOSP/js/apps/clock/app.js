@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.clock',
   name: 'Clock',
   version: '3.0.2',
-  icon: '/assets/clock.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Alarm · Clock · Timer · Stopwatch',
   defaultSize: [400, 600],
   minSize: [340, 480],

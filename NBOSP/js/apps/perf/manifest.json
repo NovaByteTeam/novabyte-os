@@ -6,7 +6,7 @@
   "description": "Monitor live performance metrics, including frame rate, memory, DOM, tasks, and network activity.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/perf.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     600,

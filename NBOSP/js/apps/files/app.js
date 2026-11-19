@@ -2430,7 +2430,7 @@
     id: 'com.nbosp.files',
     name: 'Files',
     version: '3.0.2',
-    icon: '/assets/files.svg',
+    icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
     description: 'File Manager',
     defaultSize: [780, 520],
     minSize: [480, 340],

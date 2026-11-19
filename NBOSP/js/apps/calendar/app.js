@@ -1,5 +1,5 @@
 registerApp({
-  id: 'com.nbosp.calendar', name: 'Calendar', icon: '/assets/calendar.svg',
+  id: 'com.nbosp.calendar', name: 'Calendar', icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   version: '3.0.2',
   description: 'Calendar & Scheduling',
   defaultSize: [860, 580], minSize: [600, 440],

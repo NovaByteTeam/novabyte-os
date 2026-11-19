@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.calendar-notifier",
   "name": "Calendar Notifier Service",
-  "icon": "/assets/service-calendar-notifier.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Delivers notifications for scheduled calendar events.",
   "version": "3.0.2",

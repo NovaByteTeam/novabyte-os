@@ -6,7 +6,7 @@
   "description": "Search NovaByte OS for apps and available system content.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/search.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     640,

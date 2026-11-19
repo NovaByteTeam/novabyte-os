@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.registry",
   "name": "Web App Registry Service",
-  "icon": "/assets/service-registry.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Maintains the OS registry of installed apps and their launch metadata.",
   "version": "3.0.2",

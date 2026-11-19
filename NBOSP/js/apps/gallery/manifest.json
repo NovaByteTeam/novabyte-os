@@ -6,7 +6,7 @@
   "description": "Browse and view images stored on your device.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/gallery.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     840,

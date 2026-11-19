@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom';
 
 const read = rel => readFile(new URL(rel, import.meta.url), 'utf8');
 
-async function mountUsersApp(users, { events = [], save = vi.fn(async () => null), writeFile = vi.fn(), authFetch = null, sessionState = null } = {}) {
+async function mountUsersApp(users, { events = [], save = vi.fn(async () => null), writeFile = vi.fn(), authFetch = null, sessionState = null, lockScreen = null } = {}) {
   const [baseUtils, appSource, i18nSource, enCatalogue] = await Promise.all([
     read('../../js/core/utils/base-utils.js'),
     read('../../js/apps/users/app.js'),
@@ -50,6 +50,7 @@ async function mountUsersApp(users, { events = [], save = vi.fn(async () => null
       return (authFetch || defaultAuthFetch)(path, options);
     },
   };
+  if (lockScreen) window.LockScreenService = lockScreen;
 
   window.eval(baseUtils);
   window.eval(appSource);
@@ -291,36 +292,33 @@ describe('Users app reset-PIN flow', () => {
     await new Promise(resolve => window.setTimeout(resolve, 0));
   }
 
-  it('keeps the temporary-PIN card on screen — refresh is deferred to the Done click', async () => {
+  it('does not show Reset PIN for an account other than the signed-in admin', async () => {
     const { window, host, calls } = await mountUsersApp(USERS, {
       authFetch: resetFetch(),
       sessionState: { uid: 'u1' },
     });
     try {
-      await clickResetFor(window, host, 'sam'); // NOT the current account → no confirmation view
-      expect(calls.filter(c => c.path.endsWith('/reset-credential'))).toHaveLength(1);
-      expect(host.textContent).toContain('654321'); // the temporary PIN is shown exactly once
-
-      // No immediate refresh wiped the card: the list fetch count is unchanged.
-      expect(calls.filter(c => c.path === '/api/auth/admin/users' && c.method === 'GET')).toHaveLength(1);
-
-      // Done is the only thing that refreshes the list.
-      [...host.querySelectorAll('button')].find(b => b.textContent === 'Done').click();
-      await new Promise(resolve => window.setTimeout(resolve, 0));
-      expect(calls.filter(c => c.path === '/api/auth/admin/users' && c.method === 'GET')).toHaveLength(2);
-      expect(host.querySelectorAll('.nbusers-table tbody tr')).toHaveLength(2);
-      expect(host.textContent).not.toContain('654321'); // the one-time PIN is gone once dismissed
+      const sam = [...host.querySelectorAll('.nbusers-table tbody tr')].find(row => row.textContent.includes('sam'));
+      expect([...sam.querySelectorAll('button')].some(button => button.textContent === 'Reset PIN')).toBe(false);
+      expect(calls.filter(call => call.path.endsWith('/reset-credential'))).toHaveLength(0);
     } finally {
       window.close();
     }
   });
 
-  it('resetting your own PIN asks for confirmation first (the server revokes your sessions)', async () => {
+  it('shows where to use the one-time PIN and lets the signed-in admin continue to sign in', async () => {
+    const switchUser = vi.fn(async () => {});
+    const writeText = vi.fn(async () => {});
     const { window, host, calls } = await mountUsersApp(USERS, {
       authFetch: resetFetch(),
       sessionState: { uid: 'u1' },
+      lockScreen: { switchUser },
     });
     try {
+      Object.defineProperty(window.navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText },
+      });
       await clickResetFor(window, host, 'ada'); // Ada IS the current account
       // The API was not called — the confirmation view is up instead.
       expect(calls.filter(c => c.path.endsWith('/reset-credential'))).toHaveLength(0);
@@ -338,7 +336,17 @@ describe('Users app reset-PIN flow', () => {
       await new Promise(resolve => window.setTimeout(resolve, 0));
       expect(calls.filter(c => c.path.endsWith('/reset-credential'))).toHaveLength(1);
       expect(host.textContent).toContain('654321');
-      expect(host.textContent).toContain('Your PIN was reset');
+      expect(host.textContent).toContain('At the lock screen');
+      expect(host.textContent).toContain('Copy temporary PIN');
+      expect(host.textContent).toContain('Continue to sign in');
+
+      [...host.querySelectorAll('button')].find(button => button.textContent === 'Copy temporary PIN').click();
+      await new Promise(resolve => window.setTimeout(resolve, 0));
+      expect(writeText).toHaveBeenCalledWith('654321');
+
+      [...host.querySelectorAll('button')].find(button => button.textContent === 'Continue to sign in').click();
+      await new Promise(resolve => window.setTimeout(resolve, 0));
+      expect(switchUser).toHaveBeenCalledOnce();
     } finally {
       window.close();
     }

@@ -182,6 +182,16 @@ function actorUid(req) {
     return req.session?.uid || null;
 }
 
+function requireSelfPinTarget(req, res, targetUid) {
+    if (actorUid(req) === targetUid) return true;
+    res.status(403).json({
+        success: false,
+        code: 'SELF_ONLY',
+        message: 'Administrators can only reset or set their own PIN',
+    });
+    return false;
+}
+
 // ── Public routes ──────────────────────────────────────────────────────────
 
 // Picker account list: public-safe fields only — no credential material,
@@ -981,8 +991,11 @@ router.post('/admin/users/:uid/force-logout', requireAdminRole, (req, res) => {
 // Credential reset: issues a temporary PIN shown exactly once. The account's
 // next login lands on a forced new-PIN sheet.
 router.post('/admin/users/:uid/reset-credential', requireAdminRole, (req, res) => {
+    const user = usersDb.getUser(req.params.uid);
+    if (!user) return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'No such account' });
+    if (!requireSelfPinTarget(req, res, user.uid)) return;
     try {
-        const result = usersDb.resetCredential(req.params.uid, actorUid(req));
+        const result = usersDb.resetCredential(user.uid, actorUid(req));
         res.json({ success: true, data: result });
     } catch (err) {
         res.status(err.code === 'NOT_FOUND' ? 404 : 400);
@@ -992,9 +1005,12 @@ router.post('/admin/users/:uid/reset-credential', requireAdminRole, (req, res) =
 
 // Admin setting a PIN directly (front-desk provisioning).
 router.post('/admin/users/:uid/credentials/pin', requireAdminRole, (req, res) => {
+    const user = usersDb.getUser(req.params.uid);
+    if (!user) return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'No such account' });
+    if (!requireSelfPinTarget(req, res, user.uid)) return;
     const { pin } = req.body || {};
     try {
-        const updated = usersDb.setCredential(req.params.uid, 'pin', String(pin ?? ''));
+        const updated = usersDb.setCredential(user.uid, 'pin', String(pin ?? ''));
         res.json({ success: true, data: { user: usersDb.toAdminUser(updated) } });
     } catch (err) {
         res.status(err.code === 'NOT_FOUND' ? 404 : 400);

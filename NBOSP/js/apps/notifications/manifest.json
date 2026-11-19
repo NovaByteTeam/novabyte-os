@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.notifications",
   "name": "Notifications",
-  "icon": "/assets/service-notifications.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Provides the system notification service used by apps and OS components.",
   "version": "3.0.2",

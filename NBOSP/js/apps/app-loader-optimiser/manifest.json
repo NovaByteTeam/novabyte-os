@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.app-loader-optimiser",
   "name": "App Loader Optimiser",
-  "icon": "/assets/service-app-loader-optimiser.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Preloads bundled NovaApp packages concurrently and reuses unchanged packages from persistent local storage.",
   "version": "3.0.2",

@@ -6,7 +6,7 @@
   "description": "Inspect network proxy settings and the NovaByte virtual filesystem.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/sysaccess.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     750,

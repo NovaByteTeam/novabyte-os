@@ -266,6 +266,7 @@ async function world() {
 
   return {
     owner, ownerCsrf, adaUid,
+    ownerSid: setup.body.data.sessionId,
     bossUid: boss.body.data.user.uid,
     samUid: sam.body.data.user.uid,
   };
@@ -693,9 +694,8 @@ describe('auth-routes — picker list, policy surfaces, introspection', () => {
     const withKey = await request(app).get('/api/auth/users');
     expect(withKey.body.data.users.find(u => u.displayName === 'Sam Smith').hasBiometric).toBe(true);
 
-    // An admin credential reset forces the new-PIN sheet.
-    await w.owner.post(`/api/auth/admin/users/${w.samUid}/reset-credential`)
-      .set('X-CSRF-Token', w.ownerCsrf);
+    // A pre-reset account state forces the new-PIN sheet.
+    usersDb.resetCredential(w.samUid, w.adaUid);
     const forced = await request(app).get('/api/auth/users');
     const forcedTile = forced.body.data.users.find(u => u.displayName === 'Sam Smith');
     expect(forcedTile.mustChangePin).toBe(true);
@@ -1370,56 +1370,58 @@ describe('auth-routes — /change-pin and /change-passphrase', () => {
 describe('auth-routes — admin credential reset (temporary PIN + forced change)', () => {
   it('reset-credential: 404 unknown, revokes live sessions, issues a one-time 6-digit PIN, forces a change', async () => {
     const w = await world();
-    const agent = request.agent(app);
-    const login = await loginOk(agent, { username: 'sam', secret: '4321' });
-    seedSessionsDb(login.sid); // the production SqliteStore row for this sid
+    seedSessionsDb(w.ownerSid);
 
     const unknown = await w.owner.post('/api/auth/admin/users/11111111-2222-3333-4444-555555555555/reset-credential')
       .set('X-CSRF-Token', w.ownerCsrf);
     expect(unknown.status).toBe(404);
     expect(unknown.body).toMatchObject({ success: false, code: 'NOT_FOUND', message: 'No such account' });
 
-    const reset = await w.owner.post(`/api/auth/admin/users/${w.samUid}/reset-credential`)
+    const otherAccount = await w.owner.post(`/api/auth/admin/users/${w.samUid}/reset-credential`)
+      .set('X-CSRF-Token', w.ownerCsrf);
+    expect(otherAccount.status).toBe(403);
+    expect(otherAccount.body).toMatchObject({ success: false, code: 'SELF_ONLY' });
+
+    const reset = await w.owner.post(`/api/auth/admin/users/${w.adaUid}/reset-credential`)
       .set('X-CSRF-Token', w.ownerCsrf);
     expect(reset.status).toBe(200);
     const temporaryPin = reset.body.data.temporaryPin;
     expect(temporaryPin).toMatch(/^\d{6}$/);
     expect(reset.body.data.expiresAt).toBeGreaterThan(Date.now());
-    expect(reset.body.data).toMatchObject({ uid: w.samUid, username: 'sam' });
+    expect(reset.body.data).toMatchObject({ uid: w.adaUid, username: 'ada' });
 
     // The reset revokes every live session of the account — the sid row dies
     // in sessions.db and the session map no longer tracks it.
-    expect(sessionsDbHas(login.sid)).toBe(false);
-    const adminList = await w.owner.get('/api/auth/admin/users').set('X-CSRF-Token', w.ownerCsrf);
-    expect(adminList.body.data.users.find(u => u.username === 'sam').trackedSessions).toBe(0);
+    expect(sessionsDbHas(w.ownerSid)).toBe(false);
+    expect(usersDb.sessionsForUser(w.adaUid)).toEqual([]);
 
     // Current behavior, pinned: the previous PIN also still authenticates
     // after a reset (both routes land on the forced new-PIN sheet). The
     // temporary window does not remove the old credential row.
-    const viaOld = await loginOk(request.agent(app), { uid: w.samUid, secret: '4321' });
+    const viaOld = await loginOk(request.agent(app), { uid: w.adaUid, secret: '123456' });
     expect(viaOld.body.data.mustChangePin).toBe(true);
     expect(viaOld.body.data.via).toBe('pin');
 
-    const viaTemp = await loginOk(request.agent(app), { uid: w.samUid, secret: temporaryPin });
+    const viaTemp = await loginOk(request.agent(app), { uid: w.adaUid, secret: temporaryPin });
     expect(viaTemp.body.data.mustChangePin).toBe(true);
     expect(viaTemp.body.data.via).toBe('temporary-pin');
 
     // The forced session can set a new PIN WITHOUT knowing any current secret.
     const forced = request.agent(app);
-    const forcedLogin = await loginOk(forced, { uid: w.samUid, secret: temporaryPin });
+    const forcedLogin = await loginOk(forced, { uid: w.adaUid, secret: temporaryPin });
     const noCurrent = await forced.post('/api/auth/change-pin')
       .set('X-CSRF-Token', forcedLogin.csrf).send({ newPin: '6767' });
     expect(noCurrent.status).toBe(200);
 
     // Old and temporary PINs are gone; the new one works without the sheet.
-    expect((await request(app).post('/api/auth/login').send({ uid: w.samUid, secret: '4321' })).body.code).toBe('BAD_CREDENTIAL');
-    expect((await request(app).post('/api/auth/login').send({ uid: w.samUid, secret: temporaryPin })).body.code).toBe('BAD_CREDENTIAL');
-    const fresh = await loginOk(request.agent(app), { uid: w.samUid, secret: '6767' });
+    expect((await request(app).post('/api/auth/login').send({ uid: w.adaUid, secret: '123456' })).body.code).toBe('BAD_CREDENTIAL');
+    expect((await request(app).post('/api/auth/login').send({ uid: w.adaUid, secret: temporaryPin })).body.code).toBe('BAD_CREDENTIAL');
+    const fresh = await loginOk(request.agent(app), { uid: w.adaUid, secret: '6767' });
     expect(fresh.body.data.mustChangePin).toBe(false);
 
     // A second change now requires the current secret again.
     const secondNoCurrent = await request.agent(app);
-    const secondLogin = await loginOk(secondNoCurrent, { uid: w.samUid, secret: '6767' });
+    const secondLogin = await loginOk(secondNoCurrent, { uid: w.adaUid, secret: '6767' });
     const rejected = await secondNoCurrent.post('/api/auth/change-pin')
       .set('X-CSRF-Token', secondLogin.csrf).send({ newPin: '8989' });
     expect(rejected.status).toBe(200);
@@ -1429,15 +1431,20 @@ describe('auth-routes — admin credential reset (temporary PIN + forced change)
   it('admin direct credential routes: set PIN, set/clear passphrase, validation and 404s', async () => {
     const w = await world();
 
-    const badPin = await w.owner.post(`/api/auth/admin/users/${w.samUid}/credentials/pin`)
+    const otherPin = await w.owner.post(`/api/auth/admin/users/${w.samUid}/credentials/pin`)
+      .set('X-CSRF-Token', w.ownerCsrf).send({ pin: '7777' });
+    expect(otherPin.status).toBe(403);
+    expect(otherPin.body).toMatchObject({ success: false, code: 'SELF_ONLY' });
+
+    const badPin = await w.owner.post(`/api/auth/admin/users/${w.adaUid}/credentials/pin`)
       .set('X-CSRF-Token', w.ownerCsrf).send({ pin: '99ab' });
     expect(badPin.status).toBe(400);
     expect(badPin.body).toMatchObject({ success: false, code: 'INVALID_PIN', message: 'PIN must be 4 to 6 digits' });
 
-    const numericPin = await w.owner.post(`/api/auth/admin/users/${w.samUid}/credentials/pin`)
+    const numericPin = await w.owner.post(`/api/auth/admin/users/${w.adaUid}/credentials/pin`)
       .set('X-CSRF-Token', w.ownerCsrf).send({ pin: 7777 });
     expect(numericPin.status).toBe(200);
-    expect(await loginOk(request.agent(app), { uid: w.samUid, secret: '7777' })).toBeTruthy();
+    expect(await loginOk(request.agent(app), { uid: w.adaUid, secret: '7777' })).toBeTruthy();
 
     const setPhrase = await w.owner.post(`/api/auth/admin/users/${w.samUid}/credentials/passphrase`)
       .set('X-CSRF-Token', w.ownerCsrf).send({ passphrase: 'admin-set-pass' });
@@ -2870,10 +2877,8 @@ describe('auth-routes — reverify against changed account state', () => {
 describe('auth-routes — credential-change corner cases', () => {
   it('forced new-PIN sheet: an invalid new pin keeps the forced state; logins land on the sheet until changed', async () => {
     const w = await world();
-    const reset = await w.owner.post(`/api/auth/admin/users/${w.samUid}/reset-credential`)
-      .set('X-CSRF-Token', w.ownerCsrf);
-    expect(reset.status).toBe(200);
-    const tempPin = reset.body.data.temporaryPin;
+    const reset = usersDb.resetCredential(w.samUid, w.adaUid);
+    const tempPin = reset.temporaryPin;
 
     const forced = request.agent(app);
     const forcedLogin = await loginOk(forced, { uid: w.samUid, secret: tempPin });
@@ -2919,7 +2924,7 @@ describe('auth-routes — credential-change corner cases', () => {
   it('admin credentials/pin with a missing pin coerces to the empty string and fails validation', async () => {
     const w = await world();
     // No pin key at all: String(pin ?? '') → '' → assertPin refuses.
-    const noPin = await w.owner.post(`/api/auth/admin/users/${w.samUid}/credentials/pin`)
+    const noPin = await w.owner.post(`/api/auth/admin/users/${w.adaUid}/credentials/pin`)
       .set('X-CSRF-Token', w.ownerCsrf).send({});
     expect(noPin.status).toBe(400);
     expect(noPin.body).toMatchObject({ success: false, code: 'INVALID_PIN', message: 'PIN must be 4 to 6 digits' });

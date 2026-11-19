@@ -20,6 +20,8 @@
   const ACTIVE_KEY = 'nova_active_uid';     // uid of the mounted account
   const ACTIVE_UNAME_KEY = 'nova_active_uname'; // username of the mounted account
   const LEGACY_OWNER_KEY = 'nova_legacy_owner'; // uid that owns 3.0.2 data after migration
+  const STORAGE_QUOTA_CACHE_TTL_MS = 5000;
+  let storageQuotaCache = null;
 
   function lsGet(key) {
     try { return localStorage.getItem(key) || ''; } catch (_) { return ''; }
@@ -127,6 +129,52 @@
       return '';
     },
 
+    async storageQuotaBytes() {
+      const uid = this.uid();
+      if (!uid || /^guest(?:_|$)/.test(uid)) return null;
+
+      const now = Date.now();
+      if (storageQuotaCache?.uid === uid) {
+        if (storageQuotaCache.expiresAt > now) return storageQuotaCache.quotaBytes;
+        if (storageQuotaCache.pending) return storageQuotaCache.pending;
+      }
+
+      const sessionManager = typeof window !== 'undefined' ? window.SessionManager : null;
+      if (typeof sessionManager?.authFetch !== 'function') {
+        const error = new Error('The active account storage quota is unavailable.');
+        error.code = 'STORAGE_QUOTA_UNAVAILABLE';
+        throw error;
+      }
+
+      const pending = (async () => {
+        const response = await sessionManager.authFetch('/api/auth/usage');
+        const usage = response?.json?.data?.usage;
+        if (!response?.ok || response.json?.success !== true ||
+            usage?.uid !== uid || !Number.isSafeInteger(usage.quotaBytes) ||
+            usage.quotaBytes < 1024 * 1024) {
+          const error = new Error(response?.json?.message || 'Could not verify the active account storage quota.');
+          error.code = 'STORAGE_QUOTA_UNAVAILABLE';
+          throw error;
+        }
+        return usage.quotaBytes;
+      })();
+      storageQuotaCache = { uid, expiresAt: 0, quotaBytes: null, pending };
+
+      try {
+        const quotaBytes = await pending;
+        storageQuotaCache = {
+          uid,
+          expiresAt: Date.now() + STORAGE_QUOTA_CACHE_TTL_MS,
+          quotaBytes,
+          pending: null,
+        };
+        return quotaBytes;
+      } catch (error) {
+        if (storageQuotaCache?.pending === pending) storageQuotaCache = null;
+        throw error;
+      }
+    },
+
     /**
      * Directory segment under the NovaByte roots for the mounted account.
      * The username is the segment when one is mounted (users/<username>);
@@ -153,6 +201,7 @@
     /** Wipes every machine-level scope flag (factory reset / disable). */
     reset() {
       [FLAG_KEY, ACTIVE_KEY, ACTIVE_UNAME_KEY, LEGACY_OWNER_KEY, 'nova_active_role'].forEach(lsRemove);
+      storageQuotaCache = null;
     },
   };
 

@@ -124,18 +124,20 @@ let lockWallpaperRequest = 0;
  */
 async function wallpaperFor(account) {
   if (!account) return { id: STOCK_WALLPAPER_ID, custom: null };
-  // SessionManager mounts hives by username; uid is only the legacy fallback.
-  const segment = account.username || account.uname || account.uid;
+  // The picker may redact usernames, so resolve the UID-scoped mirror first.
   const peek = (path) => {
+    const segment = account.username || account.uname || account.uid;
     try { return window.NovaRegistry?.peekUserValue?.(segment, path); } catch (_) { return undefined; }
   };
-  const id = peek('HKNU/shell/lockWallpaper');
+  let id;
   let custom = null;
   try {
+    id = await window.NovaSettingsShim?.peekLockWallpaperId?.(account.uid);
     custom = await window.NovaSettingsShim?.peekLockWallpaper?.(account.uid) || null;
   } catch (error) {
     console.warn('[LockScreen] Could not load the account lock wallpaper:', error);
   }
+  if (typeof id !== 'string') id = peek('HKNU/shell/lockWallpaper');
   return { id: typeof id === 'string' ? id : STOCK_WALLPAPER_ID, custom };
 }
 
@@ -340,6 +342,12 @@ async function verifySheetSecret() {
   if (sheetResumable && sheetAccount) {
     // Picker flow on a parked (suspended) session: re-verification resumes it.
     result = await manager.resumeUser(sheetAccount.uid, secret);
+    if (!result?.ok && ['AUTH_REQUIRED', 'NO_SESSION', 'NOT_SUSPENDED'].includes(result?.code)) {
+      // A server-side credential reset can revoke a session that is still
+      // parked in this process. Authenticate afresh instead of requiring a restart.
+      sheetResumable = false;
+      result = await manager.login({ uid: sheetAccount.uid, secret });
+    }
   } else if (sheetAccount && (surface === 'picker' || surface === 'picker-auth')) {
     // Picker login: fresh authentication as this account.
     result = await manager.login({ uid: sheetAccount.uid, secret });

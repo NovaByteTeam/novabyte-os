@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.localisation",
   "name": "NovaByte Localisation",
-  "icon": "/assets/service-localisation.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "System localisation service: ships the i18next runtime (vendored UMD build) and the NovaByte OS language catalogues, and registers them with the core NovaI18n engine before the OS boot sequence starts.",
   "version": "3.0.2",

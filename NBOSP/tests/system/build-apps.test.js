@@ -47,8 +47,14 @@ function writeAppSource(appsDir, app) {
     system: true,
     systemService: true,
     permissions: [],
+    ...(app.icon ? { icon: app.icon } : {}),
   }));
   writeFileSync(path.join(appDir, app.entry), app.source);
+  if (app.icon && app.iconSource) {
+    const iconPath = path.join(appDir, app.icon);
+    mkdirSync(path.dirname(iconPath), { recursive: true });
+    writeFileSync(iconPath, app.iconSource);
+  }
 }
 
 function signedPayload(pkg) {
@@ -61,6 +67,35 @@ function signedPayload(pkg) {
 }
 
 describe('NovaApp build signatures (AOSP-style test keys)', () => {
+  it('embeds a package-local icon in both packaged manifest copies', () => {
+    const appsDir = mkdtempSync(path.join(os.tmpdir(), 'novabyte-app-build-icon-'));
+    const app = {
+      directory: 'icon-app',
+      id: 'com.nbosp.icon-app',
+      entry: 'service.js',
+      source: 'window.iconAppStarted = true;',
+      icon: 'assets/icon.svg',
+      iconSource: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    };
+
+    try {
+      writeAppSource(appsDir, app);
+      const pkg = buildApp(appsDir, app, {
+        ...process.env,
+        NBOSP_SYSTEM_SIGNING_KEY_PATH: '',
+        NBOSP_SYSTEM_SIGNING_KEY: '',
+      });
+      const expectedIcon = `data:image/svg+xml;base64,${Buffer.from(app.iconSource).toString('base64')}`;
+
+      expect(pkg.manifest.icon).toBe(expectedIcon);
+      expect(JSON.parse(Buffer.from(pkg.files['manifest.json'], 'base64').toString('utf8')).icon)
+        .toBe(expectedIcon);
+      expect(Buffer.from(pkg.files[app.icon], 'base64').toString('utf8')).toBe(app.iconSource);
+    } finally {
+      rmSync(appsDir, { recursive: true, force: true });
+    }
+  });
+
   it('default build signs with the committed PUBLIC test key — the fresh-clone/fork story (2026-11-12 follow-up to audit F1)', () => {
     // The first F1 fix removed the committed key and required an env key for
     // every build, which produced UNSIGNED packages no trust anchor matched:

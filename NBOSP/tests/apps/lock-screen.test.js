@@ -72,7 +72,7 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     { uid: 'u-sam-002', displayName: 'Sam', username: 'sam', role: 'standard', roleLabel: 'Standard', status: 'active', locked: false, pinLength: 4, hasPassphrase: false, hasBiometric: false, mustChangePin: false },
   ];
 
-  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }, changePinResult = null, webauthnResult = null, status = 'loggedout', extraStubs = {} } = {}) {
+  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }, changePinResult = null, webauthnResult = null, status = 'loggedout', accountList = ACCOUNTS, extraStubs = {} } = {}) {
     const loginCalls = [];
     const changePinCalls = [];
     const webauthnCalls = [];
@@ -87,7 +87,7 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
       isActive: () => false,
       isAdmin: () => false,
       suspendedUsers: () => [],
-      listAccounts: async () => ({ ok: true, users: ACCOUNTS, policies: { guestAccess: true, showUsernames: true } }),
+      listAccounts: async () => ({ ok: true, users: accountList, policies: { guestAccess: true, showUsernames: true } }),
       login: async (args) => { loginCalls.push(args); return loginResult; },
       unlock: async (secret) => ({ ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }),
       resumeUser: async () => ({ ok: false }),
@@ -357,6 +357,29 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     expect(layerImage()).toBe('url("stock-green.png")');
     expect(peekedSegments).toContain('ada');
     expect(peekedSegments).toContain('sam');
+  });
+
+  it('uses the UID-scoped preset when the picker redacts account usernames', async () => {
+    const accountList = ACCOUNTS.map(({ username, ...account }) => account);
+    const { window, document } = await loadMultiUser({
+      accountList,
+      extraStubs: {
+        WallpaperService: { styleFor: (id) => ({ backgroundImage: `url("${id}.png")` }) },
+        NovaRegistry: { peekUserValue: () => undefined },
+        NovaSettingsShim: {
+          peekLockWallpaperId: async (uid) => uid === 'u-sam-002' ? 'stock-purple' : null,
+        },
+      },
+    });
+
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][1].click(); // Sam, username redacted
+    await settle();
+
+    expect(document.getElementById('lock-username').textContent).toBe('Sam');
+    expect(document.querySelector('#lock-screen > .lock-wallpaper').style.backgroundImage)
+      .toBe('url("stock-purple.png")');
   });
 
   it('uses the selected account custom image and returns to stock blue on the picker', async () => {

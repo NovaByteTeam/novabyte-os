@@ -53,7 +53,7 @@ describe('App Manager app (js/apps/appmanager)', () => {
     expect(app.id).toBe('com.nbosp.appmanager');
     expect(app.name).toBe('App Manager');
     expect(app.version).toBe('3.0.2');
-    expect(app.icon).toBe('/assets/appmanager.svg');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.description).toContain('.novaapp packages');
     expect(app.defaultSize).toEqual([980, 640]);
     expect(app.minSize).toEqual([720, 480]);
@@ -140,7 +140,7 @@ describe('App Manager app (js/apps/appmanager)', () => {
     os.apps['com.nbosp.browser'] = {
       id: 'com.nbosp.browser',
       name: 'Browser',
-      icon: '/assets/browser.svg',
+      icon: 'data:image/svg+xml;base64,PHN2Zy8+',
       source: 'system-bundle',
     };
     const { content } = await loadAppManager({
@@ -160,7 +160,7 @@ describe('App Manager app (js/apps/appmanager)', () => {
     showHidden.dispatchEvent(new content.ownerDocument.defaultView.Event('change', { bubbles: true }));
 
     const icon = content.querySelector('.app-manager-package-item .app-manager-package-icon img');
-    expect(icon?.getAttribute('src')).toBe('/assets/browser.svg');
+    expect(icon?.getAttribute('src')).toBe('data:image/svg+xml;base64,PHN2Zy8+');
   });
 
   it('lists installed packages sorted by name and shows a detail view on click', async () => {

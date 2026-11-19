@@ -2,7 +2,7 @@ registerApp({
   id: 'com.nbosp.sysaccess',
   name: 'System Access',
   version: '3.0.2',
-  icon: '/assets/sysaccess.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   description: 'Inspect network proxy/SSRF configuration and the virtual filesystem',
   category: 'developer',
   devOnly: true,

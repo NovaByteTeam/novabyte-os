@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.tray",
   "name": "System Tray",
-  "icon": "/assets/service-tray.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Provides network, volume, battery, clock, and calendar tray controls.",
   "version": "3.0.2",

@@ -542,7 +542,9 @@
     const uid = state.uid;
     const parked = { token: state.token, csrfToken: state.csrfToken, uname: state.uname, role: state.role, parkedAt: Date.now() };
     const result = await authFetch('/api/auth/suspend', { method: 'POST' });
-    if (uid && state.token) suspendedSessions.set(uid, parked);
+    const serverSessionMissing = ['AUTH_REQUIRED', 'NO_SESSION'].includes(result.json?.code);
+    if (uid && state.token && !serverSessionMissing) suspendedSessions.set(uid, parked);
+    else if (serverSessionMissing && uid) suspendedSessions.delete(uid);
     // Memory-disciplined switch: apps close (the snapshot restores layout
     // on return), hives and user-data keys flush into the departing tree.
     flushCurrentUserHives();
@@ -571,15 +573,15 @@
     } catch (err) {
       console.warn('[SessionManager] VFS re-root to machine tree failed:', err);
     }
-    emit('session:suspended', { uid });
-    emit('session:changed', { uid: null, switchedFrom: uid });
-    return { ok: result.ok && result.json?.success !== false, parked };
+    if (!serverSessionMissing) emit('session:suspended', { uid });
+    emit('session:changed', { uid: null, switchedFrom: uid, sessionRevoked: serverSessionMissing });
+    return { ok: result.ok && result.json?.success !== false, parked: serverSessionMissing ? null : parked, sessionRevoked: serverSessionMissing };
   }
 
   /** Switch to another account by authenticating as them (picker flow). */
   async function switchUser({ uid, secret }) {
     const suspendResult = await suspendForSwitch();
-    if (!suspendResult.ok) return suspendResult;
+    if (!suspendResult.ok && !suspendResult.sessionRevoked) return suspendResult;
     return login({ uid, secret });
   }
 
@@ -595,7 +597,13 @@
     const parked = suspendedSessions.get(uid);
     if (!parked) return { ok: false, code: 'NOT_SUSPENDED', message: _t('apps.session.noSuspendedSession') };
     const result = await unlock(secret, { bearer: parked });
-    if (!result.ok) return result;
+    if (!result.ok) {
+      if (['AUTH_REQUIRED', 'NO_SESSION'].includes(result.code)) {
+        suspendedSessions.delete(uid);
+        return login({ uid, secret });
+      }
+      return result;
+    }
     await mountUserScope({ uid, username: parked.uname, role: parked.role });
     emit('session:changed', { uid, role: parked.role, via: 'resume' });
     return result;

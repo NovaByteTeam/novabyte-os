@@ -732,6 +732,32 @@ describe('FS linux-native backend (real disk contract)', () => {
     }
   });
 
+  it('enforces the active account quota for new files and file growth', async () => {
+    const previousScope = globalThis.NovaUserScope;
+    let quotaBytes = 0;
+    globalThis.NovaUserScope = {
+      enabled: () => true,
+      uid: () => 'u-quota',
+      activeUsername: () => 'ada',
+      storageQuotaBytes: async () => quotaBytes,
+    };
+    try {
+      await FS.setUserRoot('u-quota', { username: 'ada' });
+      quotaBytes = await FS.accountStorageUsageBytes() + 5;
+      const file = await FS.createFile(FS.specialFolders.documents, 'quota.txt', '1234');
+      await expect(FS.createFile(FS.specialFolders.documents, 'too-large.txt', 'xx'))
+        .rejects.toMatchObject({ code: 'STORAGE_FULL' });
+      await expect(FS.writeFile(file.id, '123456'))
+        .rejects.toMatchObject({ code: 'STORAGE_FULL' });
+      expect(nodeFs.readFileSync(file.id, 'utf8')).toBe('1234');
+    } finally {
+      await FS.setUserRoot('', {});
+      if (previousScope === undefined) delete globalThis.NovaUserScope;
+      else globalThis.NovaUserScope = previousScope;
+      nodeFs.rmSync(nodePath.join(fakeHome, 'users', 'ada'), { recursive: true, force: true });
+    }
+  });
+
   it('writeFile refuses directories', async () => {
     await expect(FS.writeFile(nodePath.join(fakeHome, 'Documents'), 'nope'))
       .rejects.toThrow(/Not a regular file/);

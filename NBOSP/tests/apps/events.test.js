@@ -80,7 +80,7 @@ describe('Events app (js/apps/events)', () => {
     expect(app.version).toBe('3.0.2');
     expect(app.defaultSize).toEqual([700, 520]);
     expect(app.minSize).toEqual([420, 320]);
-    expect(app.icon).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(app.icon).toBe('assets/icon.svg');
     expect(typeof app.init).toBe('function');
   });
 

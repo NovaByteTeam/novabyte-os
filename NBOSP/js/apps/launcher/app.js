@@ -254,7 +254,7 @@ function appendAppItem(app, grid) {
     draggable: 'true'
   });
   const icon = createEl('div', { className: 'launchpad-icon' });
-  icon.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 28);
+  icon.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 36);
   item.appendChild(icon);
   item.appendChild(createEl('div', { className: 'launchpad-name', textContent: app.name }));
 
@@ -1880,8 +1880,18 @@ if (desktopEl) {
         }
       ] : []),
       { separator: true },
-      { label: _t('shell.desktop.openTerminal'), icon: 'terminal', action: () => WM.createWindow('com.nbosp.terminal') },
-      { label: _t('shell.desktop.openSettings'), icon: 'settings', action: () => WM.createWindow('com.nbosp.settings') },
+      {
+        label: _t('shell.desktop.openTerminal'),
+        icon: OS.apps?.['com.nbosp.terminal']?.icon ||
+          (typeof AppRegistry !== 'undefined' ? AppRegistry.getApp('com.nbosp.terminal')?.icon : null),
+        action: () => WM.createWindow('com.nbosp.terminal'),
+      },
+      {
+        label: _t('shell.desktop.openSettings'),
+        icon: OS.apps?.['com.nbosp.settings']?.icon ||
+          (typeof AppRegistry !== 'undefined' ? AppRegistry.getApp('com.nbosp.settings')?.icon : null),
+        action: () => WM.createWindow('com.nbosp.settings'),
+      },
       { separator: true },
       { label: _t('shell.desktop.refresh'), action: () => renderDesktopIcons() }
     ]);

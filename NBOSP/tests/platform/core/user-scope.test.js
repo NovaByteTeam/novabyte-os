@@ -122,6 +122,47 @@ describe('NovaUserScope — the mounted account (uid + username)', () => {
     expect(UserScope.ownerUid()).toBe('u-active'); // signed in wins
   });
 
+  it('loads the configured account quota from authenticated usage and caches it briefly', async () => {
+    UserScope.setActive('u-quota');
+    const previousSessionManager = window.SessionManager;
+    const authFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: {
+        success: true,
+        data: { usage: { uid: 'u-quota', quotaBytes: 12 * 1024 * 1024 } },
+      },
+    });
+    window.SessionManager = { authFetch };
+    try {
+      await expect(UserScope.storageQuotaBytes()).resolves.toBe(12 * 1024 * 1024);
+      await expect(UserScope.storageQuotaBytes()).resolves.toBe(12 * 1024 * 1024);
+      expect(authFetch).toHaveBeenCalledTimes(1);
+      expect(authFetch).toHaveBeenCalledWith('/api/auth/usage');
+    } finally {
+      UserScope.reset();
+      if (previousSessionManager === undefined) delete window.SessionManager;
+      else window.SessionManager = previousSessionManager;
+    }
+  });
+
+  it('fails closed when the usage endpoint reports a different account', async () => {
+    UserScope.setActive('u-quota');
+    const previousSessionManager = window.SessionManager;
+    window.SessionManager = {
+      authFetch: vi.fn().mockResolvedValue({
+        ok: true,
+        json: { success: true, data: { usage: { uid: 'u-other', quotaBytes: 12 * 1024 * 1024 } } },
+      }),
+    };
+    try {
+      await expect(UserScope.storageQuotaBytes()).rejects.toMatchObject({ code: 'STORAGE_QUOTA_UNAVAILABLE' });
+    } finally {
+      UserScope.reset();
+      if (previousSessionManager === undefined) delete window.SessionManager;
+      else window.SessionManager = previousSessionManager;
+    }
+  });
+
   it('userSegment uses the uid only when no username is mounted', () => {
     UserScope.enable();
     UserScope.setLegacyOwnerUid('u-seg');

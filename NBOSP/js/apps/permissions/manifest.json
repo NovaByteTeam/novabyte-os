@@ -6,7 +6,7 @@
   "description": "Review and manage permissions requested by registered apps.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/permissions.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     720,

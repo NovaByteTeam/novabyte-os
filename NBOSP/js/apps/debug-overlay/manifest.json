@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.debug-overlay",
   "name": "Debug Overlay",
-  "icon": "/assets/service-debug-overlay.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Provides the developer-mode diagnostics overlay and its runtime metrics.",
   "version": "3.0.2",

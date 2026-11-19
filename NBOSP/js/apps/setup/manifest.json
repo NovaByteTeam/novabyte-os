@@ -4,7 +4,7 @@
   "author": "DirazCoder",
   "description": "First-boot setup wizard: keyboard layout, network, date and region, data & privacy, owner account, appearance. Runs in the trusted host; the lock screen launches it whenever the machine has no accounts.",
   "version": "3.0.2",
-  "icon": "/assets/setup.svg",
+  "icon": "assets/icon.svg",
   "category": "system",
   "categories": ["system", "utility"],
   "entry": "index.html",

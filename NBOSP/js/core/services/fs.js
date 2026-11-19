@@ -5,6 +5,43 @@ const FS = {
   _childrenByParent: new Map(), // O(1) Fast folder-tree index tracking
   _searchTimeout: null,         // Debounce state holder
 
+  async assertStorageQuota(incomingBytes, existingBytes = 0, shared = false) {
+    if (shared) return;
+    const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
+    if (!scope || !scope.enabled?.()) return;
+    const uid = String(scope.uid?.() || '');
+    if (!uid || /^guest(?:_|$)/.test(uid)) return;
+    if (typeof scope.storageQuotaBytes !== 'function') {
+      const error = new Error('The active account storage quota is unavailable.');
+      error.code = 'STORAGE_QUOTA_UNAVAILABLE';
+      throw error;
+    }
+
+    const quotaBytes = await scope.storageQuotaBytes();
+    if (quotaBytes === null) return;
+    if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 0) {
+      const error = new Error('The active account storage quota is invalid.');
+      error.code = 'STORAGE_QUOTA_UNAVAILABLE';
+      throw error;
+    }
+    const usedBytes = await this.accountStorageUsageBytes();
+    if (usedBytes - existingBytes + incomingBytes > quotaBytes) {
+      const error = new Error('Account storage quota exceeded.');
+      error.code = 'STORAGE_FULL';
+      throw error;
+    }
+  },
+
+  accountStorageUsageBytes() {
+    let total = 0;
+    for (const node of this.files.values()) {
+      if (node?.type === 'file' && node.ownerUid !== '__shared__') {
+        total += Number.isFinite(node.size) ? node.size : 0;
+      }
+    }
+    return total;
+  },
+
   // Internal high-performance helper to index items
   _indexFile(f) {
     if (!f || f.parentId === undefined) return;
@@ -350,6 +387,7 @@ const FS = {
       tags: [], sha256: null, icon: null
     };
     this._stampSharedEntry(node, parentId);
+    await this.assertStorageQuota(node.size, 0, node.ownerUid === '__shared__');
     this.files.set(node.id, node);
     this._indexFile(node);
     await OS.workers.fs.call('putFiles', [node]);
@@ -385,9 +423,11 @@ const FS = {
     const node = this.files.get(id);
     if (!node) return null;
     this.assertSharedWriteAllowed(node);
+    const size = new Blob([content]).size;
+    await this.assertStorageQuota(size, node.size || 0, node.ownerUid === '__shared__');
     node.content = content;
     if (typeof mimeType === 'string' && mimeType) node.mimeType = mimeType;
-    node.size = new Blob([content]).size;
+    node.size = size;
     node.modified = Date.now();
     try { node.sha256 = await OS.workers.crypto.call('sha256', content); } catch (e) { }
     await OS.workers.fs.call('putFiles', [node]); 
@@ -707,6 +747,26 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     if (content == null || typeof content === 'string') return content ?? '';
     return contentToBuffer(content);
   };
+  const directorySizeBytes = root => {
+    const rootStat = nativeFs.statSync(root);
+    if (!rootStat.isDirectory()) return rootStat.size;
+    let total = 0;
+    const stack = [[root, 12]];
+    while (stack.length) {
+      const [directory, depth] = stack.pop();
+      if (depth < 0) continue;
+      for (const entry of nativeFs.readdirSync(directory, { withFileTypes: true })) {
+        const fullPath = nativePath.join(directory, entry.name);
+        if (entry.isDirectory() && !entry.isSymbolicLink()) stack.push([fullPath, depth - 1]);
+        else total += nativeFs.statSync(fullPath).size;
+      }
+    }
+    return total;
+  };
+  const isSharedPath = path => {
+    const resolved = nativePath.resolve(path);
+    return resolved === sharedRoot || resolved.startsWith(sharedRoot + nativePath.sep);
+  };
   const nodeForPath = path => {
     const resolved = assertHomePath(path);
     const stat = nativeFs.lstatSync(resolved);
@@ -980,6 +1040,9 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
         nativeFs.renameSync(tmp, nativePath.join(sharedRoot, '.nova-owners.json'));
       } catch (_) { /* best-effort bookkeeping */ }
     },
+    accountStorageUsageBytes() {
+      return directorySizeBytes(home);
+    },
     _sharedRelative(resolved) {
       if (resolved === sharedRoot || !resolved.startsWith(sharedRoot + nativePath.sep)) return null;
       return resolved.slice(sharedRoot.length + 1);
@@ -1008,7 +1071,10 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
 
     async createFile(parentId, name, content, mimeType) {
       const path = safeChild(parentId, name);
-      nativeFs.writeFileSync(path, await fileContent(content), { flag: 'wx', mode: 0o600 });
+      const bytes = await fileContent(content);
+      const size = typeof bytes === 'string' ? Buffer.byteLength(bytes) : bytes.length;
+      await this.assertStorageQuota(size, 0, isSharedPath(path));
+      nativeFs.writeFileSync(path, bytes, { flag: 'wx', mode: 0o600 });
       this._noteSharedCreator(path);
       const node = nodeForPath(path);
       if (mimeType) node.mimeType = mimeType;
@@ -1027,7 +1093,10 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       this.assertSharedWriteAllowed(path);
       const previous = nodeForPath(path);
       if (previous.type !== 'file') throw new Error(`Not a regular file: ${path}`);
-      nativeFs.writeFileSync(path, await fileContent(content), { mode: 0o600 });
+      const bytes = await fileContent(content);
+      const size = typeof bytes === 'string' ? Buffer.byteLength(bytes) : bytes.length;
+      await this.assertStorageQuota(size, previous.size, isSharedPath(path));
+      nativeFs.writeFileSync(path, bytes, { mode: 0o600 });
       const node = nodeForPath(path);
       if (mimeType) node.mimeType = mimeType;
       OS.events.emit('fs:updated', node);
@@ -1062,6 +1131,9 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
         error.code = 'EEXIST';
         throw error;
       }
+      if (isSharedPath(source) && !isSharedPath(destination)) {
+        await this.assertStorageQuota(directorySizeBytes(source));
+      }
       try {
         nativeFs.renameSync(source, destination);
       } catch (error) {
@@ -1078,6 +1150,7 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     async copyNodeInto(node, destParentId, name) {
       const source = assertHomePath(node.id);
       const destination = safeChild(destParentId, name ?? node.name);
+      await this.assertStorageQuota(directorySizeBytes(source), 0, isSharedPath(destination));
       nativeFs.cpSync(source, destination, { recursive: true, errorOnExist: true });
       refreshVisibleTree();
       return nodeForPath(destination);

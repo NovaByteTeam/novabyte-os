@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.downloads-history",
   "name": "Download History",
-  "icon": "/assets/service-downloads-history.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Owns persistent download history and exposes a shared API to system apps.",
   "version": "3.0.2",

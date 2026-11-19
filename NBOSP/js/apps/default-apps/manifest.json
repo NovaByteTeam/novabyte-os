@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.default-apps",
   "name": "Default Apps",
-  "icon": "/assets/service-default-apps.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Routes supported links and file types to their configured default apps.",
   "version": "3.0.2",

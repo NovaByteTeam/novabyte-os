@@ -64,43 +64,43 @@ const CATEGORIES = Object.freeze({
   browser: Object.freeze({
     get name() { return t('apps.defaultApps.categoryBrowser', 'Web Browser'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.browser', name: 'Browser', icon: '/assets/browser.svg' }),
+      Object.freeze({ id: 'com.nbosp.browser', name: 'Browser' }),
     ]),
   }),
   texteditor: Object.freeze({
     get name() { return t('apps.defaultApps.categoryTexteditor', 'Text Editor'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.textedit', name: 'TextEdit', icon: '/assets/textedit.svg' }),
+      Object.freeze({ id: 'com.nbosp.textedit', name: 'TextEdit' }),
     ]),
   }),
   music: Object.freeze({
     get name() { return t('apps.defaultApps.categoryMusic', 'Music Player'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.music', name: 'Music', icon: '/assets/music.svg' }),
+      Object.freeze({ id: 'com.nbosp.music', name: 'Music' }),
     ]),
   }),
   gallery: Object.freeze({
     get name() { return t('apps.defaultApps.categoryGallery', 'Photo Viewer'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.gallery', name: 'Gallery', icon: '/assets/gallery.svg' }),
+      Object.freeze({ id: 'com.nbosp.gallery', name: 'Gallery' }),
     ]),
   }),
   email: Object.freeze({
     get name() { return t('apps.defaultApps.categoryEmail', 'Email'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.email', name: 'Email', icon: '/assets/email.svg' }),
+      Object.freeze({ id: 'com.nbosp.email', name: 'Email' }),
     ]),
   }),
   calendar: Object.freeze({
     get name() { return t('apps.defaultApps.categoryCalendar', 'Calendar'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.calendar', name: 'Calendar', icon: '/assets/calendar.svg' }),
+      Object.freeze({ id: 'com.nbosp.calendar', name: 'Calendar' }),
     ]),
   }),
   home: Object.freeze({
     get name() { return t('apps.defaultApps.categoryHome', 'Home app'); },
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.launcher', name: 'Launcher', icon: '/assets/launcher.svg' }),
+      Object.freeze({ id: 'com.nbosp.launcher', name: 'Launcher' }),
     ]),
   }),
 });

@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.session",
   "name": "Session Manager",
-  "icon": "/assets/service-session.svg",
+  "icon": "assets/icon.svg",
   "author": "DirazCoder",
   "description": "Owns account sessions: login, lock, unlock, fast user switching, per-user storage mounting, and the account lifecycle events the shell subscribes to.",
   "version": "3.0.2",

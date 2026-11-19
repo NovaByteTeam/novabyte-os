@@ -58,7 +58,7 @@ describe('Gallery app (js/apps/gallery)', () => {
     expect(app.id).toBe('com.nbosp.gallery');
     expect(app.name).toBe('Gallery');
     expect(app.version).toBe('3.0.2');
-    expect(app.icon).toBe('image');
+    expect(app.icon).toBe('assets/icon.svg');
     expect(app.defaultSize).toEqual([840, 580]);
     expect(app.minSize).toEqual([500, 360]);
     expect(typeof app.init).toBe('function');

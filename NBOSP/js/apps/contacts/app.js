@@ -1,5 +1,5 @@
 registerApp({
-  id: 'com.nbosp.contacts', name: 'Contacts', icon: '/assets/contacts.svg',
+  id: 'com.nbosp.contacts', name: 'Contacts', icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   version: '3.0.2',
   description: 'Contact Book',
   defaultSize: [640, 500], minSize: [440, 320],

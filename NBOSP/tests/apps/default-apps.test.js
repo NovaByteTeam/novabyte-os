@@ -80,7 +80,7 @@ describe('DefaultApps', () => {
       apps: {
         'com.nbosp.browser': {
           name: 'NovaByte Browser',
-          icon: '/assets/browser.svg',
+          icon: 'data:image/svg+xml;base64,PHN2Zy8+',
         },
       },
     });
@@ -89,7 +89,7 @@ describe('DefaultApps', () => {
       {
         id: 'com.nbosp.browser',
         name: 'NovaByte Browser',
-        icon: '/assets/browser.svg',
+        icon: 'data:image/svg+xml;base64,PHN2Zy8+',
       },
     ]);
   });

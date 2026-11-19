@@ -6,7 +6,7 @@
   "description": "View and manage files downloaded through NovaByte OS.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
-  "icon": "/assets/downloads.svg",
+  "icon": "assets/icon.svg",
   "type": "blank",
   "defaultSize": [
     580,

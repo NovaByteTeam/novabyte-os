@@ -3,7 +3,7 @@
 registerApp({
   id: 'com.nbosp.settings',
   name: 'Settings',
-  icon: '/assets/settings.svg',
+  icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
   version: '3.0.2',
   description: 'System Settings',
   defaultSize: [700, 500],
@@ -625,7 +625,9 @@ registerApp({
 
     function buildSidebar() {
       const brand = createEl('div', { className: 'nook-sidebar-brand' });
-      brand.innerHTML = svgIcon('/assets/settings.svg', 18);
+      const settingsIcon = window.__novaUnrestrictedPackage?.manifest?.icon
+        || OS.apps?.['com.nbosp.settings']?.icon;
+      if (settingsIcon) brand.innerHTML = svgIcon(settingsIcon, 18);
       brand.appendChild(createEl('span', {
         textContent: OS.apps?.['com.nbosp.settings']?.name || 'Settings'
       }));

@@ -786,7 +786,7 @@
     id: STORE_ID,
     name: 'Store',
     version: '3.0.2',
-    icon: '/assets/store.svg',
+    icon: window.__novaUnrestrictedPackage?.manifest?.icon || 'assets/icon.svg',
     description: 'Browse, verify, and install apps for NovaByte OS.',
     defaultSize: [1020, 680],
     minSize: [720, 480],
