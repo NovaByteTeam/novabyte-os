@@ -24,6 +24,8 @@
 #define RUNTIME_STATUS RUNTIME_DIR "/status"
 #define MAX_CONFIG 16384
 #define MAX_CANONICAL 8192
+/* BusyBox ip rejects routing table IDs above 1023, so 51820 cannot be used. */
+#define VPN_ROUTE_TABLE "820"
 
 struct profile {
 	char canonical[MAX_CANONICAL];
@@ -470,6 +472,18 @@ static int run_ip(char *const argv[])
 	return run_command("ip", argv);
 }
 
+static bool rule_uses_vpn_table(const char *line)
+{
+	static const char needle[] = "lookup " VPN_ROUTE_TABLE;
+	const char *hit = strstr(line, needle);
+	char after;
+
+	if (!hit)
+		return false;
+	after = hit[sizeof(needle) - 1];
+	return after == '\0' || after == ' ' || after == '\t';
+}
+
 static int ip_rule_exists(const char *address)
 {
 	int pipe_fds[2], status;
@@ -553,8 +567,7 @@ static int ip_rule_exists(const char *address)
 		    strncmp(line, prefix, prefix_length) != 0)
 			continue;
 		next = line[prefix_length];
-		if ((next == ' ' || next == '/') &&
-		    strstr(line, "lookup 51820") != NULL)
+		if ((next == ' ' || next == '/') && rule_uses_vpn_table(line))
 			return 1;
 	}
 	return 0;
@@ -615,7 +628,7 @@ static int bring_down(void)
 	bool cleanup_failed = false;
 	char source[INET_ADDRSTRLEN + 4];
 	char *rule_argv[11];
-	char *route_argv[] = { "ip", "-4", "route", "flush", "table", "51820", NULL };
+	char *route_argv[] = { "ip", "-4", "route", "flush", "table", VPN_ROUTE_TABLE, NULL };
 	char *down_argv[] = { "wg-quick", "down", RUNTIME_CONFIG, NULL };
 
 	if (!has_active && lstat(ACTIVE_PATH, &active_stat) == 0) {
@@ -638,7 +651,7 @@ static int bring_down(void)
 		rule_argv[6] = "from";
 		rule_argv[7] = source;
 		rule_argv[8] = "table";
-		rule_argv[9] = "51820";
+		rule_argv[9] = VPN_ROUTE_TABLE;
 		rule_argv[10] = NULL;
 		rule_exists = ip_rule_exists(state.address);
 		if (rule_exists == -1 ||
@@ -690,12 +703,12 @@ static int bring_up(const char *app_id)
 	const char *address_start, *address_end;
 	char source_rule[INET_ADDRSTRLEN + 5];
 	char *route_argv[] = { "ip", "-4", "route", "replace", "default",
-			       "dev", "wg0", "table", "51820", NULL };
+			       "dev", "wg0", "table", VPN_ROUTE_TABLE, NULL };
 	char *rule_argv[] = { "ip", "-4", "rule", "add", "priority", "1000",
-			       "from", source_rule, "table", "51820", NULL };
+			       "from", source_rule, "table", VPN_ROUTE_TABLE, NULL };
 	char *delete_rule_argv[] = { "ip", "-4", "rule", "del", "priority",
 				     "1000", "from", source_rule, "table",
-				     "51820", NULL };
+				     VPN_ROUTE_TABLE, NULL };
 	char active_text[256];
 	bool rule_added = false, active_written = false;
 	FILE *file;
@@ -791,7 +804,7 @@ failed:
 			}
 		}
 		if (run_ip((char *const[]){"ip", "-4", "route", "flush",
-					    "table", "51820", NULL}) == -1)
+					    "table", VPN_ROUTE_TABLE, NULL}) == -1)
 			cleanup_failed = true;
 		if (stat("/sys/class/net/wg0", &interface_stat) == 0) {
 			if (run_command("/usr/bin/wg-quick",

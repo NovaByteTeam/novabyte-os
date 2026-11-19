@@ -142,6 +142,12 @@ describe('base-utils (js/core/utils/base-utils.js)', () => {
     expect(html).toContain('width="24"');
   });
 
+  it('renders small icons at the global 22px minimum', () => {
+    const html = window.svgIcon('x', 14);
+    expect(html).toContain('width="22"');
+    expect(html).toContain('height="22"');
+  });
+
   it('returns string for empty icon name', () => {
     const result = window.svgIcon('', 24);
     expect(typeof result).toBe('string');

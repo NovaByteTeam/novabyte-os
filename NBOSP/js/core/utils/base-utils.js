@@ -224,13 +224,11 @@
       .replace(/'/g, '&#39;');
   }
 
-  // Coerce a size argument for svgIcon into a safe positive number. The
-  // original code used `size || 18`, which kept negative numbers and string
-  // values that would later be interpolated raw into HTML.
+  // Keep shared UI icons at least 22px while retaining larger custom sizes.
   function coerceIconSize(size) {
     const n = Number(size);
-    if (Number.isFinite(n) && n > 0) return n;
-    return 18;
+    if (Number.isFinite(n) && n > 0) return Math.max(n, 22);
+    return 22;
   }
 
   // One-time delegated listener that hides <img data-hide-on-error> elements
