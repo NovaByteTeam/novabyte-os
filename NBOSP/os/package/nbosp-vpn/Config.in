@@ -2,6 +2,7 @@ config BR2_PACKAGE_NBOSP_VPN
 	bool "NBOSP restricted VPN helper"
 	depends on BR2_x86_64
 	select BR2_PACKAGE_BASH
+	select BR2_PACKAGE_IPROUTE2
 	select BR2_PACKAGE_WIREGUARD_TOOLS
 	help
 	  Install the restricted helper that manages a persistent WireGuard

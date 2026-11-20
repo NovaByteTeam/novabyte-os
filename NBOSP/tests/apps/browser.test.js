@@ -154,8 +154,11 @@ describe('Browser app (js/apps/browser)', () => {
 
   it('syncs the selected color scheme to guest webviews and theme changes', async () => {
     const earlyScripts = [];
+    const os = makeOS();
+    os.settings.set('theme', 'nova-dark');
     const { app, window } = await loadWindowApp('browser', { stubs: browserStubs({
       extra: {
+        OS: os,
         NovaSystemWebview: {
           createTrustedGuest(_app, { parent }) {
             const element = parent.ownerDocument.createElement('webview');
@@ -167,7 +170,6 @@ describe('Browser app (js/apps/browser)', () => {
         },
       },
     }) });
-    window.document.documentElement.style.setProperty('--color-scheme', 'dark');
     const content = initApp(app, { window });
     const urlBar = content.querySelector('#browser-url-bar');
     urlBar.value = 'https://example.test/';
@@ -218,7 +220,7 @@ describe('Browser app (js/apps/browser)', () => {
     runGuestScript(earlyScripts[0].js.code);
     expect(guestWindow.matchMedia('(prefers-color-scheme: dark)').matches).toBe(true);
 
-    window.document.documentElement.style.setProperty('--color-scheme', 'light');
+    os.settings.set('theme', 'nova-light');
 
     const load = new window.Event('loadcommit');
     Object.defineProperties(load, {
@@ -226,19 +228,24 @@ describe('Browser app (js/apps/browser)', () => {
       url: { value: 'https://example.test/' },
     });
     webview.dispatchEvent(load);
+    webview.dispatchEvent(new window.Event('loadstop'));
     expect(webview.style.colorScheme).toBe('light');
+    expect(webview.getAttribute('color-scheme')).toBe('light');
     expect(injectedStyles).toEqual([':root{color-scheme:light!important}']);
-    runGuestScript(injectedScripts.at(-1));
+    const lastColorSchemeScript = () => injectedScripts.filter(code =>
+      code.includes('__nbospSetColorScheme')
+    ).at(-1);
+    runGuestScript(lastColorSchemeScript());
     const lightPreference = guestWindow.matchMedia('(prefers-color-scheme: light)');
     const changeEvents = [];
     lightPreference.addEventListener('change', event => changeEvents.push(event.matches));
     expect(lightPreference.matches).toBe(true);
 
-    window.document.documentElement.style.setProperty('--color-scheme', 'dark');
+    os.settings.set('theme', 'nord');
     window.dispatchEvent(new window.CustomEvent('theme:changed'));
     expect(webview.style.colorScheme).toBe('dark');
     expect(injectedStyles.at(-1)).toBe(':root{color-scheme:dark!important}');
-    runGuestScript(injectedScripts.at(-1));
+    runGuestScript(lastColorSchemeScript());
     expect(lightPreference.matches).toBe(false);
     expect(changeEvents).toEqual([false]);
   });

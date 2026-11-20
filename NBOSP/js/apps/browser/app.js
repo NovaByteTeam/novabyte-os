@@ -154,8 +154,7 @@ registerApp({
     state.cleanups.push(() => appAbort.abort());
 
     function browserColorScheme() {
-      return getComputedStyle(document.documentElement)
-        .getPropertyValue('--color-scheme').trim() === 'light' ? 'light' : 'dark';
+      return OS.settings.get('theme') === 'nova-light' ? 'light' : 'dark';
     }
 
     function browserColorSchemeScript(scheme) {
@@ -249,8 +248,9 @@ registerApp({
     function applyBrowserColorScheme(wv) {
       const scheme = browserColorScheme();
       wv.style.colorScheme = scheme;
+      wv.setAttribute('color-scheme', scheme);
       installBrowserColorSchemePreload(wv, scheme);
-      if (wv._nbHasCommitted) {
+      if (wv._nbGuestReady) {
         if (typeof wv.insertCSS === 'function') {
           try {
             wv.insertCSS({ code: `:root{color-scheme:${scheme}!important}` });
@@ -2444,9 +2444,15 @@ registerApp({
         if (e.isTopLevel) {
           wv._nbDownloadRequestHeaders.clear();
           wv._nbHasCommitted = true;
+          wv._nbGuestReady = false;
           applyBrowserColorScheme(wv);
         }
         if (e.isTopLevel && e.url) syncUrlForTab(e.url, tabId, 'loadcommit');
+      });
+
+      wv.addEventListener('loadstop', () => {
+        wv._nbGuestReady = true;
+        applyBrowserColorScheme(wv);
       });
 
       wv.addEventListener('loadstop', () => {
