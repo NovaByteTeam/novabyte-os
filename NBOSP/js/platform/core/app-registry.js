@@ -514,6 +514,9 @@ const AppRegistry = (() => {
       if (typeof renderLaunchpad === 'function') renderLaunchpad();
     }
 
+    if (typeof OS !== 'undefined' && OS?.events?.emit) {
+      OS.events.emit('app:installed', { appId: app.id, name: app.name, version: app.version });
+    }
     for (const cb of _onInstalled) { try { cb(app); } catch { /* ignore hook errors */ } }
     return app;
   }
@@ -596,6 +599,9 @@ const AppRegistry = (() => {
       if (typeof renderLaunchpad === 'function') renderLaunchpad();
     }
 
+    if (typeof OS !== 'undefined' && OS?.events?.emit) {
+      OS.events.emit('app:uninstalled', { appId, name: app.name, version: app.version });
+    }
     for (const cb of _onUninstalled) { try { cb(app); } catch { /* ignore hook errors */ } }
     return true;
   }
@@ -727,6 +733,9 @@ const AppRegistry = (() => {
     console.log(`[AppRegistry] Launching: ${app.name} (${appId})`);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Launching ${app.name} (${appId})`, data: { appId, launchCount: app.launchCount } });
+    }
+    if (typeof OS !== 'undefined' && OS?.events?.emit) {
+      OS.events.emit('app:launched', { appId, name: app.name, launchCount: app.launchCount });
     }
 
     if (typeof AppSandbox !== 'undefined') {

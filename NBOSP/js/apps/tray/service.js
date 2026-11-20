@@ -212,6 +212,7 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
     syncVolumeSliderAppearance();
     volumeValue.textContent = newVolume + '%';
     OS.events?.emit?.('os:volumeChanged', { volume: newVolume });
+    OS.events?.emit?.('system:volumeChanged', { volume: newVolume });
 
     OS.applyVolumeToWebviews(newVolume);
 
@@ -242,6 +243,7 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
     volumeValue.textContent = applied + '%';
     OS.applyVolumeToWebviews(applied);
     OS.events?.emit?.('os:volumeChanged', { volume: applied });
+    OS.events?.emit?.('system:volumeChanged', { volume: applied });
   });
 
   // Session-manager hook (user switch / session mount): see declaration
@@ -256,6 +258,7 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
     volumeValue.textContent = applied + '%';
     OS.applyVolumeToWebviews(applied);
     OS.events?.emit?.('os:volumeChanged', { volume: applied });
+    OS.events?.emit?.('system:volumeChanged', { volume: applied });
     return applied;
   };
 

@@ -316,6 +316,9 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     vi.resetModules();
     const removeApp = vi.fn(async () => true);
     globalThis.NovaAppPackageStore = { removeApp };
+    globalThis.AppPackage = {
+      closeRunningAppInstances: vi.fn(async () => true),
+    };
     const mod = require('../../../js/platform/core/app-registry.js');
     mod.registerApp({ id: 'persistent-remove', name: 'Persistent Remove', source: 'package' });
 

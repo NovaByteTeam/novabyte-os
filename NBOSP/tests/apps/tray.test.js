@@ -88,7 +88,8 @@ describe('TrayService service (js/apps/tray)', () => {
     expect(os.volume).toBe(37);
     expect(slider.style.getPropertyValue('--volume-level')).toBe('37%');
     expect(document.getElementById('volume-value').textContent).toBe('37%');
-    expect(emitted).toEqual([['os:volumeChanged', { volume: 37 }]]);
+    expect(emitted).toContainEqual(['os:volumeChanged', { volume: 37 }]);
+    expect(emitted).toContainEqual(['system:volumeChanged', { volume: 37 }]);
     expect(webview.calls).toHaveLength(1);
     // the injected script JSON-encodes the clamped volume — never raw concatenation
     expect(webview.calls[0].code).toContain('var v=0.37;');
@@ -163,7 +164,8 @@ describe('TrayService service (js/apps/tray)', () => {
     expect(document.getElementById('volume-slider').style.getPropertyValue('--volume-level')).toBe('100%');
     expect(document.getElementById('volume-value').textContent).toBe('100%');
     expect(webview.calls.at(-1)).toContain('var v=1;');
-    expect(emitted.at(-1)).toEqual(['os:volumeChanged', { volume: 100 }]);
+    expect(emitted).toContainEqual(['os:volumeChanged', { volume: 100 }]);
+    expect(emitted).toContainEqual(['system:volumeChanged', { volume: 100 }]);
   });
 
   it('mirrors external settings:changed volume writes and ignores its own echo', async () => {
@@ -187,7 +189,8 @@ describe('TrayService service (js/apps/tray)', () => {
     expect(slider.value).toBe('25');
     expect(slider.style.getPropertyValue('--volume-level')).toBe('25%');
     expect(document.getElementById('volume-value').textContent).toBe('25%');
-    expect(emitted.at(-1)).toEqual(['os:volumeChanged', { volume: 25 }]);
+    expect(emitted).toContainEqual(['os:volumeChanged', { volume: 25 }]);
+    expect(emitted).toContainEqual(['system:volumeChanged', { volume: 25 }]);
 
     // Unrelated keys are ignored.
     const count = emitted.length;

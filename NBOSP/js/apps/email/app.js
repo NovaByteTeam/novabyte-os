@@ -1748,6 +1748,14 @@ registerApp({
         });
       }
       notify(_t('apps.email.notify.newIn', { count: newUnread.length, account: acct.name || acct.email }));
+      if (typeof OS !== 'undefined' && OS?.events?.emit) {
+        OS.events.emit('mail:new', {
+          accountId: acct.id,
+          count: newUnread.length,
+          subject: decodeEntities(newUnread[0].subject),
+        });
+        OS.events.emit('mail:updated', { accountId: acct.id, unreadCount: newUnread.length });
+      }
       if (activeAcctId === acct.id && activeFolder === 'INBOX') loadMessages();
     }
 

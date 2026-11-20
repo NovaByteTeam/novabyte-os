@@ -2,9 +2,7 @@
 
 Complete reference for the app-facing IPC surface of NovaByte OS (NBOSP): every `nova:*` channel, the `window.nova` (v1) facade, the `window.novaOS` (v2) facade, pushed events, rate limits, quotas, error codes, and legacy compatibility.
 
-**Audience:** `.novaapp` developers. Sibling documents: [`guide.md`](guide.md) (manifest/packaging), [`permissions.md`](permissions.md) (permission catalog, prompts, runtime requests), [`examples.md`](examples.md) (recipes), [`internals.md`](internals.md) (OS implementation detail).
-
-**Citation convention:** all bare `:NNNN` line references point at `NBOSP/js/platform/security/app-sandbox.js` (the sandbox/IPC engine). Other files are cited as `path:line`. Every channel name, number, and error string below was verified against the code and the audit notes; nothing is invented.
+**Audience:** `.novaapp` developers. Sibling documents: [`guide.md`](guide.md) (manifest/packaging), [`permissions.md`](permissions.md) (permission catalog, prompts, runtime requests), [`examples.md`](examples.md) (recipes).
 
 ---
 
@@ -14,19 +12,19 @@ Apps reach OS capabilities through **three layers**, from lowest to highest:
 
 | Layer | What it is | Use it? |
 |---|---|---|
-| **Raw channel protocol** | String-typed request/response messages on the sandbox IPC bridge. Every OS capability is a channel named `nova:<family>:<verb>` (e.g. `nova:storage:get`). Historically this rode on `window.postMessage`; `.novaapp` apps now get a hardened transport (one-shot `MessageChannel` port handshake, console-marker + isolated-world payload parking — see [`internals.md`](internals.md)). Reachable from app code via `nova.ipc(type, payload)`. | **Not recommended.** No argument sugar, no result normalization, no local validation; you handle raw envelopes and error codes yourself. Only useful for channels that have no facade method. |
-| **`window.nova` (v1 facade)** | The original namespaced facade (`nova.files.open()`, `nova.app.launch()`, `nova.mail.send()`, …). Mutable object assigned at `:11550`. | Supported and stable, but superseded by v2 for new code. |
-| **`window.novaOS` (v2 facade)** | The current facade: `Object.freeze`'d at `:10361` (every namespace is individually frozen too), `apiVersion: 2`, normalized return values (`storage.get()` resolves the value, not `{success, value}`). | **Recommended.** |
+| **Raw channel protocol** | String-typed request/response messages on the sandbox IPC bridge. Every OS capability is a channel named `nova:<family>:<verb>` (e.g. `nova:storage:get`). Reachable from app code via `nova.ipc(type, payload)`. | **Not recommended.** No argument sugar, no result normalization, or local validation; handle raw envelopes and error codes yourself. Only useful for channels that have no facade method. |
+| **`window.nova` (v1 facade)** | The original namespaced facade (`nova.files.open`, `nova.app.launch`, `nova.mail.send`, …). Mutable object assigned at . | Supported and stable, but superseded by v2 for new code. |
+| **`window.novaOS` (v2 facade)** | The current facade: `Object.freeze`'d at  (every namespace is individually frozen too), `apiVersion: 2`, normalized return values (`storage.get` resolves the value, not `{success, value}`). | **Recommended.** |
 
 Facts that hold for all three layers:
 
-- **Every facade method maps 1:1 onto a `nova:*` channel.** The facades are pure sugar: they do not bypass or re-implement host-side path rewriting, MAC permission checks, or quotas — "the host handler is still the only boundary" (`:10411-10416`). §5 gives the full channel-to-facade mapping.
-- **`window.novaOS` is `Object.freeze`'d** (`:10361`); `window.nova` is **not frozen** (`:11550`) and is in fact mutated later to add `nova.browser` when the app opts into nested webviews (`:12911`).
-- Permission checks happen **host-side on every call**. Declaring a permission in the manifest is necessary but never sufficient; grants can be revoked mid-session (revocation closes windows / cleans up — `:14388-14419`). See [`permissions.md`](permissions.md) for the catalog and prompt behavior.
-- There is **no `app.isSandboxed()`** anywhere in the OS (grep-verified). Feature detection is `novaOS.capabilities.has(name)`; identity/permission state comes from `novaOS.ready.get()` / `nova.app.getInfo()`.
-- `novaOS.capabilities.has(name)` is **feature detection only** — "a capability name says the runtime ships the surface, not that the app may use it" (`:10256-10272`). The 29 capability names are listed in §4.1.
+- **Every facade method maps 1:1 onto a `nova:*` channel.** The facades are pure sugar: they do not bypass or re-implement host-side path rewriting, MAC permission checks, or quotas — "the host handler is still the only boundary" . §5 gives the full channel-to-facade mapping.
+- **`window.novaOS` is `Object.freeze`'d** ; `window.nova` is **not frozen**  and is in fact mutated later to add `nova.browser` when the app opts into nested webviews .
+- Permission checks happen **host-side on every call**. Declaring a permission in the manifest is necessary but never sufficient; grants can be revoked mid-session (revocation closes windows / cleans up — ). See [`permissions.md`](permissions.md) for the catalog and prompt behavior.
+- There is **no `app.isSandboxed`** anywhere in the OS (grep-verified). Feature detection is `novaOS.capabilities.has(name)`; identity/permission state comes from `novaOS.ready.get` / `nova.app.getInfo`.
+- `novaOS.capabilities.has(name)` is **feature detection only** — "a capability name says the runtime ships the surface, not that the app may use it" . The 29 capability names are listed in §4.1.
 
-Layer choice in one line: use `novaOS.*` when a method exists there, `nova.*` for the v1-only surfaces (`appearance`, `contextMenu`, `overlay`, `wallpaper`, `home`, `files`, `browser`), and `nova.ipc(type, payload)` only for channels without a facade method (e.g. `nova:net:fetch` is normally reached through the patched `fetch()`, not called by hand).
+Layer choice in one line: use `novaOS.*` when a method exists there, `nova.*` for the v1-only surfaces (`appearance`, `contextMenu`, `overlay`, `wallpaper`, `home`, `files`, `browser`), and `nova.ipc(type, payload)` only for channels without a facade method (e.g. `nova:net:fetch` is normally reached through the patched `fetch`, not called by hand).
 
 ---
 
@@ -36,103 +34,103 @@ Layer choice in one line: use `novaOS.*` when a method exists there, `nova.*` fo
 
 A call travels app-main-world → isolated-world transport → host, and back:
 
-```text
+`text
 novaOS.storage.set('k', v)
   └─ shim: ipc('nova:storage:set', {key:'k', value:v})
-       └─ port message:  {kind:'request', type:'nova:storage:set', payload:{...}, requestId:'shim_<uuid>'}   (:11138)
-            └─ isolated world: payload parked at window.__novaOutboxPull[requestId] (:10129);
-               console message '__NOVA_IPC__:' + {type, requestId} only (:10130) — secrets never hit the log stream
-                 └─ host handleAPICall: legacy alias → forbidden-set → handler lookup → MAC front door → handler (:9569-9614)
-       ┌─ host respond(): {type:'nova:storage:set:response', requestId, result, error}   (:1660-1668)
-  ┌─ isolated world: base64-JSON pushed into window.__novaInbox, drained by 50/250 ms poller (:10150-10177)
-┌─ shim resolve: Object.assign({}, msg.result, {result: msg.result, type: msg.type})   (:11361)
-```
+       └─ port message:  {kind:'request', type:'nova:storage:set', payload:{...}, requestId:'shim_<uuid>'}
+            └─ isolated world: payload parked at window.__novaOutboxPull[requestId] ;
+               console message '__NOVA_IPC__:' + {type, requestId} only  — secrets never hit the log stream
+                 └─ host handleAPICall: legacy alias → forbidden-set → handler lookup → MAC front door → handler
+       ┌─ host respond: {type:'nova:storage:set:response', requestId, result, error}
+  ┌─ isolated world: base64-JSON pushed into window.__novaInbox, drained by 50/250 ms poller
+┌─ shim resolve: Object.assign({}, msg.result, {result: msg.result, type: msg.type})
+`
 
-- **Request (over the port):** `{kind:'request', type, payload, requestId}`. `requestId` is `shim_`/`xport_` + `crypto.randomUUID()` (fallback timestamp+random) (`:11102-11107`).
-- **Response (host → app):** `{type: '<type>:response', requestId, result, error}`. On success `error` is absent and `result` is the handler's payload; on failure `result` is absent and `error` is `{code, message}` (`:1660`, `:1704`).
-- **Resolve shape:** every resolved value carries the result fields **flattened at the top level and nested under `.result`** (a documented compat hack so default-shell code can read handshake fields directly, `:11358-11361`). `msg.type` is also copied onto the resolved object.
-- **Fire-and-forget variant** (`ipcFireAndForget`, `:12312-12317`): no pending-request entry; used only by internal audit hooks (`nova:audit:eval`, `nova:audit:blocked-nested-webview`).
+- **Request (over the port):** `{kind:'request', type, payload, requestId}`. `requestId` is `shim_`/`xport_` + `crypto.randomUUID` (fallback timestamp+random) .
+- **Response (host → app):** `{type: '<type>:response', requestId, result, error}`. On success `error` is absent and `result` is the handler's payload; on failure `result` is absent and `error` is `{code, message}` .
+- **Resolve shape:** every resolved value carries the result fields **flattened at the top level and nested under `.result`** (a documented compat hack so default-shell code can read handshake fields directly, ). `msg.type` is also copied onto the resolved object.
+- **Fire-and-forget variant** (`ipcFireAndForget`, ): no pending-request entry; used only by internal audit hooks (`nova:audit:eval`, `nova:audit:blocked-nested-webview`).
 
 ### 2.2 Error envelope and how errors surface
 
 On the wire a failure is `error: {code, message}`. Through the facades it surfaces as a **rejected Promise**:
 
-```js
-// reject = Object.assign(new Error(message || 'IPC error'), msg.error)   (:11353-11355)
+`js
+// reject = Object.assign(new Error(message || 'IPC error'), msg.error)
 try { await novaOS.storage.set('bad/key', 1); }
 catch (e) {
   e.code;     // 'INVALID_ARGS'
   e.message;  // 'Invalid storage key'
 }
-```
+`
 
-Conceptually: `{success: false, error: 'CODE', message?}`. Host handlers that *resolve* instead of rejecting still use `success:false` result bodies for user cancellations (e.g. `nova:download` cancel resolves `{success:false, cancelled:true}`, `:3861`; shared-file delete confirm-cancel resolves `{cancelled:true}`).
+Conceptually: `{success: false, error: 'CODE', message?}`. Host handlers that *resolve* instead of rejecting still use `success:false` result bodies for user cancellations (e.g. `nova:download` cancel resolves `{success:false, cancelled:true}`, ; shared-file delete confirm-cancel resolves `{cancelled:true}`).
 
 Error origins, in dispatch order — the first one wins:
 
 | Stage | Code | Typical message |
 |---|---|---|
-| Legacy alias translation (`:9560-9575`) | — | never fails; unknown names pass through |
-| Host-only set (`:9577-9579`) | `PERMISSION_DENIED` | `This system capability is only available through trusted OS UI` |
-| Unknown channel (`:9580-9583`) | `UNKNOWN_API` | `Unknown API: <type>` |
-| MAC front door (`:9584-9596`) | `PERMISSION_DENIED` | `Blocked by system security policy (MAC): requires <perms joined ' \| '>` or `… (MAC): no policy rule for this endpoint` |
+| Legacy alias translation  | — | never fails; unknown names pass through |
+| Host-only set  | `PERMISSION_DENIED` | `This system capability is only available through trusted OS UI` |
+| Unknown channel  | `UNKNOWN_API` | `Unknown API: <type>` |
+| MAC front door  | `PERMISSION_DENIED` | `Blocked by system security policy (MAC): requires <perms joined ' \| '>` or `… (MAC): no policy rule for this endpoint` |
 | Handler validation | `INVALID_ARGS`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, … | per-handler (§5, §8) |
-| Handler throw/reject (`:9608-9612`) | `INTERNAL_ERROR` | raw error message |
-| Shim timeout (`:11130-11134`) | — (TypeError) | `IPC request timed out: <type>` |
-| Transport failure (`:10134-10135`) | `TRANSPORT_ERROR` | console channel broken |
+| Handler throw/reject  | `INTERNAL_ERROR` | raw error message |
+| Shim timeout  | — (TypeError) | `IPC request timed out: <type>` |
+| Transport failure  | `TRANSPORT_ERROR` | console channel broken |
 
 **Thrown vs rejected (client-side validation):** facade-level argument checks are inconsistent by design history — know which flavor each method uses:
 
 | Behavior | Members |
 |---|---|
-| Rejects with `TypeError` (Promise) | `nova.ipc.provide`, `nova.ipc.onBroadcast` (`:11507-11508`, `:11527`), `nova.appearance.onChange` (`:11573-11574`), `nova.getUserMedia`/`novaOS.media.getUserMedia` (no video/audio, `:11793-11795`), all v2 callback registrars (`novaOS.fs.watch`, `alarms.onAlarm`, `push.onMessage`, `share.onInbound`, `background.onWake`, `registry.watch`, `net.websocket` handle callbacks — all `callback must be a function`) |
-| **Throws synchronously** (TypeError) | `nova.overlay.onEvent` (`:11621`), `nova.app.onLaunch` (`:11639`), `nova.app.onStateChange` (`:11654`), `nova.browser.createView` (TypeError/RangeError, `:12913-12920`), `nova.browser.download` (TypeError, `:12938`) |
-| No validation at all | `nova.onBackgroundWake` — the only callback registrar with no `typeof` check and **no `off()`** (`:11731-11733`) |
+| Rejects with `TypeError` (Promise) | `nova.ipc.provide`, `nova.ipc.onBroadcast` , `nova.appearance.onChange` , `nova.getUserMedia`/`novaOS.media.getUserMedia` (no video/audio, ), all v2 callback registrars (`novaOS.fs.watch`, `alarms.onAlarm`, `push.onMessage`, `share.onInbound`, `background.onWake`, `registry.watch`, `net.websocket` handle callbacks — all `callback must be a function`) |
+| **Throws synchronously** (TypeError) | `nova.overlay.onEvent` , `nova.app.onLaunch` , `nova.app.onStateChange` , `nova.browser.createView` (TypeError/RangeError, ), `nova.browser.download` (TypeError, ) |
+| No validation at all | `nova.onBackgroundWake` — the only callback registrar with no `typeof` check and **no `off`**  |
 | Rejects with host error | everything else (host-side `PERMISSION_DENIED`, `RATE_LIMITED`, …) |
 
 ### 2.3 The ready handshake
 
-- The shim **automatically fires `ipc('nova:ready', {})` at load** (`:11879-11881`), before app scripts run (the shim is unconditionally prepended, `:13078-13093`). Every app gets one handshake whether it asks or not; the default app shell never sends a second one (`:13286-13291`).
-- The ready response carries the app's authenticated launch snapshot: `{appId, permissions[], optionalPermissions[], osVersion, securityPatch, username}` — `username` only when `app.system === true` (`:8711-8733`). A copy is stashed at `window.__novaPermResponse` for late scripts (`:11370`).
-- Right after responding, the host **flushes queued deliveries** in this order: queued one-shot alarms (`nova:background:alarm` with `queued:true`), queued inbound shares (`nova:share:inbound`), queued push messages (`nova:push:message`) (`:8743-8770`).
-- To re-read the snapshot in app code: v1 `await nova.app.getInfo()` (same channel), v2 `await novaOS.ready.get()` (normalized; safe to repeat — the queues drain once, `:10762-10769`). **There is no `window.nova.ready` method.**
+- The shim **automatically fires `ipc('nova:ready', {})` at load** , before app scripts run (the shim is unconditionally prepended, ). Every app gets one handshake whether it asks or not; the default app shell never sends a second one .
+- The ready response carries the app's authenticated launch snapshot: `{appId, permissions[], optionalPermissions[], osVersion, securityPatch, username}` — `username` only when `app.system === true` . A copy is stashed at `window.__novaPermResponse` for late scripts .
+- Right after responding, the host **flushes queued deliveries** in this order: queued one-shot alarms (`nova:background:alarm` with `queued:true`), queued inbound shares (`nova:share:inbound`), queued push messages (`nova:push:message`) .
+- To re-read the snapshot in app code: v1 `await nova.app.getInfo` (same channel), v2 `await novaOS.ready.get` (normalized; safe to repeat — the queues drain once, ). **There is no `window.nova.ready` method.**
 - **Await permission state before branching on it.** Calls made before the handshake resolves still work (the bridge is up first), but they will be evaluated against the *current* grant set; queued background deliveries only arrive after ready. Practical pattern:
 
-```js
-const info = await novaOS.ready.get();     // or nova.app.getInfo()
+`js
+const info = await novaOS.ready.get;     // or nova.app.getInfo
 if (!info.permissions.includes('net:external')) { /* degrade */ }
-```
+`
 
 ### 2.4 Timeouts
 
 | Timer | Value | Applies to | Source |
 |---|---|---|---|
-| `REQUEST_TIMEOUT_MS` | ledger budget `requestTimeoutMs` (**default 60 s**; 30 s fallback when no budget is baked) | every non-interactive `ipc()` call | `:11024`, `:267` |
-| `INTERACTIVE_TIMEOUT_MS` | **10 minutes** | the 11 human-dialog channels below | `:11040` |
-| App-IPC invoke | **25 s** host-side | `nova:ipc:invoke` waiting for the provider app's reply | `:6100` |
-| Isolated-process dispatch | **30 s** | `nova:*` calls from Tier-2 worker processes (no webview) | `:9657` |
-| Download save dialog | **5 min** | `nova:download` | `:230`, `:3846` |
-| Overlay render | **15 s** | `nova:overlay:show` | `:3432-3434` |
+| `REQUEST_TIMEOUT_MS` | ledger budget `requestTimeoutMs` (**default 60 s**; 30 s fallback when no budget is baked) | every non-interactive `ipc` call | ,  |
+| `INTERACTIVE_TIMEOUT_MS` | **10 minutes** | the 11 human-dialog channels below |  |
+| App-IPC invoke | **25 s** host-side | `nova:ipc:invoke` waiting for the provider app's reply |  |
+| Isolated-process dispatch | **30 s** | `nova:*` calls from Tier-2 worker processes (no webview) |  |
+| Download save dialog | **5 min** | `nova:download` | ,  |
+| Overlay render | **15 s** | `nova:overlay:show` |  |
 
-Interactive channels (10-min timeout): `nova:context-menu:show`, `nova:download`, `nova:share`, `nova:files:open`, `nova:files:save`, `nova:dialog:open`, `nova:dialog:save`, `nova:sysdialog:open`, `nova:sysdialog:save`, `nova:open-with`, `nova:clock:alarm:dialog` (host-only, listed for completeness) (`:11041-11053`).
+Interactive channels (10-min timeout): `nova:context-menu:show`, `nova:download`, `nova:share`, `nova:files:open`, `nova:files:save`, `nova:dialog:open`, `nova:dialog:save`, `nova:sysdialog:open`, `nova:sysdialog:save`, `nova:open-with`, `nova:clock:alarm:dialog` (host-only, listed for completeness) .
 
-A timeout rejects with `TypeError('IPC request timed out: <type>')` — not an error envelope. Note the WebSocket caveat: `nova:net:websocket` is only ever resolved from the socket's `onopen`; a connection that never opens has **no host reject path** and surfaces as this generic timeout (`:11753-11760`).
+A timeout rejects with `TypeError('IPC request timed out: <type>')` — not an error envelope. Note the WebSocket caveat: `nova:net:websocket` is only ever resolved from the socket's `onopen`; a connection that never opens has **no host reject path** and surfaces as this generic timeout .
 
 ### 2.5 Payload budget (256 KB IPC cap)
 
-- The per-app ledger budget `ipcPayloadBytes` is **256 KB by default** (admin-adjustable 1 KB – 8 MB; legacy hard cap 64 KB) (`:265`, `:269-274`, `:6097-6099`).
-- It is enforced on **app-to-app IPC payloads**: `nova:ipc:invoke` `data`, `nova:ipc:broadcast` `data`, and `nova:ipc:reply` results, measured by JSON round-trip byte length (`normalizeAppIpcPayload`, `:6120-6131`). Over-budget rejects `PAYLOAD_TOO_LARGE` with `IPC payload exceeds the N KB limit`; non-serializable payloads reject `INVALID_ARGS` (`IPC payload is not JSON-serializable: …`).
+- The per-app ledger budget `ipcPayloadBytes` is **256 KB by default** (admin-adjustable 1 KB – 8 MB; legacy hard cap 64 KB) (, , ).
+- It is enforced on **app-to-app IPC payloads**: `nova:ipc:invoke` `data`, `nova:ipc:broadcast` `data`, and `nova:ipc:reply` results, measured by JSON round-trip byte length (`normalizeAppIpcPayload`, ). Over-budget rejects `PAYLOAD_TOO_LARGE` with `IPC payload exceeds the N KB limit`; non-serializable payloads reject `INVALID_ARGS` (`IPC payload is not JSON-serializable: …`).
 - Related but distinct budgets: HTTP request bodies `httpBodyBytes` **16 MiB** default (`nova:net:fetch`, XHR `__NOVA_MAX_BODY_BYTES__`), storage values **5 MB**, storage quota **256 MB/app**. All consolidated in §7.
 
 ### 2.6 Permission denial shape
 
 A denied call rejects with `code: 'PERMISSION_DENIED'` and one of these messages:
 
-- **MAC front door** (no grant at all): `Blocked by system security policy (MAC): requires <perms joined ' | '>`, or `… no policy rule for this endpoint` for channels with no policy row (`:9584-9596`).
-- **Handler-level** (context-dependent, e.g. fs path ownership, event-domain grants): each handler has its own message, e.g. `List app-owned files directly; shared files are available through the file picker or scoped media grants` (`:2331-2357`). Full list in §5.
-- **Host-only channel**: `This system capability is only available through trusted OS UI` (`:9577-9579`).
+- **MAC front door** (no grant at all): `Blocked by system security policy (MAC): requires <perms joined ' | '>`, or `… no policy rule for this endpoint` for channels with no policy row .
+- **Handler-level** (context-dependent, e.g. fs path ownership, event-domain grants): each handler has its own message, e.g. `List app-owned files directly; shared files are available through the file picker or scoped media grants` . Full list in §5.
+- **Host-only channel**: `This system capability is only available through trusted OS UI` .
 
-Grant semantics: MAC rows that list multiple permissions are **ANY-of** (e.g. `nova:net:fetch` accepts `net:internal` OR `net:external` and the handler picks per-destination); event-domain gates are **ALL-of** (e.g. subscribing `mail:new` needs `system:events` AND `mail:read`) (`:6080-6095`). Runtime re-requests: `nova.requestPermission()` / `novaOS.permissions.request()` (§3, §4), rate-limited (§7).
+Grant semantics: MAC rows that list multiple permissions are **ANY-of** (e.g. `nova:net:fetch` accepts `net:internal` OR `net:external` and the handler picks per-destination); event-domain gates are **ALL-of** (e.g. subscribing `mail:new` needs `system:events` AND `mail:read`) . Runtime re-requests: `nova.requestPermission` / `novaOS.permissions.request` (§3, §4), rate-limited (§7).
 
 Permission quick reference by API area (exact gate per channel in §5):
 
@@ -156,30 +154,29 @@ Permission quick reference by API area (exact gate per channel in §5):
 
 ### 2.7 App-page globals (what the shim installs)
 
-Reference for the globals your app page runs with (all main-world unless noted; `:11021-13160`):
+Reference for the globals your app page runs with (all main-world unless noted; ):
 
 | Global | Purpose |
 |---|---|
-| `window.nova` | v1 facade (`:11550`), mutable |
-| `window.novaOS` | v2 facade (`:10361`), frozen |
-| `window.__NOVA_APP_OPTIONS__` | launch options injected at load (read via `nova.app.getLaunchOptions()` / `onLaunch`); values escaped `\u003c`/`\u003e`/`\u0026`/u2028/u2029 so a caller-controlled `</script>` cannot terminate the shim (`:13150-13160`) |
-| `window.__novaPermResponse` | `{permissions, optionalPermissions}` stashed after the automatic ready handshake (`:11370`) |
-| `window.__NOVA_NESTED_WEBVIEW_OPTED_IN__` | baked boolean; gates the `browser.*` surface and webview mediation (`:11027`) |
-| `__NOVA_PENDING_INITIAL_URL__` | pinned initial URL for nested views (consumed on first navigation, `:11028`) |
-| `window.fetch` / `XMLHttpRequest` / `WebSocket` / `navigator.sendBeacon` | replaced with bridge-mediated versions (`Object.defineProperty`, `writable:false, configurable:false` — cannot be un-shadowed, `:12302-12308`). Requests under your own `/api/apps/serve/<sandboxId>/` prefix use native fetch (WASM support, `:11892-11925`) |
-| `HTMLAnchorElement.prototype.click` | blob: download interceptor → `nova:download` (`:11430-11443`) |
-| `Document.prototype.createElement` / `Element.prototype.innerHTML` / `outerHTML` / `insertAdjacentHTML` | nested-webview mediation (opted in: rewrite `<webview>` to the proxy element; not opted in: inert `<span>` / tag stripping + audit, `:12383-13030`) |
-| `window.eval` | audit wrapper (dead under the current CSP — `unsafe-eval` removed; kept for observability if CSP is ever relaxed, `:12319-12338`) |
-| (isolated world only) `window.__novaInbox` / `window.__novaOutboxPull` | host→guest inbox and guest→host payload parking — invisible to app main-world code (`:10105-10115`) |
+| `window.nova` | v1 facade , mutable |
+| `window.novaOS` | v2 facade , frozen |
+| `window.__NOVA_APP_OPTIONS__` | launch options injected at load (read via `nova.app.getLaunchOptions` / `onLaunch`); values escaped `\u003c`/`\u003e`/`\u0026`/u2028/u2029 so a caller-controlled `</script>` cannot terminate the shim  |
+| `window.__novaPermResponse` | `{permissions, optionalPermissions}` stashed after the automatic ready handshake  |
+| `window.__NOVA_NESTED_WEBVIEW_OPTED_IN__` | baked boolean; gates the `browser.*` surface and webview mediation  |
+| `__NOVA_PENDING_INITIAL_URL__` | pinned initial URL for nested views (consumed on first navigation, ) |
+| `window.fetch` / `XMLHttpRequest` / `WebSocket` / `navigator.sendBeacon` | replaced with bridge-mediated versions (`Object.defineProperty`, `writable:false, configurable:false` — cannot be un-shadowed, ). Requests under your own `/api/apps/serve/<sandboxId>/` prefix use native fetch (WASM support, ) |
+| `HTMLAnchorElement.prototype.click` | blob: download interceptor → `nova:download`  |
+| `Document.prototype.createElement` / `Element.prototype.innerHTML` / `outerHTML` / `insertAdjacentHTML` | nested-webview mediation (opted in: rewrite `<webview>` to the proxy element; not opted in: inert `<span>` / tag stripping + audit, ) |
+| `window.eval` | audit wrapper (dead under the current CSP — `unsafe-eval` removed; kept for observability if CSP is ever relaxed, ) |
+| (isolated world only) `window.__novaInbox` / `window.__novaOutboxPull` | host→guest inbox and guest→host payload parking — invisible to app main-world code  |
 
-CSP for app pages (`RELAXED_CSP_META`, `:13071`; the server-sent header for `/api/apps/serve/...` is authoritative): `default-src 'self' blob: data: 'unsafe-inline'; script-src 'self' blob: 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' blob: data:; img-src 'self' blob: data: https:; font-src 'self' blob: data:; connect-src 'self' blob:` (+ `frame-src http: https:` only when external frames are permitted).
-
+CSP for app pages (`RELAXED_CSP_META`, ; the server-sent header for `/api/apps/serve/...` is authoritative): `default-src 'self' blob: data: 'unsafe-inline'; script-src 'self' blob: 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' blob: data:; img-src 'self' blob: data: https:; font-src 'self' blob: data:; connect-src 'self' blob:` (+ `frame-src http: https:` only when external frames are permitted).
 
 ---
 
 ## 3. `window.nova` v1 facade — complete method reference
 
-`window.nova` is a plain (mutable, **not frozen**) object literal assigned at `:11550`, with `ipc.*` extensions at `:11506-11547` and `browser.*` added later under the nested-webview opt-in (`:12911-12959`). **74 callable members** (72 always present + 2 `browser.*` under the opt-in) across 25 top-level keys (16 namespaces + 9 plain functions; `browser` is a 17th namespace when opted in). All methods return Promises unless noted. "Raw" in the Returns column = the handler's response object resolved as-is (flattened + nested, §2.1).
+`window.nova` is a plain (mutable, **not frozen**) object literal assigned at , with `ipc.*` extensions at  and `browser.*` added later under the nested-webview opt-in . **74 callable members** (72 always present + 2 `browser.*` under the opt-in) across 25 top-level keys (16 namespaces + 9 plain functions; `browser` is a 17th namespace when opted in). All methods return Promises unless noted. "Raw" in the Returns column = the handler's response object resolved as-is (flattened + nested, §2.1).
 
 Several v2 areas have **no v1 surface** — noted inline so you don't hunt for them.
 
@@ -221,20 +218,20 @@ Several v2 areas have **no v1 surface** — noted inline so you don't hunt for t
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
 | `nova.ipc(type, payload)` | any `nova:*` | Raw channel call; timeout 60 s (10 min for interactive channels) | `UNKNOWN_API` for unregistered types; TypeError on timeout |
-| `nova.ipc.provide(endpoint, handler)` | `nova:ipc:register` → `nova:ipc:unregister` | Register a `service:`/`provider:` endpoint; resolves `off()` | Rejects TypeError (handler not fn / already registered); host: `PERMISSION_DENIED` (no `apps:communicate` or undeclared endpoint), `ALREADY_REGISTERED`; endpoint must be declared in `manifest.ipc.exports` |
+| `nova.ipc.provide(endpoint, handler)` | `nova:ipc:register` → `nova:ipc:unregister` | Register a `service:`/`provider:` endpoint; resolves `off` | Rejects TypeError (handler not fn / already registered); host: `PERMISSION_DENIED` (no `apps:communicate` or undeclared endpoint), `ALREADY_REGISTERED`; endpoint must be declared in `manifest.ipc.exports` |
 | `nova.ipc.call(targetAppId, endpoint, data)` | `nova:ipc:invoke` | Call another app's endpoint; provider's return value is spread as the response top level (NOT wrapped) | `RATE_LIMITED` 20/min; `PAYLOAD_TOO_LARGE` > 256 KB; `NOT_FOUND`, `UNAVAILABLE`, `REMOTE_ERROR`/timeout (§5) |
 | `nova.ipc.broadcast(action, data)` | `nova:ipc:broadcast` | Fire-and-deliver to subscribed apps; resolves `{delivered}` | `RATE_LIMITED` `Max 20 app broadcasts per minute`; action must match `^[a-z0-9][a-z0-9._:-]{0,127}$` |
-| `nova.ipc.onBroadcast(action, callback)` | `nova:ipc:broadcast:subscribe` / `:unsubscribe` | Register broadcast listener; resolves `off()`; last `off()` unsubscribes host-side | Rejects TypeError (callback not fn); action must be declared in `manifest.ipc.receives` else `PERMISSION_DENIED` |
+| `nova.ipc.onBroadcast(action, callback)` | `nova:ipc:broadcast:subscribe` / `:unsubscribe` | Register broadcast listener; resolves `off`; last `off` unsubscribes host-side | Rejects TypeError (callback not fn); action must be declared in `manifest.ipc.receives` else `PERMISSION_DENIED` |
 
 ### 3.2 App info / lifecycle
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
-| `nova.app.getInfo()` | `nova:ready` | Launch snapshot: `{appId, permissions[], optionalPermissions[], osVersion, securityPatch, username?}` (username: system apps only) | none (ungated) |
+| `nova.app.getInfo` | `nova:ready` | Launch snapshot: `{appId, permissions[], optionalPermissions[], osVersion, securityPatch, username?}` (username: system apps only) | none (ungated) |
 | `nova.app.launch(appId, options)` | `nova:app:launch` | Cross-app launch; resolves `{success, windowId}` | `system:app-launch` OR `system:apps`; **30/min**; `fileIntent`/`fileId`/`folderId` stripped from options (§5) |
-| `nova.app.getLaunchOptions()` | — (local) | Deep JSON clone of `window.__NOVA_APP_OPTIONS__` | never rejects except JSON clone errors |
-| `nova.app.onLaunch(cb)` | — (local) | Registers launch listener; fires `cb({options, reason:'launch'})` on next microtask; returns `off()` | **throws** TypeError if cb not fn |
-| `nova.app.onStateChange(cb)` | — (local) | `{visible, focused}` immediately + on `visibilitychange`/`focus`/`blur`; returns `off()` | **throws** TypeError if cb not fn |
+| `nova.app.getLaunchOptions` | — (local) | Deep JSON clone of `window.__NOVA_APP_OPTIONS__` | never rejects except JSON clone errors |
+| `nova.app.onLaunch(cb)` | — (local) | Registers launch listener; fires `cb({options, reason:'launch'})` on next microtask; returns `off` | **throws** TypeError if cb not fn |
+| `nova.app.onStateChange(cb)` | — (local) | `{visible, focused}` immediately + on `visibilitychange`/`focus`/`blur`; returns `off` | **throws** TypeError if cb not fn |
 
 ### 3.3 Storage / key-value
 
@@ -260,11 +257,11 @@ Scoped media reads, watch, rename/move/mkdir/etc. are v2/raw only (§4.3, §4.4,
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
 | `nova.openUrl(url)` | `nova:open-url` | Open a credential-free HTTP(S) URL in the OS default browser; resolves `{success, windowId}` | No permission (consent = browser window); `INVALID_ARGS` for non-http(s) or credentialed URLs; `UNAVAILABLE` (§5) |
-| `nova.websocket(url, protocols)` | `nova:net:websocket` (+ `nova:net:ws:send`/`:close`) | Open a host-owned socket; resolves a handle `{wsId, readyState, onMessage(cb), onError(cb), onClose(cb), send(data), close(code, reason)}` | `net:websocket` (+ `net:internal` for private/first-party hosts); ws/wss only, no embedded credentials; **open failures surface as the generic 60 s IPC timeout** (`:11753-11760`); no socket-count/frame-size/rate caps |
-| `nova.vpn.registerProvider(config)` / `removeProvider()` / `getStatus()` | `nova:vpn:register` / `nova:vpn:remove` / `nova:vpn:status` | Register or remove this app's restricted WireGuard profile; status is `{registered, active}`. Activation is performed by the user in Settings → VPN. | `vpn:provider`; config ≤16 KiB; only one active provider; IPv4 app-proxy traffic |
-| `fetch()` / `XMLHttpRequest` / `WebSocket` / `navigator.sendBeacon` | `nova:net:fetch` / `nova:net:websocket` | Globally replaced (`Object.defineProperty`, non-configurable — `delete window.fetch` cannot un-shadow, `:12302-12308`). Requests to the app's **own** `/api/apps/serve/<sandboxId>/` prefix bypass the bridge and use native fetch (WASM/Emscripten support, `:11892-11925`) | Any-of `net:internal`/`net:external` (per destination); request body ≤ 16 MiB (XHR: `RangeError('XHR request body exceeds the N MiB limit')`); sync XHR rejected; response has **no size cap** (§5) |
+| `nova.websocket(url, protocols)` | `nova:net:websocket` (+ `nova:net:ws:send`/`:close`) | Open a host-owned socket; resolves a handle `{wsId, readyState, onMessage(cb), onError(cb), onClose(cb), send(data), close(code, reason)}` | `net:websocket` (+ `net:internal` for private/first-party hosts); ws/wss only, no embedded credentials; **open failures surface as the generic 60 s IPC timeout** ; no socket-count/frame-size/rate caps |
+| `nova.vpn.registerProvider(config)` / `removeProvider` / `getStatus` | `nova:vpn:register` / `nova:vpn:remove` / `nova:vpn:status` | Register or remove this app's restricted WireGuard profile; status is `{registered, active}`. Activation is performed by the user in Settings → VPN. | `vpn:provider`; config ≤16 KiB; only one active provider; IPv4 app-proxy traffic |
+| `fetch` / `XMLHttpRequest` / `WebSocket` / `navigator.sendBeacon` | `nova:net:fetch` / `nova:net:websocket` | Globally replaced (`Object.defineProperty`, non-configurable — `delete window.fetch` cannot un-shadow, ). Requests to the app's **own** `/api/apps/serve/<sandboxId>/` prefix bypass the bridge and use native fetch (WASM/Emscripten support, ) | Any-of `net:internal`/`net:external` (per destination); request body ≤ 16 MiB (XHR: `RangeError('XHR request body exceeds the N MiB limit')`); sync XHR rejected; response has **no size cap** (§5) |
 
-XHR specifics: methods limited to `GET POST PUT PATCH DELETE HEAD OPTIONS`; header CRLF stripped; `responseXML` always null; multipart FormData hand-built with escaped names (`:12006-12057`, `:12092-12099`). `sendBeacon` resolves `true` synchronously regardless of outcome (native contract, `:12344-12352`). The native `WebSocket` constructor is replaced so a zero-permission app cannot open raw sockets (`:12218-12292`).
+XHR specifics: methods limited to `GET POST PUT PATCH DELETE HEAD OPTIONS`; header CRLF stripped; `responseXML` always null; multipart FormData hand-built with escaped names . `sendBeacon` resolves `true` synchronously regardless of outcome (native contract, ). The native `WebSocket` constructor is replaced so a zero-permission app cannot open raw sockets .
 
 ### 3.7 Notifications
 
@@ -272,7 +269,7 @@ XHR specifics: methods limited to `GET POST PUT PATCH DELETE HEAD OPTIONS`; head
 
 ### 3.8 Clipboard
 
-**No v1 surface.** Use `novaOS.clipboard.readText()/writeText()` (§4.5). (`nova.share`'s Copy action also writes the clipboard without needing `clipboard:write` — §5.)
+**No v1 surface.** Use `novaOS.clipboard.readText/writeText` (§4.5). (`nova.share`'s Copy action also writes the clipboard without needing `clipboard:write` — §5.)
 
 ### 3.9 Window controls
 
@@ -288,7 +285,7 @@ XHR specifics: methods limited to `GET POST PUT PATCH DELETE HEAD OPTIONS`; head
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
-| `nova.onEvent(eventName, callback)` | `nova:events:subscribe` (first listener per name only) | Stacks listeners per name over **one** host subscription; the returned Promise resolves `{success, subscribed}` for 2nd+ listeners (no host call) | Returns a **Promise that can reject unhandled** if the host refuses (`PERMISSION_DENIED`, `INVALID_ARGS` not-in-allowlist, `ALREADY_SUBSCRIBED` from another surface); no `off()` — use `novaOS.events.on` if you need teardown |
+| `nova.onEvent(eventName, callback)` | `nova:events:subscribe` (first listener per name only) | Stacks listeners per name over **one** host subscription; the returned Promise resolves `{success, subscribed}` for 2nd+ listeners (no host call) | Returns a **Promise that can reject unhandled** if the host refuses (`PERMISSION_DENIED`, `INVALID_ARGS` not-in-allowlist, `ALREADY_SUBSCRIBED` from another surface); no `off` — use `novaOS.events.on` if you need teardown |
 
 Subscribable names and their gates: see §6.2 and §5 (events row).
 
@@ -296,8 +293,8 @@ Subscribable names and their gates: see §6.2 and §5 (events row).
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
-| `nova.onBackgroundWake(callback)` | — (local) | Registers a Tier-1 wake handler; receives `{wokeAt, deadlineMs}`; **returns `undefined`** (no Promise, no `off()`, no callback validation) | fires only in scheduler-started sandboxes; 10 s deadline then teardown |
-| `nova.backgroundWakeDone()` | `nova:background:wake-done` | Signal early wake completion; resolves `{success:true}` | no permission (scheduler pre-verified `system:background`) |
+| `nova.onBackgroundWake(callback)` | — (local) | Registers a Tier-1 wake handler; receives `{wokeAt, deadlineMs}`; **returns `undefined`** (no Promise, no `off`, no callback validation) | fires only in scheduler-started sandboxes; 10 s deadline then teardown |
+| `nova.backgroundWakeDone` | `nova:background:wake-done` | Signal early wake completion; resolves `{success:true}` | no permission (scheduler pre-verified `system:background`) |
 | `nova.stayAliveInBackground(enabled?)` | `nova:background:stay-alive` | Tier-2 opt-in for this session (`enabled !== false`, default true); resolves `{success, enabled}` | `system:background:live`; session-only, never persisted — re-opt-in every launch |
 
 ### 3.13 getUserMedia (camera / microphone)
@@ -306,7 +303,7 @@ Subscribable names and their gates: see §6.2 and §5 (events row).
 |---|---|---|---|
 | `nova.getUserMedia(constraints)` | `nova:device:camera` / `nova:device:microphone` (per `constraints.video` / `.audio`) | App-level grant check first, then the **real** `navigator.mediaDevices.getUserMedia(constraints)` in the guest document; resolves a `MediaStream` | Rejects TypeError if neither video nor audio in constraints; rejects `PERMISSION_DENIED` if the needed device grant is missing; the browser-level `permissionrequest` gate runs separately (media branch = camera OR microphone, ANY-of) |
 
-A `MediaStream` cannot cross the IPC bridge — that is why the channels are authorization-only (`:11777-11785`).
+A `MediaStream` cannot cross the IPC bridge — that is why the channels are authorization-only .
 
 ### 3.14 Data portability
 
@@ -314,37 +311,37 @@ A `MediaStream` cannot cross the IPC bridge — that is why the channels are aut
 |---|---|---|---|
 | `nova.data.export(options)` | `nova:data:export` | Export `{keys[] ≤ 1000}` or `{prefix}` into a checksummed envelope | `data:export`; `INVALID_ARGS` if no selector |
 | `nova.data.import(envelope)` | `nova:data:import` | Merge-only import (never deletes absent keys) | `data:export`; `POLICY_BLOCKED` for another app's envelope; `INVALID_ARGS` on checksum/kind mismatch |
-| `nova.data.backup()` | `nova:data:backup` | Full own-namespace snapshot | `data:backup` |
+| `nova.data.backup` | `nova:data:backup` | Full own-namespace snapshot | `data:backup` |
 | `nova.data.restore(envelope, options?)` | `nova:data:restore` | Restore a backup envelope; `options.clearFirst === true` wipes own namespace first | `data:backup`; per-key over-cap failures reported in `failedKeys[]` |
 
-Envelope shape: `{novaDataEnvelope:1, format:1, kind:'backup'\|'export', appId, capturedAt, storage:{}, counts, checksum}` — sha256 over key-sorted storage JSON; envelopes are pinned to the calling appId (`:7021-7028`).
+Envelope shape: `{novaDataEnvelope:1, format:1, kind:'backup'\|'export', appId, capturedAt, storage:{}, counts, checksum}` — sha256 over key-sorted storage JSON; envelopes are pinned to the calling appId .
 
 ### 3.15 Appearance
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
-| `nova.appearance.get()` | `nova:appearance:get` | `{theme, accentColor, highContrast, reduceMotion, removeTransparency, transparentSurfaces}` | no permission |
+| `nova.appearance.get` | `nova:appearance:get` | `{theme, accentColor, highContrast, reduceMotion, removeTransparency, transparentSurfaces}` | no permission |
 | `nova.appearance.set(appearance)` | `nova:appearance:set` | Set allowlisted fields | **10/min**; `INVALID_ARGS` (bad field/value); `POLICY_BLOCKED` |
-| `nova.appearance.onChange(cb)` | `nova:appearance:subscribe` (once; shared promise) | Registers change listener; fires immediately with current appearance; resolves `off()`; last `off()` → `nova:appearance:unsubscribe` | Rejects TypeError (not fn / already subscribed); one subscription per sandbox (`ALREADY_SUBSCRIBED` at host) |
+| `nova.appearance.onChange(cb)` | `nova:appearance:subscribe` (once; shared promise) | Registers change listener; fires immediately with current appearance; resolves `off`; last `off` → `nova:appearance:unsubscribe` | Rejects TypeError (not fn / already subscribed); one subscription per sandbox (`ALREADY_SUBSCRIBED` at host) |
 
 ### 3.16 Context menu / overlay (host-rendered UI)
 
-Both require the nested-webview opt-in **and** a live `sandbox:nested-webview` grant (handler checks `isNestedWebviewPermitted`, `:3328`, `:3414`).
+Both require the nested-webview opt-in **and** a live `sandbox:nested-webview` grant (handler checks `isNestedWebviewPermitted`, , ).
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
 | `nova.contextMenu.show(x, y, items)` | `nova:context-menu:show` | Host-rendered menu at host-screen coords (unclamped); resolves `{cancelled, index}` | **Interactive**; 1–100 items; label ≤ 120, icon ≤ 64, shortcut ≤ 32; `INVALID_ARGS`, `UNAVAILABLE` |
-| `nova.contextMenu.hide()` | `nova:context-menu:hide` | Close any open menu | `{success, wasOpen}` |
+| `nova.contextMenu.hide` | `nova:context-menu:hide` | Close any open menu | `{success, wasOpen}` |
 | `nova.overlay.show(options)` | `nova:overlay:show` | Host-rendered overlay iframe (`allow-same-origin` only, scripts blocked, DOMPurify-sanitized); resolves `{success, overlayId}` | html ≤ 100 000 chars, css ≤ 50 000; render timeout 15 s; `INVALID_ARGS`, `SANITIZE_FAILED`, `RENDER_FAILED`, `CANCELLED` |
-| `nova.overlay.hide()` | `nova:overlay:hide` | Close overlay | `{success, wasOpen}` |
-| `nova.overlay.onEvent(cb)` | — (local; pushes via `nova:overlay:event`) | Register overlay interaction listener; returns `off()` | **throws** TypeError if cb not fn; events only for `click/input/change/submit/keydown` on `[data-nova-action]`/`[data-nova-field]` (action/field ≤ 100, value ≤ 4096, key ≤ 64) |
+| `nova.overlay.hide` | `nova:overlay:hide` | Close overlay | `{success, wasOpen}` |
+| `nova.overlay.onEvent(cb)` | — (local; pushes via `nova:overlay:event`) | Register overlay interaction listener; returns `off` | **throws** TypeError if cb not fn; events only for `click/input/change/submit/keydown` on `[data-nova-action]`/`[data-nova-field]` (action/field ≤ 100, value ≤ 4096, key ≤ 64) |
 
 ### 3.17 Home surface (default Home app only)
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
-| `nova.home.openDefaultAppsSettings()` | `nova:home:openDefaultAppsSettings` | Open Settings → Default Apps (highlights `home`) | caller must be the currently selected Home app; **12/min** |
-| `nova.home.apps.list()` | `nova:home:apps:list` | App list for the Home surface; `{success, apps[], fullAccess}` | Home-caller check; without `system:apps` the list is limited to Settings + App Manager |
+| `nova.home.openDefaultAppsSettings` | `nova:home:openDefaultAppsSettings` | Open Settings → Default Apps (highlights `home`) | caller must be the currently selected Home app; **12/min** |
+| `nova.home.apps.list` | `nova:home:apps:list` | App list for the Home surface; `{success, apps[], fullAccess}` | Home-caller check; without `system:apps` the list is limited to Settings + App Manager |
 | `nova.home.apps.launch(appId)` | `nova:home:apps:launch` | Launch from Home (no options passed) | Home-caller; Settings/AppManager always launchable, other targets need `system:app-launch`; **30/min** |
 
 ### 3.18 Wallpaper
@@ -357,10 +354,10 @@ Both require the nested-webview opt-in **and** a live `sandbox:nested-webview` g
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
-| `nova.calendar.list()` | `nova:calendar:read` | All events in the **shared** store (no per-app scoping) | `calendar:read` |
+| `nova.calendar.list` | `nova:calendar:read` | All events in the **shared** store (no per-app scoping) | `calendar:read` |
 | `nova.calendar.save(event)` | `nova:calendar:write` | Upsert by id (id assigned host-side); `title` + `date` `YYYY-MM-DD` required; color from 8 frozen values | `calendar:write`; `INVALID_EVENT` |
 | `nova.calendar.remove(id)` | `nova:calendar:delete` | Delete by id | `calendar:delete`; `INVALID_ID` |
-| `nova.contacts.list()` | `nova:contacts:read` | All contacts (shared store) | `contacts:read` |
+| `nova.contacts.list` | `nova:contacts:read` | All contacts (shared store) | `contacts:read` |
 | `nova.contacts.save(contact)` | `nova:contacts:write` | Upsert by id; needs at least a trimmed name; id/name/email/phone/notes strings | `contacts:write`; `INVALID_CONTACT` |
 | `nova.contacts.remove(id)` | `nova:contacts:delete` | Delete by id | `contacts:delete`; `INVALID_ID` |
 
@@ -368,7 +365,7 @@ Both require the nested-webview opt-in **and** a live `sandbox:nested-webview` g
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
-| `nova.apps.list()` | `nova:app:list` | Installed apps; manifest reduced to `{system:bool}` | `system:apps` |
+| `nova.apps.list` | `nova:app:list` | Installed apps; manifest reduced to `{system:bool}` | `system:apps` |
 | `nova.apps.launch(appId, options)` | `nova:app:launch` | Duplicate of `nova.app.launch` | see §3.2 |
 | `nova.apps.install(pkg)` | `nova:app:install` | Install a **parsed package object** `{manifest, files, signature, integrity}`; unattended path fails closed | `system:apps`; `INVALID_PACKAGE`, `MALICIOUS_PACKAGE`, `SCAN_FAILED`, `UNVERIFIED`, `TAMPERED`, `UNTRUSTED`, `ALREADY_INSTALLED` (§5) |
 | `nova.apps.uninstall(appId)` | `nova:app:uninstall` | Uninstall with full state cleanup | `system:apps`; cannot self-uninstall; `NOT_UNINSTALLABLE` for built-ins |
@@ -376,28 +373,28 @@ Both require the nested-webview opt-in **and** a live `sandbox:nested-webview` g
 
 ### 3.21 Admin
 
-All `admin:*` channels carry a **dual gate**: the per-app permission AND the machine's local admin mode flag (set in Settings). Granting the permission does not itself enable admin mode (`:11837-11840`).
+All `admin:*` channels carry a **dual gate**: the per-app permission AND the machine's local admin mode flag (set in Settings). Granting the permission does not itself enable admin mode .
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
 | `nova.admin.auditQuery(filters)` | `nova:admin:audit` | Security audit log query (userId, action, resource, ipAddress, success, startDate, endDate, level, limit, offset) | `admin:audit` + admin mode; server 403 → `PERMISSION_DENIED` |
-| `nova.admin.systemGet()` | `nova:admin:system {action:'get'}` | Machine security settings | `admin:system` + admin mode |
+| `nova.admin.systemGet` | `nova:admin:system {action:'get'}` | Machine security settings | `admin:system` + admin mode |
 | `nova.admin.systemSet(settings)` | `nova:admin:system {action:'set'}` | Update security settings | `INVALID_ARGS` if settings object missing |
-| `nova.admin.usersList()` | `nova:admin:users {action:'list'}` | Account list | `admin:users` + admin **role** session |
+| `nova.admin.usersList` | `nova:admin:users {action:'list'}` | Account list | `admin:users` + admin **role** session |
 | `nova.admin.usersRevoke(sessionId)` | `nova:admin:users {action:'revoke'}` | Revoke a session | `INVALID_ARGS` without sessionId |
-| `nova.admin.appsList()` | `nova:admin:apps` | Per-app declared vs granted permission audit | `admin:apps` + admin mode |
+| `nova.admin.appsList` | `nova:admin:apps` | Per-app declared vs granted permission audit | `admin:apps` + admin mode |
 
 ### 3.22 Mail (reuses the host Email app session)
 
-All mail calls fail `UNAVAILABLE` (`No email account connected — open the Email app and connect an account first`) when the host Email app has no connected account (`:5484-5486`).
+All mail calls fail `UNAVAILABLE` (`No email account connected — open the Email app and connect an account first`) when the host Email app has no connected account .
 
 | Method | Channel (payload action) | Behavior / returns | Limits / errors |
 |---|---|---|---|
 | `nova.mail.connect(account)` | `nova:mail:session` `connect` | `{type, host, port?, user, pass}`; `ssl` forced true — plaintext refused | `mail:write`; `INVALID_ARGS` |
-| `nova.mail.disconnect()` | `nova:mail:session` `disconnect` | Drop the session | `mail:write` |
-| `nova.mail.restore()` | `nova:mail:session` `restore` | Restore persisted session | `mail:write` |
-| `nova.mail.account()` | `nova:mail:read` `account` | Connected account info | `mail:read` |
-| `nova.mail.folders()` | `nova:mail:read` `folders` | Folder list | `mail:read` |
+| `nova.mail.disconnect` | `nova:mail:session` `disconnect` | Drop the session | `mail:write` |
+| `nova.mail.restore` | `nova:mail:session` `restore` | Restore persisted session | `mail:write` |
+| `nova.mail.account` | `nova:mail:read` `account` | Connected account info | `mail:read` |
+| `nova.mail.folders` | `nova:mail:read` `folders` | Folder list | `mail:read` |
 | `nova.mail.messages(opts)` | `nova:mail:read` `messages` | Paged messages (`folder` default `INBOX`, `page`, `limit`) | `mail:read` |
 | `nova.mail.message(uid, folder?)` | `nova:mail:read` `message` | Single message | `INVALID_ARGS` without uid |
 | `nova.mail.search(query, folder?)` | `nova:mail:read` `search` | Search | `INVALID_ARGS` without query |
@@ -410,55 +407,54 @@ All mail calls fail `UNAVAILABLE` (`No email account connected — open the Emai
 
 ### 3.23 Browser view — `nova.browser.*` (nested-webview opt-in only)
 
-Present **only** when the shim baked `__NOVA_NESTED_WEBVIEW_OPTED_IN__ = true` (manifest `allowNestedWebview: true` or `sandbox:nested-webview` declared). The object itself is `Object.freeze`'d (`:12911`).
+Present **only** when the shim baked `__NOVA_NESTED_WEBVIEW_OPTED_IN__ = true` (manifest `allowNestedWebview: true` or `sandbox:nested-webview` declared). The object itself is `Object.freeze`'d .
 
 | Method | Channel | Behavior / returns | Limits / errors |
 |---|---|---|---|
 | `nova.browser.createView(options)` | `nova:nested-webview {action:'create', …}` (via the `<nova-nested-webview>` proxy element) | Create a host-sibling browser view inside `options.container` (Element, required); awaits element creation; optionally navigates `options.url`; resolves a `NovaBrowserView` | **throws** TypeError (no container Element); `pollingInterval` default 1000, must be 0 or 250–10000 ms else RangeError; every host action re-checks the live `sandbox:nested-webview` grant |
 | `nova.browser.download(options)` | `nova:net:fetch` (patched fetch) then `nova:download` | Fetch `options.url`, convert blob → data URL, hand to the OS save dialog; filename defaults `download` | **throws** TypeError (no URL); non-2xx → Error `Download request failed with HTTP <status>`; then `nova:download` rules (§5) |
 
-#### NovaBrowserView (class, `:12670-12909`)
+#### NovaBrowserView (class, )
 
 Constructor wires webview events into CustomEvents on the proxy element: `navigation-start`, `navigation-redirect`, `navigation-commit`, `navigation-complete`, `navigation-error`, `close`, `crash`, `new-window` (with a `window.attach/discard` popup shim), `download-request` (only `permission === 'download'`), `contextmenu` (scaled coordinates), `annotation-export` (dataUrl must start `data:image/`), `url-change`, `title-change`, `state-change`, `state-error`, `destroy`.
 
-Methods (all delegating to `nova:nested-webview` actions; `:12784-12907`):
+Methods (all delegating to `nova:nested-webview` actions; ):
 
 | Method | Behavior |
 |---|---|
-| `refreshState()` / `getState()` | poll `[location.href, document.title]` into the proxy state (`:12825`) |
+| `refreshState` / `getState` | poll `[location.href, document.title]` into the proxy state  |
 | `navigate(url)` | navigate (first call consumes `__NOVA_PENDING_INITIAL_URL__` if no url given) |
-| `back()` / `forward()` | client-side history (`_history`, `_historyIndex`, `_historyMove`) |
-| `reload()` / `stop()` | reload / stop loading |
+| `back` / `forward` | client-side history (`_history`, `_historyIndex`, `_historyMove`) |
+| `reload` / `stop` | reload / stop loading |
 | `find(text, options)` / `stopFinding(action)` | host-validated page find (`{activeMatchOrdinal, numberOfMatches}`) |
-| `clearData()` | clear the view's stored data |
+| `clearData` | clear the view's stored data |
 | `setZoom(factor)` / `setZoomMode(mode)` | zoom controls |
 | `setUserAgent(ua)` | user-agent override |
 | `setOverlayActive(bool)` | freeze/unfreeze the guest (captured still or plain hide) |
-| `setAnnotationLayer(opts)` / `updateAnnotationLayer(opts)` / `setAnnotationActive(bool)` / `clearAnnotationLayer()` / `undoAnnotationLayer()` / `exportAnnotationLayer()` | annotation layer family; export payloads validated to `data:image/` and ≤ 2 000 000 chars |
+| `setAnnotationLayer(opts)` / `updateAnnotationLayer(opts)` / `setAnnotationActive(bool)` / `clearAnnotationLayer` / `undoAnnotationLayer` / `exportAnnotationLayer` | annotation layer family; export payloads validated to `data:image/` and ≤ 2 000 000 chars |
 | `executeScript(code)` | run script in the nested guest |
 | `on(type, listener)` | subscribe to the CustomEvents listed above |
-| `destroy()` | tear the view down (`destroy` event emitted) |
+| `destroy` | tear the view down (`destroy` event emitted) |
 
-`navigate()` consumes the pinned `__NOVA_PENDING_INITIAL_URL__` override on first navigation (`:12847-12850`); navigation requires `net:internal`/`net:external` per destination and rejects embedded credentials (`:10007-10020`).
+`navigate` consumes the pinned `__NOVA_PENDING_INITIAL_URL__` override on first navigation ; navigation requires `net:internal`/`net:external` per destination and rejects embedded credentials .
 
-#### NovaNestedWebview (custom element `<nova-nested-webview>`, `:12450-12607`)
+#### NovaNestedWebview (custom element `<nova-nested-webview>`, )
 
-`document.createElement('webview')` is re-routed to this element (`:12598-12603`); `innerHTML`/`outerHTML`/`insertAdjacentHTML` rewrite `<webview…>` tags to it (`:12609-12646`); a MutationObserver backstop removes stray native `<webview>` nodes (`:12656-12668`). Attribute changes (`allowfullscreen`, `allowpopups`, `src`, `partition`) are forwarded live; bounds are pushed on resize/mutation (`action:'bounds'`, clamped to viewport, including `visible/visibility/pointerEvents/zIndex`).
+`document.createElement('webview')` is re-routed to this element ; `innerHTML`/`outerHTML`/`insertAdjacentHTML` rewrite `<webview…>` tags to it ; a MutationObserver backstop removes stray native `<webview>` nodes . Attribute changes (`allowfullscreen`, `allowpopups`, `src`, `partition`) are forwarded live; bounds are pushed on resize/mutation (`action:'bounds'`, clamped to viewport, including `visible/visibility/pointerEvents/zIndex`).
 
 Element methods → `nova:nested-webview` actions: `getURL`, `navigate`, `executeScript`, `insertCSS`, `reload`, `back`, `forward`, `stop`, `canGoBack`, `canGoForward`, `find`, `stopFinding`, `setUserAgentOverride`, `setZoom`, `setZoomMode`, `clearData`, `__attachPopup(popupId)`, `setOverlayActive`, and the annotation command family. Removing the element sends `action:'destroy'`.
 
-Apps **not** opted in: `createElement('webview')` returns an inert `<span>` and logs `nova:audit:blocked-nested-webview {via:'createElement'}`; HTML parser paths strip the tag and audit; the MutationObserver removes survivors (`:12962-13030`). This is a security block that deliberately does not throw.
-
+Apps **not** opted in: `createElement('webview')` returns an inert `<span>` and logs `nova:audit:blocked-nested-webview {via:'createElement'}`; HTML parser paths strip the tag and audit; the MutationObserver removes survivors . This is a security block that deliberately does not throw.
 
 ---
 
 ## 4. `window.novaOS` v2 facade — complete namespace reference
 
-`window.novaOS = Object.freeze({ apiVersion: 2, … })` (`:10361`); **29 frozen namespaces, 119 methods**, built by `buildNovaOSFacadeSource()` and injected into the same shim/realm as v1 (one `ipc()`, one pending-request map, `:11872`). Normalization rules applied per namespace are noted; everything else resolves the raw handler response (flattened + nested, §2.1).
+`window.novaOS = Object.freeze({ apiVersion: 2, … })` ; **29 frozen namespaces, 119 methods**, built by `buildNovaOSFacadeSource` and injected into the same shim/realm as v1 (one `ipc`, one pending-request map, ). Normalization rules applied per namespace are noted; everything else resolves the raw handler response (flattened + nested, §2.1).
 
 Notable deliberate design points:
 
-- `storage.get(missing)` resolves **`null`**; `settings.get(unset)` resolves **`undefined`** — "deliberate distinction" (`:10753-10755`).
+- `storage.get(missing)` resolves **`null`**; `settings.get(unset)` resolves **`undefined`** — "deliberate distinction" .
 - Mutations (`set`/`remove`/`clear`/…) resolve **`undefined`**; host errors still reject.
 - `novaOS` has **no** `appearance`, `fs.shared.write`, `dialog list`, `permissions list`, or `net.fetch` members — appearance and the raw fetch override stay v1/global (§3.15, §3.6).
 
@@ -489,26 +485,26 @@ Notable deliberate design points:
 |---|---|---|
 | `capabilities.has(name)` | — (local frozen table) | `boolean` — true iff the runtime ships the surface (`hasOwnProperty` and `=== true`). **Not** a permission check. |
 
-The 29 capability names (`:10255-10299`): `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, `settings.v2`, `ready.v2`, `events.v2`, `geolocation.v2`, `media.v2`, `calendar.v2`, `contacts.v2`, `mail.v2`, `admin.v2`, `background.v2`, `permissions.v2`, `net.v2`, `registry.v1`, `vpn.v1`.
+The 29 capability names : `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, `settings.v2`, `ready.v2`, `events.v2`, `geolocation.v2`, `media.v2`, `calendar.v2`, `contacts.v2`, `mail.v2`, `admin.v2`, `background.v2`, `permissions.v2`, `net.v2`, `registry.v1`, `vpn.v1`.
 
 ### 4.2 `storage` (6 methods) — per-app key-value store
 
-Host-side IndexedDB (`NovaByte_AppStorage`, store `kv2`), rows keyed `[ownerUid, appId, key]` — a guest can never address another owner's or app's rows (`:6615-6676`).
+Host-side IndexedDB (`NovaByte_AppStorage`, store `kv2`), rows keyed `[ownerUid, appId, key]` — a guest can never address another owner's or app's rows .
 
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
-| `storage.get(key)` | `nova:storage:get` | stored value, or `null` when absent (**fail-open read**: IndexedDB outage also resolves `null`, `:6885-6889`) | `INVALID_ARGS` `Invalid storage key` |
+| `storage.get(key)` | `nova:storage:get` | stored value, or `null` when absent (**fail-open read**: IndexedDB outage also resolves `null`, ) | `INVALID_ARGS` `Invalid storage key` |
 | `storage.set(key, value)` | `nova:storage:set` | `undefined` | `INVALID_ARGS` (bad key / not JSON-serializable); `STORAGE_FULL` (value > **5 MB**, quota **256 MB/app**, **2 GB/user**) |
 | `storage.remove(key)` | `nova:storage:delete` | `undefined` | `INVALID_ARGS`, `ERROR` |
-| `storage.clear()` | `nova:storage:clear` | `undefined` (clears only this owner+app's rows) | `ERROR` |
-| `storage.keys()` | `nova:storage:keys` | `string[]` (default `[]`) | `ERROR` |
-| `storage.usage()` | `nova:storage:usage` | `{usage, budget}` — own app only | `ERROR` |
+| `storage.clear` | `nova:storage:clear` | `undefined` (clears only this owner+app's rows) | `ERROR` |
+| `storage.keys` | `nova:storage:keys` | `string[]` (default `[]`) | `ERROR` |
+| `storage.usage` | `nova:storage:usage` | `{usage, budget}` — own app only | `ERROR` |
 
-Key rules: `/^[\w\-. ]+$/` (word chars, dash, dot, space; no length cap) — slashes/colons rejected to prevent cross-namespace key injection (`:207-209`).
+Key rules: `/^[\w\-. ]+$/` (word chars, dash, dot, space; no length cap) — slashes/colons rejected to prevent cross-namespace key injection .
 
 ### 4.3 `fs` (16 methods) — scoped filesystem
 
-Caller-relative roots: `appdata:<path>` always resolves into **this app's** `/data/<appId>/` subtree (no syntax names another app's subtree); `shared:`/`media:` address the shared tree under the same permission rules; raw `/…` paths get `/data/…` rewritten to the caller's own segment (`:10406-10416`, `:1782-1797`). App-owned paths need **no grant**; shared-tree access needs `fs:access`, a user-picked file, or a matching media grant.
+Caller-relative roots: `appdata:<path>` always resolves into **this app's** `/data/<appId>/` subtree (no syntax names another app's subtree); `shared:`/`media:` address the shared tree under the same permission rules; raw `/…` paths get `/data/…` rewritten to the caller's own segment . App-owned paths need **no grant**; shared-tree access needs `fs:access`, a user-picked file, or a matching media grant.
 
 | Method | Channel | Returns (raw handler shape) | Errors |
 |---|---|---|---|
@@ -520,7 +516,7 @@ Caller-relative roots: `appdata:<path>` always resolves into **this app's** `/da
 | `fs.rename(path, name)` | `nova:fs:rename {path, name}` | `{success, name}` | `NOT_FOUND`, `PERMISSION_DENIED`, `UNAVAILABLE`, `INVALID_ARGS` |
 | `fs.move(path, destPath)` | `nova:fs:move {path, destPath}` | `{success, path}` (dest parent must be app-owned or granted) | `NOT_FOUND`, `PERMISSION_DENIED` |
 | `fs.remove(path)` | `nova:fs:delete {path}` | `{success:true}` | `NOT_FOUND`, `PROTECTED_LOCATION`, `PERMISSION_DENIED`, `UNAVAILABLE` (confirm unavailable); confirm-cancel resolves `{cancelled:true}` |
-| `fs.watch(path, callback)` | `nova:fs:watch {path, watcherId}` | `{watcherId, path, unwatch()}`; callback gets `{watcherId, path, kind:'changed'\|'created'\|'deleted', timestamp}` | rejects TypeError (callback not fn); `fs:watch` grant + read access to the path; `RATE_LIMITED` `Max 8 watchers per app`; events coalesced/debounced, 60 pushes/min |
+| `fs.watch(path, callback)` | `nova:fs:watch {path, watcherId}` | `{watcherId, path, unwatch}`; callback gets `{watcherId, path, kind:'changed'\|'created'\|'deleted', timestamp}` | rejects TypeError (callback not fn); `fs:watch` grant + read access to the path; `RATE_LIMITED` `Max 8 watchers per app`; events coalesced/debounced, 60 pushes/min |
 | `fs.unwatch(watcherId)` | `nova:fs:unwatch {watcherId}` | `undefined` (idempotent; foreign/unknown ids resolve `cleared:false`) | none |
 | `fs.appdata.list(path)` | `nova:fs:list` (path prefixed `appdata:/`, leading slashes stripped) | as `fs.list` | as `fs.list` |
 | `fs.appdata.read(path)` | `nova:fs:read` (prefixed) | as `fs.read` | as `fs.read` |
@@ -529,7 +525,7 @@ Caller-relative roots: `appdata:<path>` always resolves into **this app's** `/da
 | `fs.shared.list(path)` | `nova:fs:list` (prefix `shared:/`) | as `fs.list` (shared tree) | as `fs.list`; paths resolving into `/data` are refused |
 | `fs.shared.read(path)` | `nova:fs:read` (prefix `shared:/`) | as `fs.read` | as `fs.read` |
 
-Non-string `content` is JSON-serialized (never `[object Object]`); cycles/BigInt reject `INVALID_ARGS` (`:2399-2420`). `watch` delivery is **best-effort** — poll if you need guarantees (rate-limited events are silently coalesced, `:7688-7690`).
+Non-string `content` is JSON-serialized (never `[object Object]`); cycles/BigInt reject `INVALID_ARGS` . `watch` delivery is **best-effort** — poll if you need guarantees (rate-limited events are silently coalesced, ).
 
 `fs.read` decodes Buffer-backed text (including clean UTF-8 with an unknown MIME type) as UTF-8. Buffer-backed binary files return base64 in `data` and set `encoding: "base64"`.
 
@@ -538,17 +534,17 @@ Non-string `content` is JSON-serialized (never `[object Object]`); cycles/BigInt
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
 | `media.query(options)` | `nova:media:query` | `{files}` — indexed shared media metadata (bytes still via `fs.read` under per-file media grants) | `type` ∈ `all\|image\|audio\|video`; needs `fs:metadata` OR `fs:access` OR matching media grant; `INVALID_ARGS`, `PERMISSION_DENIED`, `UNAVAILABLE` |
-| `media.checkCamera()` | `nova:device:camera` | `true` | rejects `PERMISSION_DENIED` without `device:camera` |
-| `media.checkMicrophone()` | `nova:device:microphone` | `true` | rejects `PERMISSION_DENIED` without `device:microphone` |
+| `media.checkCamera` | `nova:device:camera` | `true` | rejects `PERMISSION_DENIED` without `device:camera` |
+| `media.checkMicrophone` | `nova:device:microphone` | `true` | rejects `PERMISSION_DENIED` without `device:microphone` |
 | `media.getUserMedia(constraints)` | `nova:device:camera`/`microphone` then in-document gUM | `MediaStream` | rejects TypeError (no video/audio); `PERMISSION_DENIED`; browser gate runs separately (ANY-of camera/mic) |
 
-One merged surface on purpose — an earlier draft's second media key clobbered `query()` (`:10503-10505`).
+One merged surface on purpose — an earlier draft's second media key clobbered `query` .
 
 ### 4.5 `clipboard` (2 methods)
 
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
-| `clipboard.readText()` | `nova:clipboard:read` | text, or `null` when nothing readable | `clipboard:read`; falls back to the host's last written value when the browser clipboard fails (ambient channel — see [`internals.md`](internals.md)) |
+| `clipboard.readText` | `nova:clipboard:read` | text, or `null` when nothing readable | `clipboard:read`; falls back to the host's last written value when the browser clipboard fails |
 | `clipboard.writeText(text)` | `nova:clipboard:write` | `undefined` | `clipboard:write`; `text ?? ''` (0/false preserved); `CLIPBOARD_UNAVAILABLE` on write failure; history capped at 30 |
 
 ### 4.6 `notifications` (7 methods)
@@ -561,32 +557,32 @@ Same gates/limits as the raw channels: `device:notifications`; **10 new/min, 60 
 | `notifications.post(options)` | `nova:notifications:post` | `{success, posted, updated, id, importance}` | channel must exist (create first or declare `notifications.channels` in the manifest); muted channel resolves `{success:true, posted:false, reason:'CHANNEL_MUTED', importance}`; tag ≤ 64; ≤ 3 actions (id slug ≤ 40, label ≤ 40); `progress` value 0..max, max clamp 1..100000; omitted `actions`/`progress` inherit field-wise (explicit `[]`/`null` clears) |
 | `notifications.createChannel(id, name, importance)` | `nova:notifications:createChannel` | `{success, created, channel:{id,name,importance}}` | id 1–64 chars `^[a-zA-Z0-9_-]+$`; name ≤ 60 non-empty; importance locked at creation (`none` maps to `default`; only user muting reaches `none`); 32-channel cap `LIMIT_REACHED` `Max 32 channels per app` |
 | `notifications.cancel(idOrTag)` | `nova:notifications:cancel` | `{success, removed}` | `INVALID_ARGS` `either tag or id is required` |
-| `notifications.cancelAll()` | `nova:notifications:cancelAll` | `undefined` | — |
-| `notifications.clear()` | `nova:notifications:clear` | `undefined` (clears this app's notifications) | — |
-| `notifications.consumeActions()` | `nova:notifications:consumeActions` | `{actions}` — **pull-only**; action clicks are never pushed, they queue host-side (≤ 20 pending/app) and drain here | — |
+| `notifications.cancelAll` | `nova:notifications:cancelAll` | `undefined` | — |
+| `notifications.clear` | `nova:notifications:clear` | `undefined` (clears this app's notifications) | — |
+| `notifications.consumeActions` | `nova:notifications:consumeActions` | `{actions}` — **pull-only**; action clicks are never pushed, they queue host-side (≤ 20 pending/app) and drain here | — |
 
 ### 4.7 `locale` / `badge` / `secrets` (7 methods)
 
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
-| `locale.get()` | `nova:locale:get` | normalized `{locale ('en-US' fallback), region, timeZone, firstDayOfWeek ('monday'\|'sunday')}` | **no permission** (coarse formatting facts only) |
+| `locale.get` | `nova:locale:get` | normalized `{locale ('en-US' fallback), region, timeZone, firstDayOfWeek ('monday'\|'sunday')}` | **no permission** (coarse formatting facts only) |
 | `badge.set(value)` | `nova:badge:set` | `undefined`; number → `{count}`, object `{text}` passthrough | `system:badge`; **30/min** `Max 30 badge updates per minute`; count 0–999 (floored, 0 = clear), text 1–4 chars after trim |
-| `badge.clear()` | `nova:badge:clear` | `undefined` | `system:badge`; `{success, cleared}` raw |
+| `badge.clear` | `nova:badge:clear` | `undefined` | `system:badge`; `{success, cleared}` raw |
 | `secrets.set(key, value)` | `nova:secrets:set` | `undefined` | `secrets:store`; key ≤ 128 chars (trimmed, no control chars); value ≤ **8 KB** UTF-8 (`INVALID_ARGS` `… 8192 bytes`); **64 secrets/app** (`RATE_LIMITED` `Max 64`, replacement at cap allowed); AES-256-GCM at rest |
 | `secrets.get(key)` | `nova:secrets:get` | plaintext, or `null` (absent/tampered — auth failure returns null, never garbage) | `secrets:store` |
 | `secrets.delete(key)` | `nova:secrets:delete` | `undefined` | `secrets:store` |
-| `secrets.keys()` | `nova:secrets:keys` | sorted key array (own app only) | `secrets:store` |
+| `secrets.keys` | `nova:secrets:keys` | sorted key array (own app only) | `secrets:store` |
 
-Secrets never appear in data export/backup envelopes (`:8119-8125`).
+Secrets never appear in data export/backup envelopes .
 
 ### 4.8 `window` (6 methods)
 
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
-| `window.close()` / `minimize()` / `maximize()` | `nova:window:close`/`minimize`/`maximize` | `undefined` (best-effort, always success) | none |
+| `window.close` / `minimize` / `maximize` | `nova:window:close`/`minimize`/`maximize` | `undefined` (best-effort, always success) | none |
 | `window.setTitle(title)` | `nova:window:setTitle` | `undefined` | title stringified and capped at **200 chars** |
 | `window.resize(width, height)` | `nova:window:resize` | `undefined` (unmaximizes) | ints; fallback 800/600, minimum 100 |
-| `window.getState()` | `nova:window:getState` | `{id, x, y, width, height, maximized, minimized}` | `NOT_FOUND` `Window not found` |
+| `window.getState` | `nova:window:getState` | `{id, x, y, width, height, maximized, minimized}` | `NOT_FOUND` `Window not found` |
 
 ### 4.9 `dialog` (2 methods) — unified pickers
 
@@ -601,29 +597,29 @@ Both styles only ever hand the app what the user actively chose — that is the 
 
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
-| `app.info()` | `nova:app:info` | `{id, name, version, icon, type, permissions, optionalPermissions}` (own manifest facts) | `UNAVAILABLE` `No app context` |
-| `app.list()` | `nova:app:list` | installed app records (manifest reduced to `{system}`) | `system:apps` |
+| `app.info` | `nova:app:info` | `{id, name, version, icon, type, permissions, optionalPermissions}` (own manifest facts) | `UNAVAILABLE` `No app context` |
+| `app.list` | `nova:app:list` | installed app records (manifest reduced to `{system}`) | `system:apps` |
 | `app.launch(appId, options?)` | `nova:app:launch` | `{success, windowId}` | ANY-of `system:app-launch`/`system:apps`; 30/min; file intents stripped |
 | `app.openUrl(url)` | `nova:open-url` | `{success, windowId}` | no permission; http(s), credential-free |
 | `app.share(data)` | `nova:share` | action result (§5) | no permission; **5 sheets/min**; text ≤ 4000, title ≤ 120 |
 | `app.openWith(fileId)` | `nova:open-with` | chooser result | fileId ≤ 200 chars; file must be granted/resolvable |
 | `data.export(options)` | `nova:data:export` | envelope | `data:export`; `keys` ≤ 1000 |
 | `data.import(envelope)` | `nova:data:import` | `{success, merged?}` | `data:export`; merge-only; `POLICY_BLOCKED` foreign envelope |
-| `data.backup()` | `nova:data:backup` | envelope | `data:backup` |
+| `data.backup` | `nova:data:backup` | envelope | `data:backup` |
 | `data.restore(envelope, options?)` | `nova:data:restore` | `{success, restoredKeys, cleared, failedKeys[]}` | `data:backup`; checksum mismatch → `INVALID_ARGS` |
 
 ### 4.11 `share` / `alarms` / `push` (8 methods)
 
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
-| `share.onInbound(cb)` | — (local; pushes `nova:share:inbound`) | `off()`; callback receives `{title, text, url, sourceAppId, firedAt, queued?}` | rejects TypeError; requires `system:share-target` grant + manifest `shareTarget` to actually receive (host re-checks on delivery) |
+| `share.onInbound(cb)` | — (local; pushes `nova:share:inbound`) | `off`; callback receives `{title, text, url, sourceAppId, firedAt, queued?}` | rejects TypeError; requires `system:share-target` grant + manifest `shareTarget` to actually receive (host re-checks on delivery) |
 | `alarms.create(options)` | `nova:alarms:create` | `{success, replaced, alarm:{name, when, periodMinutes, scheduledTime}}` | `system:schedule`; name 1–64 chars `^[\w.:\-]+$`; **exactly one** of `when` (future epoch-ms, ≤ 1 year out) or `periodMinutes` (≥ **15**); 32/app (`RATE_LIMITED` `Max 32 alarms per app`); same-name create replaces |
 | `alarms.clear(name)` | `nova:alarms:clear` | `undefined` (raw `{success, cleared}`) | `system:schedule` |
-| `alarms.getAll()` | `nova:alarms:getAll` | own alarms array (default `[]`) | `system:schedule` |
-| `alarms.onAlarm(cb)` | — (local; pushes `nova:background:alarm`) | `off()`; callback receives `{name, alarm:{name, when, periodMinutes, scheduledTime}, firedAt, queued?}` | rejects TypeError; fires in live sandboxes; one-shots missed while closed are queued (≤ 8, newest kept) and delivered after the next `nova:ready` |
-| `push.register()` | `nova:push:register` | `{success, token, endpoint:'/api/push/publish', queued?, replaced?, subscribed}` — token is stable per install (`nps_` + 32 hex) | `push:receive`; token generation fails closed without CSPRNG |
-| `push.unregister()` | `nova:push:unregister` | `undefined` (drops token AND queue) | `push:receive` |
-| `push.onMessage(cb)` | — (local; pushes `nova:push:message`) | `off()`; callback receives `{appId, id, title?, body?, data?, sentAt, queued?}` | rejects TypeError; inbound budgets: title ≤ 200, body ≤ 2000, data ≤ 4096 bytes, id ≤ 64, queue ≤ 8 |
+| `alarms.getAll` | `nova:alarms:getAll` | own alarms array (default `[]`) | `system:schedule` |
+| `alarms.onAlarm(cb)` | — (local; pushes `nova:background:alarm`) | `off`; callback receives `{name, alarm:{name, when, periodMinutes, scheduledTime}, firedAt, queued?}` | rejects TypeError; fires in live sandboxes; one-shots missed while closed are queued (≤ 8, newest kept) and delivered after the next `nova:ready` |
+| `push.register` | `nova:push:register` | `{success, token, endpoint:'/api/push/publish', queued?, replaced?, subscribed}` — token is stable per install (`nps_` + 32 hex) | `push:receive`; token generation fails closed without CSPRNG |
+| `push.unregister` | `nova:push:unregister` | `undefined` (drops token AND queue) | `push:receive` |
+| `push.onMessage(cb)` | — (local; pushes `nova:push:message`) | `off`; callback receives `{appId, id, title?, body?, data?, sentAt, queued?}` | rejects TypeError; inbound budgets: title ≤ 200, body ≤ 2000, data ≤ 4096 bytes, id ≤ 64, queue ≤ 8 |
 
 ### 4.12 `settings` / `ready` / `events` / `geolocation` (7 methods)
 
@@ -631,9 +627,9 @@ Both styles only ever hand the app what the user actively chose — that is the 
 |---|---|---|---|
 | `settings.get(key)` | `nova:settings:get` | stored value, or **`undefined`** when unset | `system:info`; key must be in the 29-key readable allowlist else `PERMISSION_DENIED` `Settings key '<key>' is not readable by apps` |
 | `settings.set(key, value)` | `nova:settings:set` | `undefined` | `system:settings` (wallpaper keys exempt); writable allowlist (readable minus `osVersion`/`devMode`); `POLICY_BLOCKED` for wallpaper policy |
-| `ready.get()` | `nova:ready` | `{appId, permissions[], optionalPermissions[], osVersion, securityPatch, username}` (username null unless system app) | none |
-| `events.on(name, cb)` | `nova:events:subscribe` (shared; tolerates `ALREADY_SUBSCRIBED`) | Promise<off()>; host unsubscribes when the last listener for the name goes (and no v1 listener holds it) | see §6.2 for names/gates; rejects the host error on refusal (local listener rolled back) |
-| `events.subscribe(name)` | `nova:events:subscribe` | raw | rejects `ALREADY_SUBSCRIBED` if `on()`/v1 already subscribed the name |
+| `ready.get` | `nova:ready` | `{appId, permissions[], optionalPermissions[], osVersion, securityPatch, username}` (username null unless system app) | none |
+| `events.on(name, cb)` | `nova:events:subscribe` (shared; tolerates `ALREADY_SUBSCRIBED`) | Promise<off>; host unsubscribes when the last listener for the name goes (and no v1 listener holds it) | see §6.2 for names/gates; rejects the host error on refusal (local listener rolled back) |
+| `events.subscribe(name)` | `nova:events:subscribe` | raw | rejects `ALREADY_SUBSCRIBED` if `on`/v1 already subscribed the name |
 | `events.unsubscribe(name)` | `nova:events:unsubscribe` | `undefined` | none (own-sandbox only) |
 | `geolocation.getCurrentPosition(options?)` | `nova:device:geolocation {options}` | `{coords:{latitude, longitude, altitude, accuracy, altitudeAccuracy, heading, speed}, timestamp}` | `device:geolocation`; options passed through unvalidated; `GEOLOCATION_ERROR`; **no watchPosition by design** |
 
@@ -641,24 +637,24 @@ Both styles only ever hand the app what the user actively chose — that is the 
 
 | Method | Channel | Returns | Errors |
 |---|---|---|---|
-| `calendar.list()` | `nova:calendar:read` | events array (shared store) | `calendar:read` |
+| `calendar.list` | `nova:calendar:read` | events array (shared store) | `calendar:read` |
 | `calendar.save(event)` | `nova:calendar:write` | the host-normalized record | `calendar:write`; `INVALID_EVENT` `Event must have a title and a YYYY-MM-DD date` |
 | `calendar.remove(id)` | `nova:calendar:delete` | boolean removed | `calendar:delete`; `INVALID_ID` |
-| `contacts.list()` | `nova:contacts:read` | contacts array (shared store) | `contacts:read` |
+| `contacts.list` | `nova:contacts:read` | contacts array (shared store) | `contacts:read` |
 | `contacts.save(contact)` | `nova:contacts:write` | the host-normalized record | `contacts:write`; `INVALID_CONTACT` `Contact must have at least a name` |
 | `contacts.remove(id)` | `nova:contacts:delete` | boolean removed | `contacts:delete`; `INVALID_ID` |
 
 ### 4.14 `mail` (14 methods) / `admin` (6 methods)
 
-Identical mapping and semantics to the v1 surfaces — see §3.21 and §3.22 (payloads pass verbatim; responses are action-shaped and left unnormalized, `:10858-10861`). Method list (v1 = v2): mail `connect`, `disconnect`, `restore`, `account`, `folders`, `messages`, `message`, `search`, `preview`, `markRead`, `move`, `send`, `remove`, `openLink`; admin `auditQuery`, `systemGet`, `systemSet`, `usersList`, `usersRevoke`, `appsList`.
+Identical mapping and semantics to the v1 surfaces — see §3.21 and §3.22 (payloads pass verbatim; responses are action-shaped and left unnormalized, ). Method list (v1 = v2): mail `connect`, `disconnect`, `restore`, `account`, `folders`, `messages`, `message`, `search`, `preview`, `markRead`, `move`, `send`, `remove`, `openLink`; admin `auditQuery`, `systemGet`, `systemSet`, `usersList`, `usersRevoke`, `appsList`.
 
 ### 4.15 `background` / `permissions` (5 methods)
 
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
 | `background.stayAlive(enabled?)` | `nova:background:stay-alive` | `{enabled}` | `system:background:live`; session-only |
-| `background.wakeDone()` | `nova:background:wake-done` | `undefined` | none (scheduler pre-verified) |
-| `background.onWake(cb)` | — (local; pushes `nova:background:wake`) | `off()`; fires only in wake-cycle sandboxes; payload `{wokeAt, deadlineMs}` | rejects TypeError |
+| `background.wakeDone` | `nova:background:wake-done` | `undefined` | none (scheduler pre-verified) |
+| `background.onWake(cb)` | — (local; pushes `nova:background:wake`) | `off`; fires only in wake-cycle sandboxes; payload `{wokeAt, deadlineMs}` | rejects TypeError |
 | `permissions.request(permission, reason?)` | `nova:request-permission` | **boolean** granted | prompt rate limit 3/60 s + 5 s→15 min cooldown (§7) |
 | `permissions.checkRateLimited(permission)` | `nova:permission-rate-limited` | raw status record, e.g. `{rateLimited:true, retryAfterMs:30000}` | none (peek only; never prompts) |
 
@@ -670,7 +666,7 @@ Identical mapping and semantics to the v1 surfaces — see §3.21 and §3.22 (pa
 
 ### 4.17 `registry` (8 methods) — NovaByte Registry
 
-Per-hive write rules (host-side, `:10976-10979`): apps write only their own `HKNA/<appId>/` subtree; `HKNS` needs a system app; `HKNU` needs `registry.system` (or a manifest `registryScopes.write` prefix — default scope for undeclared third-party manifests is `HKNU/software/<appId>`); `HKND` needs Developer Mode; `HKNS/security` needs `registry.system` everywhere. Per-key ACLs apply to every caller without `registry.system`.
+Per-hive write rules (host-side, ): apps write only their own `HKNA/<appId>/` subtree; `HKNS` needs a system app; `HKNU` needs `registry.system` (or a manifest `registryScopes.write` prefix — default scope for undeclared third-party manifests is `HKNU/software/<appId>`); `HKND` needs Developer Mode; `HKNS/security` needs `registry.system` everywhere. Per-key ACLs apply to every caller without `registry.system`.
 
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
@@ -681,7 +677,7 @@ Per-hive write rules (host-side, `:10976-10979`): apps write only their own `HKN
 | `registry.list(path)` | `nova:reg:list` | engine listing (`{keys[], values{}}`) | `registry.read`; `NOT_FOUND` `no such key: <path>` |
 | `registry.export(path)` | `nova:reg:export` | `{path, data}` | `registry.read` |
 | `registry.import(path, data)` | `nova:reg:import` | `{success, path, merged}` | `registry.write`; `INVALID_ARGS` (`import needs a target key path`) |
-| `registry.watch(path, cb)` | sugar over `nova:events:subscribe('nova:reg:changed')` + guest-side prefix filter (backslashes normalized) | Promise<off()> | needs the same grants as subscribing (`registry.read`); callback receives `{path, type, value, appId}` |
+| `registry.watch(path, cb)` | sugar over `nova:events:subscribe('nova:reg:changed')` + guest-side prefix filter (backslashes normalized) | Promise<off> | needs the same grants as subscribing (`registry.read`); callback receives `{path, type, value, appId}` |
 
 Types: `REG_SZ`, `REG_DWORD`, `REG_QWORD`, `REG_BOOL`, `REG_JSON`, `REG_BINARY`, `REG_MULTI_SZ` (explicit-only), `REG_EXPAND_SZ`, `REG_LINK`; auto-detection for untyped values; `HKCU` aliases `HKNU`.
 
@@ -690,23 +686,22 @@ Types: `REG_SZ`, `REG_DWORD`, `REG_QWORD`, `REG_BOOL`, `REG_JSON`, `REG_BINARY`,
 | Method | Channel | Returns | Errors / limits |
 |---|---|---|---|
 | `vpn.registerProvider(config)` | `nova:vpn:register` | `{registered:true, providerId}` | `vpn:provider`; restricted WireGuard profile, ≤16 KiB; profile is stored but not activated |
-| `vpn.removeProvider()` | `nova:vpn:remove` | `{removed, providerId?}` | `vpn:provider`; removes this app's profile and disconnects it if active |
-| `vpn.getStatus()` | `nova:vpn:status` | `{registered, active}` for the calling app | `vpn:provider` |
-
+| `vpn.removeProvider` | `nova:vpn:remove` | `{removed, providerId?}` | `vpn:provider`; removes this app's profile and disconnects it if active |
+| `vpn.getStatus` | `nova:vpn:status` | `{registered, active}` for the calling app | `vpn:provider` |
 
 ---
 
 ## 5. Raw channel reference
 
-The definitive table of every guest-reachable `nova:*` channel: **124 channels** registered in `API_HANDLERS` (`:9338-9463`). Columns:
+The definitive table of every guest-reachable `nova:*` channel: **124 channels** registered in `API_HANDLERS` . Columns:
 
 - **Facade** — the v1/v2 method(s) that wrap the channel.
-- **Permission (MAC)** — the exact NB-MAC front-door gate from `SEED_ENDPOINT_GRANTS` (`:534-681`). `['a','b']` = **ANY-of** those grants; `advisory` = `null` row (no front-door gate; the handler's own checks are the boundary); `ungated` = no row needed (advisory family or two-segment type). Handler-level gates beyond MAC are listed under Errors/notes.
+- **Permission (MAC)** — the exact NB-MAC front-door gate from `SEED_ENDPOINT_GRANTS` . `['a','b']` = **ANY-of** those grants; `advisory` = `null` row (no front-door gate; the handler's own checks are the boundary); `ungated` = no row needed (advisory family or two-segment type). Handler-level gates beyond MAC are listed under Errors/notes.
 - **Rate limit** — per-app sliding 60 s window unless noted.
 - **Payload** / **Response** — request/response field shapes (defaults and clamps stated).
 - **Errors** — error codes the handler can emit (messages in §8 where listed).
 
-Every channel additionally rejects `PERMISSION_DENIED` at the MAC front door when its grant row is unmet, `UNKNOWN_API` when mistyped, and `INTERNAL_ERROR` when the handler throws (`:9569-9614`). Channels usable from **isolated processes** (Tier-2 workers, no webview — allowlist `ISOLATED_PROCESS_API_TYPES`, `:9465-9490`) are marked **[isolated ok]**; everything else returns `UNAVAILABLE` (`This API is not available to isolated processes`, `:9627-9634`).
+Every channel additionally rejects `PERMISSION_DENIED` at the MAC front door when its grant row is unmet, `UNKNOWN_API` when mistyped, and `INTERNAL_ERROR` when the handler throws . Channels usable from **isolated processes** (Tier-2 workers, no webview — allowlist `ISOLATED_PROCESS_API_TYPES`, ) are marked **[isolated ok]**; everything else returns `UNAVAILABLE` (`This API is not available to isolated processes`, ).
 
 ### 5.0 Channel inventory by family
 
@@ -744,19 +739,19 @@ Every channel additionally rejects `PERMISSION_DENIED` at the MAC front door whe
 | **Total guest-reachable** | **124** | | |
 | Host-only (`GUEST_FORBIDDEN_IPC_APIS`) | 40 | none — dispatch-rejected | §5.30 |
 
-MAC policy structure (context for the Permission column): `SEED_ENDPOINT_GRANTS` has 88 rows — 67 grant-coupled (permission arrays, ANY-of) and 21 advisory (`null`); 20 advisory families cover the ungated surfaces (`nova:fs`, `nova:storage`, `nova:window`, `nova:appearance`, `nova:ready`, `nova:dialog`, `nova:sysdialog`, `nova:overlay`, `nova:context-menu`, `nova:share`, `nova:files`, `nova:email`, `nova:open-url`, `nova:open-with`, `nova:download`, `nova:wallpaper`, `nova:request-permission`, `nova:permission-rate-limited`, `nova:audit`, `nova:locale`, `:534-695`). A missing row is default-**deny** (`no policy rule for this endpoint`); the `nova:admin` family is a neverallow target (rows must stay grant-coupled).
+MAC policy structure (context for the Permission column): `SEED_ENDPOINT_GRANTS` has 88 rows — 67 grant-coupled (permission arrays, ANY-of) and 21 advisory (`null`); 20 advisory families cover the ungated surfaces (`nova:fs`, `nova:storage`, `nova:window`, `nova:appearance`, `nova:ready`, `nova:dialog`, `nova:sysdialog`, `nova:overlay`, `nova:context-menu`, `nova:share`, `nova:files`, `nova:email`, `nova:open-url`, `nova:open-with`, `nova:download`, `nova:wallpaper`, `nova:request-permission`, `nova:permission-rate-limited`, `nova:audit`, `nova:locale`, ). A missing row is default-**deny** (`no policy rule for this endpoint`); the `nova:admin` family is a neverallow target (rows must stay grant-coupled).
 
 ### 5.1 Lifecycle & meta
 
 | Channel | Facade | Permission (MAC) | Rate limit | Payload | Response | Errors |
 |---|---|---|---|---|---|---|
-| `nova:ready` **[isolated ok]** | `nova.app.getInfo()`, `novaOS.ready.get()` | ungated | none | `{}` | `{success, appId, permissions[], optionalPermissions[], osVersion, securityPatch, username?}`; then flushes queued alarms, inbound shares, push | — |
-| `nova:app:info` **[isolated ok]** | `novaOS.app.info()` | advisory (`null`) | none | `{}` | `{id, name, version, icon, type, permissions, optionalPermissions}` | `UNAVAILABLE` `No app context` |
+| `nova:ready` **[isolated ok]** | `nova.app.getInfo`, `novaOS.ready.get` | ungated | none | `{}` | `{success, appId, permissions[], optionalPermissions[], osVersion, securityPatch, username?}`; then flushes queued alarms, inbound shares, push | — |
+| `nova:app:info` **[isolated ok]** | `novaOS.app.info` | advisory (`null`) | none | `{}` | `{id, name, version, icon, type, permissions, optionalPermissions}` | `UNAVAILABLE` `No app context` |
 | `nova:audit:eval` | internal (shim eval audit) | ungated | none | eval audit info | `{success:true}` (observability only — CSP already blocks eval) | — |
 
 ### 5.2 Filesystem (11 channels)
 
-All `nova:fs:*` MAC rows are `null` (advisory) **by design**: ownership is path-dependent — app-owned `/data/<appId>/` paths need no grant at all; shared-tree paths need `fs:access`, a user-picked file, or a matching media grant (`fs:read:images\|video\|audio` by MIME), so the handler is the boundary (`:323-337`, `:534`).
+All `nova:fs:*` MAC rows are `null` (advisory) **by design**: ownership is path-dependent — app-owned `/data/<appId>/` paths need no grant at all; shared-tree paths need `fs:access`, a user-picked file, or a matching media grant (`fs:read:images\|video\|audio` by MIME), so the handler is the boundary .
 
 | Channel | Facade | Permission (MAC) | Rate limit | Payload | Response | Errors |
 |---|---|---|---|---|---|---|
@@ -770,7 +765,7 @@ All `nova:fs:*` MAC rows are `null` (advisory) **by design**: ownership is path-
 | `nova:fs:move` **[isolated ok]** | `novaOS.fs.move` | advisory | none | `{path\|id, destPath}` (destination parent) | `{success, path}` | `NOT_FOUND` (`File not found`, `Destination folder not found`); `PERMISSION_DENIED` (move grant / `shared:/media:` roots / `Destination folder is outside this app's data directory`) |
 | `nova:media:query` **[isolated ok]** | `novaOS.media.query` | advisory | none | `{type: all\|image\|audio\|video, offset?, limit?}` | `{files[]}` (filtered by readability) | `INVALID_ARGS` `type must be all, image, audio, or video`; `PERMISSION_DENIED` `Media queries require a matching media-read grant, fs:metadata, or fs:access`; `UNAVAILABLE` `NovaByte MediaStore is unavailable` |
 | `nova:fs:watch` **[isolated ok]** | `novaOS.fs.watch` | **`fs:watch`** (grant row) | 8 watchers/app; pushes 60/min | `{path, watcherId?}` (id honored only if unused or own; pattern `^w_[a-z0-9_]{4,64}$`) | `{success, watcherId, path}` | `NOT_FOUND`; `PERMISSION_DENIED` (read-parity: watching is reading); `RATE_LIMITED` `Max 8 watchers per app`. Push: `nova:fs:changed {watcherId, path, kind: created\|changed\|deleted, timestamp}`, polled every 2000 ms, debounced 300 ms; rate-limited events are dropped (snapshot advanced) |
-| `nova:fs:unwatch` **[isolated ok]** | `novaOS.fs.unwatch`, `watch().unwatch()` | advisory | none | `{watcherId}` | `{success, cleared}` (idempotent; foreign id = `cleared:false`) | — |
+| `nova:fs:unwatch` **[isolated ok]** | `novaOS.fs.unwatch`, `watch.unwatch` | advisory | none | `{watcherId}` | `{success, cleared}` (idempotent; foreign id = `cleared:false`) | — |
 
 ### 5.3 File & system dialogs (6 channels) — user-mediated, no permission gates
 
@@ -780,16 +775,16 @@ All are **interactive** (10-min shim timeout). Picking grants scoped access: VFS
 |---|---|---|---|---|---|---|
 | `nova:files:open` | `nova.files.open(options)` | ungated | none | `{accept?, multiple?}` | `{success, file:{id,name,content,mimeType,size,path}}` (+ scoped access granted) | `INVALID_ARGS` (accept contract); `UNSUPPORTED_TYPE` `Selected file is not available as text`; `FILE_TOO_LARGE` (> **10 MB**); `PICKER_ERROR`; `PERMISSION_DENIED` (VFS resolve) |
 | `nova:files:save` | `nova.files.save(options)` | ungated | none | `{content (string ≤ 10 MB), mimeType?, defaultName?…}` (normalized twice: pre- and post-pick) | `{success, file}` | `INVALID_ARGS` `content must be a string up to 10 MB`; `PICKER_ERROR`; `UNAVAILABLE` `User confirmation is required to overwrite a shared file`; `PERMISSION_DENIED` |
-| `nova:dialog:open` | `novaOS.dialog.pickOpen({style:'system'})` | ungated | none | `{accept?}` | `{success, file:{…}}` | `INVALID_ARGS` `accept must be a string or an array of at most 20 MIME types and/or file extensions (e.g. ".json")` |
+| `nova:dialog:open` | `novaOS.dialog.pickOpen({style:'system'})` | ungated | none | `{accept?}` | `{success, file:{…}}` | `INVALID_ARGS` `accept must be a string or an array of at most 20 MIME types and/or file extensions ` |
 | `nova:dialog:save` | `novaOS.dialog.pickSave({style:'system'})` | ungated | none | save options | `{success, file}` | `WRITE_ERROR` `Failed to write file`; `PERMISSION_DENIED` `Selected folder is outside the accessible files` |
-| `nova:sysdialog:open` | `novaOS.dialog.pickOpen()` (default style) | ungated | none | `{title? ≤100, startPath? ≤4096, accept?, multiple?}` | `{success, file, files[]}` (multi normalized; host-path entries read with the 10 MB cap) | `UNAVAILABLE` `SystemDialogs not loaded`; `INVALID_ARGS`; `PERMISSION_DENIED` `Selected file is outside this app's accessible files`; `LIMIT_REACHED` (multi > **25**); `DIALOG_ERROR` |
-| `nova:sysdialog:save` | `novaOS.dialog.pickSave()` (default) | ungated | none | `{title?, startPath?, suggestedName? ≤255, content, mimeType?}` | `{success, file}` (host-path write: `O_NOFOLLOW`/`O_EXCL`, mode 0600, truncate+write+sync) | `PERMISSION_DENIED` `Selected folder is outside the accessible files`; `UNAVAILABLE` (confirm unavailable); `WRITE_ERROR` |
+| `nova:sysdialog:open` | `novaOS.dialog.pickOpen` (default style) | ungated | none | `{title? ≤100, startPath? ≤4096, accept?, multiple?}` | `{success, file, files[]}` (multi normalized; host-path entries read with the 10 MB cap) | `UNAVAILABLE` `SystemDialogs not loaded`; `INVALID_ARGS`; `PERMISSION_DENIED` `Selected file is outside this app's accessible files`; `LIMIT_REACHED` (multi > **25**); `DIALOG_ERROR` |
+| `nova:sysdialog:save` | `novaOS.dialog.pickSave` (default) | ungated | none | `{title?, startPath?, suggestedName? ≤255, content, mimeType?}` | `{success, file}` (host-path write: `O_NOFOLLOW`/`O_EXCL`, mode 0600, truncate+write+sync) | `PERMISSION_DENIED` `Selected folder is outside the accessible files`; `UNAVAILABLE` (confirm unavailable); `WRITE_ERROR` |
 
-Picker `accept` contract: array form ≤ 20 entries, each a MIME (`a/b` pattern) or extension (`.ext`), ≤ 64 chars; **string form passes through unvalidated if ≤ 512 chars** (`:8815-8823`). Overwriting an existing host file requires `window.confirm` unless the app holds `fs:access`.
+Picker `accept` contract: array form ≤ 20 entries, each a MIME (`a/b` pattern) or extension (`.ext`), ≤ 64 chars; **string form passes through unvalidated if ≤ 512 chars** . Overwriting an existing host file requires `window.confirm` unless the app holds `fs:access`.
 
 ### 5.4 Storage (6 channels) — per-app key-value
 
-IndexedDB `NovaByte_AppStorage` / store `kv2`, composite key `[ownerUid, appId, key]`; cross-owner and cross-app addressing is impossible by construction (`:6615-6676`). All **[isolated ok]**.
+IndexedDB `NovaByte_AppStorage` / store `kv2`, composite key `[ownerUid, appId, key]`; cross-owner and cross-app addressing is impossible by construction . All **[isolated ok]**.
 
 | Channel | Facade | Permission | Rate limit | Payload | Response | Errors |
 |---|---|---|---|---|---|---|
@@ -818,22 +813,22 @@ Envelope `{novaDataEnvelope:1, format:1, kind:'backup'\|'export', appId, capture
 | `nova:appearance:get` | `nova.appearance.get` | ungated | none | `{}` | `{theme, accentColor, highContrast, reduceMotion, removeTransparency, transparentSurfaces}` (`transparentSurfaces` = inverse of `removeTransparency`) | — |
 | `nova:appearance:set` | `nova.appearance.set` | ungated | **10/min** `Max 10 appearance updates per minute` | `{appearance}` — fields `theme\|accentColor\|highContrast\|reduceMotion\|removeTransparency\|transparentSurfaces`; theme ∈ 7 values (`nova-dark, nova-light, nord, dracula, catppuccin, tokyo-night, gruvbox`); accentColor `#rrggbb` or null; rest boolean | `{success}` | `INVALID_ARGS` (field allowlist / values); `POLICY_BLOCKED` `Appearance setting 'X' is blocked by system policy` |
 | `nova:appearance:subscribe` | `nova.appearance.onChange` (first) | ungated | 1 subscription/sandbox | `{}` | `{success}` | `ALREADY_SUBSCRIBED`; pushes `nova:appearance:changed:event` with the appearance record (only the 5 public keys) |
-| `nova:appearance:unsubscribe` | auto (last `off()`) | ungated | none | `{}` | `{success}` | — |
+| `nova:appearance:unsubscribe` | auto (last `off`) | ungated | none | `{}` | `{success}` | — |
 
-No permission required — validated appearance changes work without `system:settings` (test-pinned, app-sandbox.test.js:2151).
+No permission required — validated appearance changes work without `system:settings` (test-pinned, ).
 
 ### 5.7 Context menu & overlay (4 channels) — require nested-webview grant
 
-Handler gate on all four: `isNestedWebviewPermitted(app)` = manifest opt-in **AND** live `sandbox:nested-webview` grant (fail-closed on throw, `:9994-10001`).
+Handler gate on all four: `isNestedWebviewPermitted(app)` = manifest opt-in **AND** live `sandbox:nested-webview` grant (fail-closed on throw, ).
 
 | Channel | Facade | Permission | Rate limit | Payload | Response | Errors |
 |---|---|---|---|---|---|---|
 | `nova:context-menu:show` | `nova.contextMenu.show(x,y,items)` | ungated at MAC; handler = `sandbox:nested-webview` | none | `{x, y (finite), items[1-100]: {label ≤120, icon ≤64, shortcut ≤32, disabled?, danger?}}`; ≥ 1 selectable item | `{cancelled, index}` (menu at host-screen coords, unclamped) | `INVALID_ARGS` (4 message variants); `UNAVAILABLE` `Host context menus are unavailable` |
-| `nova:context-menu:hide` | `nova.contextMenu.hide()` | as above | none | `{}` | `{success, wasOpen}` | — |
+| `nova:context-menu:hide` | `nova.contextMenu.hide` | as above | none | `{}` | `{success, wasOpen}` | — |
 | `nova:overlay:show` | `nova.overlay.show(options)` | as above | none | `{html ≤100000, css ≤50000, bounds{x,y,width,height}}` | `{success, overlayId}`; forwards `nova:overlay:event` for click/input/change/submit/keydown on `[data-nova-action]`/`[data-nova-field]` (action/field ≤100, value ≤4096, key ≤64) | `INVALID_ARGS` `Overlay HTML and CSS must be strings within the size limits`; `SANITIZE_FAILED`; `RENDER_FAILED` (`Timed out while loading the host overlay` after 15 s, render failure); `CANCELLED` `Overlay was closed before rendering completed` |
-| `nova:overlay:hide` | `nova.overlay.hide()` | as above | none | `{}` | `{success, wasOpen}` | — |
+| `nova:overlay:hide` | `nova.overlay.hide` | as above | none | `{}` | `{success, wasOpen}` | — |
 
-Overlay content runs in a `sandbox="allow-same-origin"` iframe (no scripts) under a locked-down CSP with DOMPurify `FORBID_TAGS: script, iframe, object, embed, base, meta, link` (`:3448-3451`).
+Overlay content runs in a `sandbox="allow-same-origin"` iframe (no scripts) under a locked-down CSP with DOMPurify `FORBID_TAGS: script, iframe, object, embed, base, meta, link` .
 
 ### 5.8 Share / URL / email / download (5 channels)
 
@@ -842,7 +837,7 @@ Overlay content runs in a `sandbox="allow-same-origin"` iframe (no scripts) unde
 | `nova:share` | `nova.share(data)`, `novaOS.app.share(data)` | ungated (the sheet is the consent) | **5/min** `Max 5 share sheets per minute` | `{text? ≤4000, url? (credential-free http(s)), title? ≤120}` | action result: Cancel/backdrop/Escape → `{cancelled:true}`; Copy / Open link / Email → `{}`; Send-to-target → `{sharedWith, queued}` | `INVALID_ARGS` (`Share requires text or a URL; text is limited to 4000 characters`, `url must be a credential-free HTTP(S) URL`); `UNAVAILABLE` `Share sheet is not available`; `SHARE_FAILED` (action error). Sheet lists ≤ 6 `system:share-target` holders matching the content MIME |
 | `nova:open-url` | `nova.openUrl`, `novaOS.app.openUrl` | ungated | none | `{url}` (parses, http/https, no credentials) | `{success, windowId}` | `INVALID_ARGS` (`A valid HTTP(S) URL is required`, `Only credential-free HTTP(S) links can be opened`); `UNAVAILABLE` (`OS URL service not available`, `No default browser app could be opened`) |
 | `nova:open-with` | `nova.openWith`, `novaOS.app.openWith` | ungated (file must be granted/resolvable) | none | `{fileId}` (string ≤ 200) | chooser result | `INVALID_ARGS` `A fileId is required`; `NOT_FOUND` `File is unavailable to this app`; `UNAVAILABLE` `Open with chooser is unavailable` |
-| `nova:email:open-link` | `nova.mail.openLink`, `novaOS.mail.openLink` | hard caller pin (not a permission string): caller must be `com.nbosp.email`, verified, `NovaByte System`-signed, `manifest.system` (`:4032-4034`) | none | `{url}` | open result | `PERMISSION_DENIED` for every other app |
+| `nova:email:open-link` | `nova.mail.openLink`, `novaOS.mail.openLink` | hard caller pin (not a permission string): caller must be `com.nbosp.email`, verified, `NovaByte System`-signed, `manifest.system`  | none | `{url}` | open result | `PERMISSION_DENIED` for every other app |
 | `nova:download` | `nova.browser.download(options)` (opt-in); anchor `download` interceptor | ungated ("the native save dialog itself is the control"; **no size cap**) | none | `{filename?, mimeType?, base64Data}` (filename sanitized: path separators/control chars/leading dots stripped, ≤ 255, fallback `download`) | `{success:true}` after the real disk write at the user-chosen path; cancel → `{success:false, cancelled:true}` | `INVALID_ARGS` (`base64Data is required`, `base64Data is not valid base64`); `UNAVAILABLE` (`SystemDialogs not loaded`, fs module errors); `TIMEOUT` `Save dialog timed out` (5 min); `IO_ERROR` (write/dialog failure); EventLog `downloads` entry side effect |
 
 ### 5.9 App management & Home surface (8 channels)
@@ -854,8 +849,8 @@ Overlay content runs in a `sandbox="allow-same-origin"` iframe (no scripts) unde
 | `nova:app:install` | `nova.apps.install(pkg)` | **`system:apps`** | none | `{package: {manifest, files, signature, integrity}}` (parsed package object) | `{success:true, id, name, version}` (registered `source:'file'`, `verified:true`, `signer`) | `INVALID_PACKAGE` (missing id/name/version); `MALICIOUS_PACKAGE` (scanner verdict); `SCAN_FAILED` (scanner threw — fail closed); `UNVERIFIED` `Package has no integrity record — install manually via App Manager`; `TAMPERED`; `UNTRUSTED` (trust store / revocation list); `ALREADY_INSTALLED`; `ERROR` (registration failure) |
 | `nova:app:uninstall` | `nova.apps.uninstall(appId)` | **`system:apps`** | none | `{appId}` | `{success}` (full cleanup: windows, registry, partition, storage, ledger, permissions, notification state, defaults, pins) | self-uninstall refused `An app cannot uninstall itself`; `NOT_UNINSTALLABLE` (built-in / system-signed); `NOT_FOUND`; `UNINSTALL_FAILED` |
 | `nova:app:openDefaultAppsSettings` | `nova.apps.openDefaultAppsSettings(category?)` | **`system:apps`** | **12/min** `Max 12 per minute` | `{category?}` (UI highlight hint only) | `{success}` (opens `com.nbosp.settings` default-apps section) | `RATE_LIMITED` |
-| `nova:home:openDefaultAppsSettings` | `nova.home.openDefaultAppsSettings()` | advisory (Home-caller check is the boundary) | **12/min** | `{}` | `{success}` (highlights `home` category) | `PERMISSION_DENIED` unless caller is the currently selected Home app |
-| `nova:home:apps:list` | `nova.home.apps.list()` | advisory | none | `{}` | `{success, apps[], fullAccess}` — without `system:apps` only `com.nbosp.settings` + `com.nbosp.appmanager` are listed; devOnly hidden unless devMode | `PERMISSION_DENIED` `Only the currently selected Home app can list apps`; `UNAVAILABLE` `App registry not available` |
+| `nova:home:openDefaultAppsSettings` | `nova.home.openDefaultAppsSettings` | advisory (Home-caller check is the boundary) | **12/min** | `{}` | `{success}` (highlights `home` category) | `PERMISSION_DENIED` unless caller is the currently selected Home app |
+| `nova:home:apps:list` | `nova.home.apps.list` | advisory | none | `{}` | `{success, apps[], fullAccess}` — without `system:apps` only `com.nbosp.settings` + `com.nbosp.appmanager` are listed; devOnly hidden unless devMode | `PERMISSION_DENIED` `Only the currently selected Home app can list apps`; `UNAVAILABLE` `App registry not available` |
 | `nova:home:apps:launch` | `nova.home.apps.launch(appId)` | advisory (Home-caller; Settings/AppManager always launchable, others need launch grant) | **30/min** `Max 30 Home app launches per minute` | `{appId}` (no options passed) | `{success, windowId}` | `INVALID_ARGS`; `NOT_FOUND` `App is not registered`; `PERMISSION_DENIED` (devMode, launch grant) |
 
 ### 5.10 Window controls (6 channels)
@@ -873,7 +868,6 @@ Overlay content runs in a `sandbox="allow-same-origin"` iframe (no scripts) unde
 |---|---|---|---|---|---|---|
 | `nova:clipboard:read` | `novaOS.clipboard.readText` | **`clipboard:read`** | none | `{}` | `{success, text}` — falls back to the host's last written value (`OS.clipboard`) when `navigator.clipboard` fails | `PERMISSION_DENIED` `clipboard:read permission required for clipboard access` |
 | `nova:clipboard:write` | `novaOS.clipboard.writeText` | **`clipboard:write`** | none | `{text}` (`payload?.text ?? ''` — 0/false preserved) | `{success}`; side effect: `OS.clipboard` + history (max 30) | `CLIPBOARD_UNAVAILABLE` `Could not write to the system clipboard: <err>` |
-
 
 ### 5.12 Permission requests (2 channels) — [isolated ok]
 
@@ -896,11 +890,11 @@ Endpoint pattern `^(?:service\|provider):[a-z0-9][a-z0-9._-]{0,127}$`; action pa
 | Channel | Facade | Permission (MAC) | Rate limit | Payload | Response | Errors |
 |---|---|---|---|---|---|---|
 | `nova:ipc:register` | `nova.ipc.provide` | **`apps:communicate`** | none | `{endpoint}` — must be declared in own `manifest.ipc.exports` | `{success}` | `INVALID_ARGS` `endpoint must be a valid service: or provider: name`; `PERMISSION_DENIED` `Endpoint is not declared in manifest.ipc.exports`; `UNAVAILABLE` `App sandbox is not active`; `ALREADY_REGISTERED` |
-| `nova:ipc:unregister` | `off()` from `provide()` | **`apps:communicate`** (consistency) | none | `{endpoint}` | `{success}` | `PERMISSION_DENIED` only |
+| `nova:ipc:unregister` | `off` from `provide` | **`apps:communicate`** (consistency) | none | `{endpoint}` | `{success}` | `PERMISSION_DENIED` only |
 | `nova:ipc:invoke` | `nova.ipc.call` | **`apps:communicate`** (caller) | **20/min** | `{targetAppId, endpoint, data}` | the provider's return value **spread as the response top level** (not wrapped) | `RATE_LIMITED` `Max 20 app IPC calls per minute`; `NOT_FOUND` `Target app does not export this endpoint`; `PERMISSION_DENIED` `Target app has not enabled apps:communicate`; `UNAVAILABLE` `Target endpoint is not running`; `REMOTE_ERROR` (provider error, string truncated 500 chars) / timeout `Target app did not respond before the IPC timeout` (25 s); sandbox closure cancels in-flight calls |
 | `nova:ipc:reply` | internal (provider side) | **`apps:communicate`** (defense in depth) | none | `{callId, result? \| error?}` (result re-clamped) | `{success}` | `NOT_FOUND` `IPC request is no longer active` |
 | `nova:ipc:broadcast:subscribe` | `nova.ipc.onBroadcast` (first) | **`apps:communicate`** | none | `{action}` — must be declared in own `manifest.ipc.receives` | `{success}` | `PERMISSION_DENIED` `Broadcast action must be declared in manifest.ipc.receives`; `UNAVAILABLE` |
-| `nova:ipc:broadcast:unsubscribe` | last `off()` | advisory (no gate) | none | `{action}` | `{success, action}` | — |
+| `nova:ipc:broadcast:unsubscribe` | last `off` | advisory (no gate) | none | `{action}` | `{success, action}` | — |
 | `nova:ipc:broadcast` | `nova.ipc.broadcast` | **`apps:communicate`** | **20/min** `Max 20 app broadcasts per minute` | `{action, data}` | `{delivered}` (count of live, subscribed, still-granted receiver sandboxes) | `INVALID_ARGS` `A valid broadcast action is required`; `RATE_LIMITED` |
 
 Incoming requests/broadcasts reach the provider as pushes (`nova:ipc:request`, `nova:ipc:broadcast` — §6).
@@ -916,15 +910,15 @@ Incoming requests/broadcasts reach the provider as pushes (`nova:ipc:request`, `
 
 | Channel | Facade | Permission (MAC) | Rate limit | Payload | Response | Errors |
 |---|---|---|---|---|---|---|
-| `nova:net:fetch` **[isolated ok]** | patched `fetch()`/XHR/`sendBeacon` | **ANY-of `net:internal`, `net:external`** (handler classifies per destination: internal → `net:internal`, else `net:external`) | none (server proxy limits out of scope) | `{url, method? (default GET; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS), headers?, body?, bodyEncoding? ('utf8' \| 'base64')}` — base64 bodies capped by ledger `httpBodyBytes` (**16 MiB** default) | `{success, status, statusText, headers, body, bodyEncoding}` — textual content types → utf8 string; everything else → base64 + `bodyEncoding:'base64'`. Active provider HTTP proxy traffic is source-bound to the WireGuard interface; DNS and redirects remain in that route. **No response-size cap, no in-handler timeout** | `INVALID_ARGS`; `PERMISSION_DENIED` (destination class); `VPN_ROUTE_DENIED` for internal destinations while active; `VPN_ROUTE_UNAVAILABLE` if host identity cannot be signed; `NETWORK_ERROR` on proxy failure; URL rules: http/https only, metadata hosts hard-denied |
+| `nova:net:fetch` **[isolated ok]** | patched `fetch`/XHR/`sendBeacon` | **ANY-of `net:internal`, `net:external`** (handler classifies per destination: internal → `net:internal`, else `net:external`) | none (server proxy limits out of scope) | `{url, method? (default GET; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS), headers?, body?, bodyEncoding? ('utf8' \| 'base64')}` — base64 bodies capped by ledger `httpBodyBytes` (**16 MiB** default) | `{success, status, statusText, headers, body, bodyEncoding}` — textual content types → utf8 string; everything else → base64 + `bodyEncoding:'base64'`. Active provider HTTP proxy traffic is source-bound to the WireGuard interface; DNS and redirects remain in that route. **No response-size cap, no in-handler timeout** | `INVALID_ARGS`; `PERMISSION_DENIED` (destination class); `VPN_ROUTE_DENIED` for internal destinations while active; `VPN_ROUTE_UNAVAILABLE` if host identity cannot be signed; `NETWORK_ERROR` on proxy failure; URL rules: http/https only, metadata hosts hard-denied |
 | `nova:net:websocket` | `nova.websocket`, `novaOS.net.websocket`, patched `WebSocket` | **`net:websocket`** (+ **`net:internal`** for private/first-party destinations) | none (no socket-count or frame caps) | `{url, protocols?}` — ws/wss only, absolute, no credentials in URL | `{success, wsId, readyState}`; frames push `nova:net:ws:message` and mirror onto the OS event bus tagged with the owning appId. Active provider sockets use a tunnel-bound agent and VPN DNS. | URL errors; `VPN_ROUTE_DENIED` for internal destinations while active; `VPN_ROUTE_UNAVAILABLE` on tunnel/DNS failure |
-| `nova:net:ws:send` | handle `send(data)` | advisory | none (no size cap) | `{wsId, data}` (objects JSON-stringified, null → `''`, else `String()`) | `{success:true}` | `UNAVAILABLE` `WebSocket not supported`; `INVALID_ARGS` `wsId is required`; `NOT_FOUND` `WebSocket connection not found` (foreign/unknown id); `INVALID_STATE` (`WebSocket is not open`, send failure) |
+| `nova:net:ws:send` | handle `send(data)` | advisory | none (no size cap) | `{wsId, data}` (objects JSON-stringified, null → `''`, else `String`) | `{success:true}` | `UNAVAILABLE` `WebSocket not supported`; `INVALID_ARGS` `wsId is required`; `NOT_FOUND` `WebSocket connection not found` (foreign/unknown id); `INVALID_STATE` (`WebSocket is not open`, send failure) |
 | `nova:net:ws:close` | handle `close(code, reason)` | advisory | none | `{wsId, code? (default 1000), reason?}` | `{success:true}` (even for unknown ids; map entry deleted) | — |
 | `nova:vpn:register` | `nova.vpn.registerProvider(config)` / `novaOS.vpn.registerProvider(config)` | **`vpn:provider`** | none | `{config}` — restricted WireGuard profile, UTF-8 ≤16 KiB | `{registered:true, providerId}` | `PERMISSION_DENIED`; `INVALID_ARGS`; `VPN_ENFORCEMENT_UNAVAILABLE`; `VPN_PROVIDER_ERROR` |
-| `nova:vpn:remove` | `nova.vpn.removeProvider()` / `novaOS.vpn.removeProvider()` | **`vpn:provider`** | none | `{}` (calling app identity is host-derived) | `{removed:boolean, providerId?}` | `PERMISSION_DENIED`; `VPN_PROVIDER_ERROR` |
-| `nova:vpn:status` | `nova.vpn.getStatus()` / `novaOS.vpn.getStatus()` | **`vpn:provider`** | none | `{}` | `{registered:boolean, active:boolean}` for the calling app | `PERMISSION_DENIED`; `VPN_PROVIDER_ERROR` |
+| `nova:vpn:remove` | `nova.vpn.removeProvider` / `novaOS.vpn.removeProvider` | **`vpn:provider`** | none | `{}` (calling app identity is host-derived) | `{removed:boolean, providerId?}` | `PERMISSION_DENIED`; `VPN_PROVIDER_ERROR` |
+| `nova:vpn:status` | `nova.vpn.getStatus` / `novaOS.vpn.getStatus` | **`vpn:provider`** | none | `{}` | `{registered:boolean, active:boolean}` for the calling app | `PERMISSION_DENIED`; `VPN_PROVIDER_ERROR` |
 
-Internal-host classification (`isInternalHost`): `localhost`, `api.novabyte.internal`, private IPv4 (127/8, 10/8, 172.16-31, 192.168/16, 169.254/16, 0.0.0.0/8, 100.64/10), IPv6 (`::1`, `::`, fc00::/7, fe80::/10, IPv4-mapped/-compatible), and — for WebSockets only — single-label names plus `.localhost .local .lan .internal .home.arpa .test` suffixes (`:1267-1401`, `:1299-1326`).
+Internal-host classification (`isInternalHost`): `localhost`, `api.novabyte.internal`, private IPv4 (127/8, 10/8, 172.16-31, 192.168/16, 169.254/16, 0.0.0.0/8, 100.64/10), IPv6 (`::1`, `::`, fc00::/7, fe80::/10, IPv4-mapped/-compatible), and — for WebSockets only — single-label names plus `.localhost .local .lan .internal .home.arpa .test` suffixes .
 
 ### 5.17 Notifications (7 channels) — `device:notifications` on every channel
 
@@ -938,11 +932,11 @@ Internal-host classification (`isInternalHost`): `localhost`, `api.novabyte.inte
 | `nova:notifications:clear` **[isolated ok]** | `novaOS.notifications.clear` | **`device:notifications`** | none | `{}` | `{success:true}` (clears this app's notifications) | — |
 | `nova:notifications:consumeActions` **[isolated ok]** | `novaOS.notifications.consumeActions` | **`device:notifications`** | none | `{}` | `{success, actions[]}` (pull queue; ≤ 20 pending clicks/app; action clicks are **never pushed**) | — |
 
-Icon allowlist (22): `archive, bell, bookmark, box, clock, file, folder, globe, image, layout, lock, monitor, music, package, play, refresh, search, sound, star, unlock, users, x` (`:1047-1051`). Legacy string actions restricted to `settings, open-settings, openSettings, open-store`; function-typed actions are dropped entirely ("coercion here is exactly how a sandbox escape would sneak through", `:1465-1471`). The panel stores 100 notifications, renders 50.
+Icon allowlist (22): `archive, bell, bookmark, box, clock, file, folder, globe, image, layout, lock, monitor, music, package, play, refresh, search, sound, star, unlock, users, x` . Legacy string actions restricted to `settings, open-settings, openSettings, open-store`; function-typed actions are dropped entirely ("coercion here is exactly how a sandbox escape would sneak through", ). The panel stores 100 notifications, renders 50.
 
 ### 5.18 Settings & wallpaper (3 channels) — [isolated ok for settings]
 
-Readable keys (29, `SETTINGS_READABLE_KEYS` `:2941-2949`): `_hiddenDevIconPositions, accentColor, autoLock, browserPartitionId, clockFormat, cursorSize, customWallpaper, debugOverlayVisible, desktopGridSpacing, desktopIconPositions, desktopIconSize, devMode, filesViewOnly, highContrast, osVersion, pinnedApps, prohibitWallpaperChange, reduceMotion, region, removeTransparency, showDesktopIcons, showTaskbarClock, taskbarAutoHide, taskbarPosition, taskbarSize, theme, timezone, username, wallpaperId`. Writable = readable minus `osVersion` and `devMode`. Credentials (`lockPin`, `pinSalt`, `biometricCredentialId`, `bootPassword`) are excluded from both lists.
+Readable keys (29, `SETTINGS_READABLE_KEYS` ): `_hiddenDevIconPositions, accentColor, autoLock, browserPartitionId, clockFormat, cursorSize, customWallpaper, debugOverlayVisible, desktopGridSpacing, desktopIconPositions, desktopIconSize, devMode, filesViewOnly, highContrast, osVersion, pinnedApps, prohibitWallpaperChange, reduceMotion, region, removeTransparency, showDesktopIcons, showTaskbarClock, taskbarAutoHide, taskbarPosition, taskbarSize, theme, timezone, username, wallpaperId`. Writable = readable minus `osVersion` and `devMode`. Credentials (`lockPin`, `pinSalt`, `biometricCredentialId`, `bootPassword`) are excluded from both lists.
 
 | Channel | Facade | Permission (MAC) | Rate limit | Payload | Response | Errors |
 |---|---|---|---|---|---|---|
@@ -971,7 +965,7 @@ Committed writes emit the `nova:reg:changed` event (`{path, type, value, appId, 
 | `nova:alarms:clear` | `novaOS.alarms.clear` | **`system:schedule`** | none | `{name}` | `{success, cleared}` | `INVALID_ARGS` (name rules) |
 | `nova:alarms:getAll` | `novaOS.alarms.getAll` | **`system:schedule`** | none | `{}` | `{success, alarms[]}` (own app only) | — |
 
-Alarms fire into **live** sandboxes only (running window or Tier-2 keep-alive); while fully closed, periodic alarms skip to the next occurrence and missed one-shots queue (≤ 8, newest kept) for delivery right after the next `nova:ready` (`:7897-7902`). Timer delays clamped to 2^31−1 ms; persistence is registry-first (`HKNS/apps/alarms`) with localStorage fallback; alarms do **not** post notifications by themselves.
+Alarms fire into **live** sandboxes only (running window or Tier-2 keep-alive); while fully closed, periodic alarms skip to the next occurrence and missed one-shots queue (≤ 8, newest kept) for delivery right after the next `nova:ready` . Timer delays clamped to 2^31−1 ms; persistence is registry-first (`HKNS/apps/alarms`) with localStorage fallback; alarms do **not** post notifications by themselves.
 
 ### 5.21 Secrets (4 channels) — `secrets:store` — [isolated ok]
 
@@ -1008,7 +1002,7 @@ Inbound budgets (enforced by the delivery ladder, not the register call): title 
 | `nova:device:camera` | `novaOS.media.checkCamera`, `getUserMedia` pre-check | **`device:camera`** | none | `{}` | `{success, authorized:true}` — **authorization-only**; the stream itself comes from in-document `getUserMedia` | `PERMISSION_DENIED` |
 | `nova:device:microphone` | `novaOS.media.checkMicrophone`, `getUserMedia` pre-check | **`device:microphone`** | none | `{}` | `{success, authorized:true}` | `PERMISSION_DENIED` |
 
-Browser-level `permissionrequest` gate: `media` allowed iff camera **OR** microphone granted (ANY-of); `geolocation` iff `device:geolocation`; `fullscreen`/`pointerLock` always denied; everything else default-deny (`:9886-9951`).
+Browser-level `permissionrequest` gate: `media` allowed iff camera **OR** microphone granted (ANY-of); `geolocation` iff `device:geolocation`; `fullscreen`/`pointerLock` always denied; everything else default-deny .
 
 ### 5.25 Calendar & contacts (6 channels) — shared OS stores
 
@@ -1057,11 +1051,11 @@ Proxied to the local server `/api/email/*` with the app identity attached; share
 
 ### 5.30 Host-only channels — not callable by apps
 
-These 40 channels appear in devtools/source but are in `GUEST_FORBIDDEN_IPC_APIS` (`:9317-9336`): a sandboxed guest calling any of them gets `PERMISSION_DENIED` / `This system capability is only available through trusted OS UI` before any handler side effect (`:9577-9579`), and they have **no** `API_HANDLERS` entry. They exist for trusted first-party code (Settings, Clock) calling at host tier. Never build against them; do not confuse them with their app-facing counterparts (e.g. `nova:system:permissions:set` ≠ `nova:request-permission`).
+These 40 channels appear in devtools/source but are in `GUEST_FORBIDDEN_IPC_APIS` : a sandboxed guest calling any of them gets `PERMISSION_DENIED` / `This system capability is only available through trusted OS UI` before any handler side effect , and they have **no** `API_HANDLERS` entry. They exist for trusted first-party code (Settings, Clock) calling at host tier. Never build against them; do not confuse them with their app-facing counterparts (e.g. `nova:system:permissions:set` ≠ `nova:request-permission`).
 
 - **System (17):** `nova:system:permissions:list`, `nova:system:permissions:set`, `nova:system:permissions:reset`, `nova:system:data:backup`, `nova:system:data:restore`, `nova:system:dialog`, `nova:system:developer-mode:confirm`, `nova:system:boot-recovery`, `nova:system:data:clear`, `nova:system:default-apps:get`, `nova:system:default-apps:choose`, `nova:system:default-apps:set`, `nova:system:storage:estimate`, `nova:system:admin-mode:get`, `nova:system:admin-mode:set`, `nova:system:preferences:get`, `nova:system:preferences:set`
 - **Clock (14):** `nova:clock:state:get`, `nova:clock:state:persist`, `nova:clock:alarms:get`, `nova:clock:alarms:set`, `nova:clock:alarm:dialog`, `nova:clock:timer:set-preset`, `nova:clock:timer:start`, `nova:clock:timer:pause`, `nova:clock:timer:restart`, `nova:clock:timer:reset`, `nova:clock:stopwatch:start`, `nova:clock:stopwatch:pause`, `nova:clock:stopwatch:reset`, `nova:clock:stopwatch:lap`
-- **Auth (9):** `nova:auth:login`, `nova:auth:logout`, `nova:auth:lock`, `nova:auth:unlock`, `nova:auth:reverify`, `nova:auth:switch`, `nova:auth:suspend`, `nova:auth:resume`, `nova:auth:setup` — "no app may drive login/logout/switch/reverify" (`:9330-9332`)
+- **Auth (9):** `nova:auth:login`, `nova:auth:logout`, `nova:auth:lock`, `nova:auth:unlock`, `nova:auth:reverify`, `nova:auth:switch`, `nova:auth:suspend`, `nova:auth:resume`, `nova:auth:setup` — "no app may drive login/logout/switch/reverify"
 
 What they do (so you can recognize them in devtools, and understand why they are host-only — all would be system-wide state changes with no per-app scoping):
 
@@ -1084,7 +1078,7 @@ What they do (so you can recognize them in devtools, and understand why they are
 
 ### 5.31 Isolated-process allowlist (Tier-2 workers)
 
-`ISOLATED_PROCESS_API_TYPES` (`:9465-9490`) is the set of channels dispatchable without a webview (worker/background execution). Everything not listed returns `UNAVAILABLE` / `This API is not available to isolated processes`. Allowed:
+`ISOLATED_PROCESS_API_TYPES`  is the set of channels dispatchable without a webview (worker/background execution). Everything not listed returns `UNAVAILABLE` / `This API is not available to isolated processes`. Allowed:
 
 `nova:ready`, `nova:app:info`, all `nova:fs:*` data ops + `nova:fs:watch`/`unwatch`, `nova:media:query`, `nova:alarms:*` (3), `nova:secrets:*` (4), `nova:storage:*` (6), `nova:data:*` (4), `nova:settings:get`/`set`, `nova:appearance:get`/`set`, `nova:notifications:*` (7), `nova:request-permission`, `nova:clipboard:read`/`write`, `nova:net:fetch`, `nova:mail:*` (5), `nova:calendar:*` (3), `nova:contacts:*` (3), `nova:locale:get`, `nova:badge:set`/`clear`.
 
@@ -1094,46 +1088,46 @@ What they do (so you can recognize them in devtools, and understand why they are
 
 ## 6. Pushed events (host → app)
 
-Pushes arrive on the same bridge as responses but with a **fresh requestId that is never in the pending map** — the shim dispatches them to dedicated listener registries by type (`:11253-11256`). Registration is always via a callback API (the "dispatch mechanism" column); none of these can be requested through `nova.ipc()`.
+Pushes arrive on the same bridge as responses but with a **fresh requestId that is never in the pending map** — the shim dispatches them to dedicated listener registries by type . Registration is always via a callback API (the "dispatch mechanism" column); none of these can be requested through `nova.ipc`.
 
-Delivery pipeline: host `respond(webview, type, requestId, result)` → isolated-world `__novaInbox` → MessagePort (`kind:'response'` added) → main-world `handleInboxMessage` (`:11155`) dispatch. Listener exceptions are swallowed (`catch (_) {}` on the events bus fan-out; `console.error` on fs-watch/alarm/share/push) — never let a throwing listener assume it broke anything but itself.
+Delivery pipeline: host `respond(webview, type, requestId, result)` → isolated-world `__novaInbox` → MessagePort (`kind:'response'` added) → main-world `handleInboxMessage`  dispatch. Listener exceptions are swallowed (`catch (_) {}` on the events bus fan-out; `console.error` on fs-watch/alarm/share/push) — never let a throwing listener assume it broke anything but itself.
 
 **Pushed events:** the shim's `handleInboxMessage` has 13 dedicated pushed-event branches (the WebSocket branch family covers 3 type strings) plus the ready special case — **14 distinct pushed type strings** in total, enumerated below.
 
 | # | Pushed type (guest sees `…:response`) | Payload (`msg.result`) | Dispatch mechanism (registration) | When it fires |
 |---|---|---|---|---|
-| 1 | `nova:ready:response` | launch payload `{appId, permissions, optionalPermissions, osVersion, securityPatch, username?}` | special case (`:11368-11387`) — sets `window.__novaPermResponse`; no callback registration | automatic handshake at load (`:11879`); repeat `nova:ready` calls resolve normally |
-| 2 | `nova:appearance:changed:event` | appearance record (5 public keys only) | `nova.appearance.onChange(cb)` | any appearance setting change (`:8696`) |
-| 3 | `nova:nested-webview:event` | `{proxyId, eventName, …}` (+`popupId` for `newwindow`, `request` for `permissionrequest` — whose `allow`/`deny` are **no-ops**, decisions are host-side, `:11181-11188`) | synthesized `Event` on the `<nova-nested-webview>` proxy element; `NovaBrowserView.on(type, listener)` | nested view lifecycle: navigation, close, crash, new-window, download-request, contextmenu, annotation-export, url/title/state changes |
-| 4 | `nova:ipc:request` | `{endpoint, sourceAppId, data}` (+ `msg.requestId` = callId) | `nova.ipc.provide(endpoint, handler)` — handler return value is sent back via `nova:ipc:reply {callId, result\|error}`; unregistered endpoint replies `IPC endpoint is no longer registered` | another app invokes your exported endpoint (`:6241`) |
-| 5 | `nova:ipc:broadcast` | `{action, sourceAppId, data}` | `nova.ipc.onBroadcast(action, cb)` (action must be declared in `manifest.ipc.receives`) | another app broadcasts a declared action (`:6331`) |
+| 1 | `nova:ready:response` | launch payload `{appId, permissions, optionalPermissions, osVersion, securityPatch, username?}` | special case  — sets `window.__novaPermResponse`; no callback registration | automatic handshake at load ; repeat `nova:ready` calls resolve normally |
+| 2 | `nova:appearance:changed:event` | appearance record (5 public keys only) | `nova.appearance.onChange(cb)` | any appearance setting change  |
+| 3 | `nova:nested-webview:event` | `{proxyId, eventName, …}` (+`popupId` for `newwindow`, `request` for `permissionrequest` — whose `allow`/`deny` are **no-ops**, decisions are host-side, ) | synthesized `Event` on the `<nova-nested-webview>` proxy element; `NovaBrowserView.on(type, listener)` | nested view lifecycle: navigation, close, crash, new-window, download-request, contextmenu, annotation-export, url/title/state changes |
+| 4 | `nova:ipc:request` | `{endpoint, sourceAppId, data}` (+ `msg.requestId` = callId) | `nova.ipc.provide(endpoint, handler)` — handler return value is sent back via `nova:ipc:reply {callId, result\|error}`; unregistered endpoint replies `IPC endpoint is no longer registered` | another app invokes your exported endpoint  |
+| 5 | `nova:ipc:broadcast` | `{action, sourceAppId, data}` | `nova.ipc.onBroadcast(action, cb)` (action must be declared in `manifest.ipc.receives`) | another app broadcasts a declared action  |
 | 6 | `nova:events:event` | `{event, data}` | `nova.onEvent(name, cb)` and `novaOS.events.on(name, cb)` (both fan out; one host subscription per sandbox) | an allowlisted OS event fires (see §6.2) |
-| 7 | `nova:overlay:event` | overlay event `{type:'click'\|…, action?, field?, value?, key?}` | `nova.overlay.onEvent(cb)` | user interacts with `[data-nova-action]`/`[data-nova-field]` in your host overlay (`:3545`) |
-| 8 | `nova:net:ws:message` | `{wsId, data}` | handle `onMessage(cb)` (v1 + v2 registries) | inbound frame on your socket (`:6549`) |
+| 7 | `nova:overlay:event` | overlay event `{type:'click'\|…, action?, field?, value?, key?}` | `nova.overlay.onEvent(cb)` | user interacts with `[data-nova-action]`/`[data-nova-field]` in your host overlay  |
+| 8 | `nova:net:ws:message` | `{wsId, data}` | handle `onMessage(cb)` (v1 + v2 registries) | inbound frame on your socket  |
 | 9 | `nova:net:ws:error` | `{wsId, …}` | handle `onError(cb)` | socket error |
 | 10 | `nova:net:ws:close` | `{wsId, code, reason, clean}` | handle `onClose(cb)` (both registries deleted on close) | socket closed. Apps using raw `nova.ipc` + events instead receive the mirrored OS-bus events `nova:net:ws:message/error/close` (own sockets only, filtered by appId) |
-| 11 | `nova:background:wake` | `{wokeAt (ISO), deadlineMs}` | `nova.onBackgroundWake(cb)` (v1, no off()) / `novaOS.background.onWake(cb)` (v2, off()) | Tier-1 scheduler wake cycle for this sandbox (`:14517-14522`); can race page load — no re-delivery |
+| 11 | `nova:background:wake` | `{wokeAt (ISO), deadlineMs}` | `nova.onBackgroundWake(cb)` (v1, no off) / `novaOS.background.onWake(cb)` (v2, off) | Tier-1 scheduler wake cycle for this sandbox ; can race page load — no re-delivery |
 | 12 | `nova:fs:changed` | `{watcherId, path, kind: created\|changed\|deleted, timestamp}` | `novaOS.fs.watch(path, cb)` (registry keyed by watcherId) | watcher poll (2000 ms, 300 ms debounce) detects a change; **60 pushes/min, over-budget events silently dropped** |
-| 13 | `nova:background:alarm` | `{name, alarm:{name, when, periodMinutes, scheduledTime}, firedAt, queued?}` | `novaOS.alarms.onAlarm(cb)` | alarm fires in a live sandbox (`:7979`); queued one-shots delivered right after the next `nova:ready` with `queued:true` (`:8753`) |
-| 14 | `nova:share:inbound` | `{title, text, url, sourceAppId, firedAt, queued?}` | `novaOS.share.onInbound(cb)` | another app's share sheet delivered to you (live `:7883`, or queued flush `:7862`); requires `system:share-target` |
-| 15 | `nova:push:message` | `{appId, id, title?, body?, data?, sentAt, queued?}` | `novaOS.push.onMessage(cb)` | push message via the delivery ladder (live `:8362`, queued `:8411`); OS-attributed notification rung may already have shown a notification |
+| 13 | `nova:background:alarm` | `{name, alarm:{name, when, periodMinutes, scheduledTime}, firedAt, queued?}` | `novaOS.alarms.onAlarm(cb)` | alarm fires in a live sandbox ; queued one-shots delivered right after the next `nova:ready` with `queued:true`  |
+| 14 | `nova:share:inbound` | `{title, text, url, sourceAppId, firedAt, queued?}` | `novaOS.share.onInbound(cb)` | another app's share sheet delivered to you (live , or queued flush ); requires `system:share-target` |
+| 15 | `nova:push:message` | `{appId, id, title?, body?, data?, sentAt, queued?}` | `novaOS.push.onMessage(cb)` | push message via the delivery ladder (live , queued ); OS-attributed notification rung may already have shown a notification |
 
-(Rows 8–10 are the three WebSocket type strings; together with rows 1–7 and 11–15 that is 13 dispatch branches / 14 pushed type strings + the ready special case, `:11253-11345`.)
+(Rows 8–10 are the three WebSocket type strings; together with rows 1–7 and 11–15 that is 13 dispatch branches / 14 pushed type strings + the ready special case, .)
 
 **Registration / teardown semantics per registrar** (all verified in the facade source):
 
-| Registrar | Duplicate callback | `off()` behavior |
+| Registrar | Duplicate callback | `off` behavior |
 |---|---|---|
 | `novaOS.alarms.onAlarm(cb)` | allowed (stacks) | removes the callback only; no host call |
 | `novaOS.push.onMessage(cb)` | allowed (stacks) | removes the callback only |
 | `novaOS.share.onInbound(cb)` | allowed (stacks) | removes the callback only |
 | `novaOS.background.onWake(cb)` | allowed (stacks) | removes the callback only |
 | `novaOS.events.on(name, cb)` | allowed (stacks per name) | last listener for the name **and** no v1 listener → `nova:events:unsubscribe`; a refused host subscribe rolls back the local listener |
-| `novaOS.fs.watch(path, cb)` | one callback per handle | `handle.unwatch()` → `nova:fs:unwatch` |
+| `novaOS.fs.watch(path, cb)` | one callback per handle | `handle.unwatch` → `nova:fs:unwatch` |
 | `novaOS.registry.watch(path, cb)` | allowed (stacks) | last listener → events unsubscribe |
 | `novaOS.net.websocket` handle `onMessage/onError/onClose` | allowed (stacks per wsId+kind) | none (entries die with the socket); callbacks validated — throw TypeError |
 | `nova.ipc.onBroadcast(action, cb)` | allowed (Set per action) | last listener → `nova:ipc:broadcast:unsubscribe` |
-| `nova.onBackgroundWake(cb)` (v1) | allowed | **none — no off(), no validation** |
+| `nova.onBackgroundWake(cb)` (v1) | allowed | **none — no off, no validation** |
 | `nova.onEvent(name, cb)` (v1) | allowed (stacks per name) | **none — use novaOS.events.on for teardown** |
 | `nova.appearance.onChange(cb)` | rejects TypeError (`callback is already subscribed`) | last listener → `nova:appearance:unsubscribe` |
 | `nova.overlay.onEvent(cb)` | allowed | local removal only (no host call) |
@@ -1141,19 +1135,19 @@ Delivery pipeline: host `respond(webview, type, requestId, result)` → isolated
 
 ### 6.2 Subscribable OS-bus events (`nova:events:subscribe` allowlist)
 
-17 names (`ALLOWED_EVENT_NAMES`, `:6021-6065`). Sensitive names require `system:events`; domain names additionally require the listed permission (**ALL-of** `system:events` + domain grant, `:6080-6095`):
+17 names (`ALLOWED_EVENT_NAMES`, ). Sensitive names require `system:events`; domain names additionally require the listed permission (**ALL-of** `system:events` + domain grant, ):
 
 | Event | Extra gate beyond `system:events` | Notes |
 |---|---|---|
 | `system:notification`, `system:volumeChanged`, `system:themeChanged`, `system:workspaceChanged`, `system:power`, `system:network` | none | benign device/shell state |
 | `app:installed`, `app:uninstalled`, `app:launched` | none (sensitive: `system:events`) | app inventory |
-| `mail:new`, `mail:updated` | `mail:read` | **pre-declared, no emitter yet** — subscribing today is a no-op (`:6025-6037`) |
+| `mail:new`, `mail:updated` | `mail:read` | Email sync emits new-mail and mail-update notifications with account and unread-count data |
 | `calendar:reminder`, `calendar:updated` | `calendar:read` | `calendar:updated` fires on every calendar write |
 | `contacts:updated` | `contacts:read` | fires on every contacts write |
-| `nova:net:ws:message`, `nova:net:ws:error`, `nova:net:ws:close` | `net:websocket` | raw-socket mirror; subscribers only ever hear **their own** sockets (`data?.appId !== app.id` drop, `:6366`) |
+| `nova:net:ws:message`, `nova:net:ws:error`, `nova:net:ws:close` | `net:websocket` | raw-socket mirror; subscribers only ever hear **their own** sockets (`data?.appId !== app.id` drop, ) |
 | `nova:reg:changed` | `registry.read` | registry write notifications `{path, type, value, appId, source}` |
 
-There is **no app-to-app publish** on this bus — cross-app messaging is `nova.ipc.broadcast` only (`:10784-10786`). Notification **action clicks are never pushed**; drain them with `consumeActions()`.
+There is **no app-to-app publish** on this bus — cross-app messaging is `nova.ipc.broadcast` only . Notification **action clicks are never pushed**; drain them with `consumeActions`.
 
 ---
 
@@ -1165,28 +1159,28 @@ All rate limits are per-app sliding 60 s windows unless noted. Ledger budgets (`
 
 | Area | Limit | Value | Notes / source |
 |---|---|---|---|
-| App storage quota | per (owner, app) | **256 MB** (clamp 1 MB – 2 GB) | ledger `storageQuotaBytes`; `STORAGE_FULL` `Storage quota exceeded` (`:264`, `:6738-6776`) |
-| Per-user ceiling | hard-coded | **2 GB** | `Account storage quota exceeded`, also `STORAGE_FULL` (`:6778-6781`) |
-| Per-value cap | `nova:storage:set`, data restore/import | **5 MB** (5 242 880 bytes) | `Value exceeds 5242880 byte limit`; per-key failures in data restore reported via `failedKeys` (`:210`, `:6917-6918`) |
-| Storage key format | `nova:storage:*` | `/^[\w\-. ]+$/` (no length cap) | slashes/colons rejected (`:207-209`) |
-| Data export selector | `nova:data:export` | `keys` ≤ **1000** entries (or one `prefix`) | `keys is limited to 1000 entries per export` (`:7145-7146`) |
-| Secrets | per app / value / key | **64 secrets**, **8 KB** per value (UTF-8), **128-char** keys | module-enforced; 65th → `RATE_LIMITED` `Max 64…`; replacement at cap allowed (app-secrets.js budgets; tests pin `app-secrets.test.js:44-46`) |
+| App storage quota | per (owner, app) | **256 MB** (clamp 1 MB – 2 GB) | ledger `storageQuotaBytes`; `STORAGE_FULL` `Storage quota exceeded`  |
+| Per-user ceiling | hard-coded | **2 GB** | `Account storage quota exceeded`, also `STORAGE_FULL`  |
+| Per-value cap | `nova:storage:set`, data restore/import | **5 MB** (5 242 880 bytes) | `Value exceeds 5242880 byte limit`; per-key failures in data restore reported via `failedKeys`  |
+| Storage key format | `nova:storage:*` | `/^[\w\-. ]+$/` (no length cap) | slashes/colons rejected  |
+| Data export selector | `nova:data:export` | `keys` ≤ **1000** entries (or one `prefix`) | `keys is limited to 1000 entries per export`  |
+| Secrets | per app / value / key | **64 secrets**, **8 KB** per value (UTF-8), **128-char** keys | module-enforced; 65th → `RATE_LIMITED` `Max 64…`; replacement at cap allowed  |
 
 ### 7.2 IPC & networking
 
 | Area | Limit | Value | Notes |
 |---|---|---|---|
-| IPC payload | app-ipc invoke/broadcast/reply data | **256 KB** (clamp 1 KB – 8 MB; legacy 64 KB) | `PAYLOAD_TOO_LARGE` `IPC payload exceeds the N KB limit` (`:265`, `:6120-6131`) |
-| App-IPC rate | per `(appId:type)` | **20/min** (invoke and broadcast tracked separately) | `Max 20 app IPC calls per minute` / `Max 20 app broadcasts per minute` (`:6133-6144`) |
-| App-IPC invoke timeout | host-side | **25 s** | `REMOTE_ERROR` `Target app did not respond before the IPC timeout` (`:6100`) |
-| IPC reply error strings | truncation | **500 chars** | `:6280` |
-| HTTP request body | `nova:net:fetch` | **16 MiB** (clamp 64 KB – 64 MiB) | base64 bodies decoded then measured; `PAYLOAD_TOO_LARGE` (`:266`, `:6438-6441`) |
-| XHR body cap | shim `__NOVA_MAX_BODY_BYTES__` | ledger `httpBodyBytes` (16 MiB default; **6 MiB fallback** when no budget baked) | `RangeError('XHR request body exceeds the N MiB limit')` — never truncation (`:10246-10254`, `:12006-12057`) |
-| HTTP response body | — | **no cap** (either branch), no byte accounting | documented gap — see [`internals.md`](internals.md) (`:6452-6506`) |
-| Request timeout | shim `REQUEST_TIMEOUT_MS` | ledger `requestTimeoutMs` **60 s** default (clamp 5 s – 10 min; 30 s fallback) | `:11024`, `:267` |
-| Interactive timeout | 11 human-dialog channels | **10 min** | `:11040-11053` |
-| WebSocket sockets/frames | per app | **no caps** (tracked for teardown only) | `:6543-6546`, `:6575-6603` |
-| Isolated-process dispatch | Tier-2 workers | **30 s** | `TIMEOUT` `The OS API request timed out` (`:9657`) |
+| IPC payload | app-ipc invoke/broadcast/reply data | **256 KB** (clamp 1 KB – 8 MB; legacy 64 KB) | `PAYLOAD_TOO_LARGE` `IPC payload exceeds the N KB limit`  |
+| App-IPC rate | per `(appId:type)` | **20/min** (invoke and broadcast tracked separately) | `Max 20 app IPC calls per minute` / `Max 20 app broadcasts per minute`  |
+| App-IPC invoke timeout | host-side | **25 s** | `REMOTE_ERROR` `Target app did not respond before the IPC timeout`  |
+| IPC reply error strings | truncation | **500 chars** |  |
+| HTTP request body | `nova:net:fetch` | **16 MiB** (clamp 64 KB – 64 MiB) | base64 bodies decoded then measured; `PAYLOAD_TOO_LARGE`  |
+| XHR body cap | shim `__NOVA_MAX_BODY_BYTES__` | ledger `httpBodyBytes` (16 MiB default; **6 MiB fallback** when no budget baked) | `RangeError('XHR request body exceeds the N MiB limit')` — never truncation  |
+| HTTP response body | — | no response-size cap is defined |
+| Request timeout | shim `REQUEST_TIMEOUT_MS` | ledger `requestTimeoutMs` **60 s** default (clamp 5 s – 10 min; 30 s fallback) | ,  |
+| Interactive timeout | 11 human-dialog channels | **10 min** |  |
+| WebSocket sockets/frames | per app | **no caps** (tracked for teardown only) | ,  |
+| Isolated-process dispatch | Tier-2 workers | **30 s** | `TIMEOUT` `The OS API request timed out`  |
 
 ### 7.3 Notifications
 
@@ -1221,10 +1215,10 @@ All rate limits are per-app sliding 60 s windows unless noted. Ledger budgets (`
 
 | Area | Limit | Value |
 |---|---|---|
-| Cross-app launches | per app | **30/min** (`Max 30 cross-app launches per minute`) — asserted exactly: 30 successes, #31 `RATE_LIMITED` (app-sandbox.test.js:2471-2473) |
+| Cross-app launches | per app | **30/min** (`Max 30 cross-app launches per minute`) — asserted exactly: 30 successes, #31 `RATE_LIMITED`  |
 | Home launches | per app | **30/min** (`Max 30 Home app launches per minute`) |
 | Default-apps deep links | per app | **12/min** (`Max 12 per minute`) — both `nova:app:openDefaultAppsSettings` and `nova:home:openDefaultAppsSettings` |
-| Permission prompts | per app+permission | **3 per 60 s** burst; cooldown **5 s base → 15 min cap** (denial streak capped at 20); excess requests auto-denied without a dialog; already-granted calls are never rate-limited; `retryAfterMs` example 30000 (app-permission-manager.js:273-278; tests pin behavior) |
+| Permission prompts | per app+permission | **3 per 60 s** burst; cooldown **5 s base → 15 min cap** (denial streak capped at 20); excess requests auto-denied without a dialog; already-granted calls are never rate-limited; `retryAfterMs` example 30000  |
 
 ### 7.6 Filesystem & pickers
 
@@ -1262,7 +1256,7 @@ All rate limits are per-app sliding 60 s windows unless noted. Ledger budgets (`
 | Area | Limit | Value |
 |---|---|---|
 | Tier-1 wake sweep | global | every **15 min** (`WAKE_INTERVAL_MS`), no jitter |
-| Tier-1 wake deadline | per wake | **10 s** (`WAKE_DEADLINE_MS`), then teardown (early finish via `wakeDone()`) |
+| Tier-1 wake deadline | per wake | **10 s** (`WAKE_DEADLINE_MS`), then teardown (early finish via `wakeDone`) |
 | Tier-2 stay-alive | per session | unbounded for OS-page lifetime (pinned Terminate notification is the kill switch); `stayAlive` opt-in is session-only |
 | Sandbox serving | per sandbox | heartbeat **5 min**; server prunes serve entries idle **30 min** |
 
@@ -1281,7 +1275,7 @@ All rate limits are per-app sliding 60 s windows unless noted. Ledger budgets (`
 | App list icons | per entry | data-URI ≤ **700 000** chars |
 | HTTP rate limiter (server) | route exclusion | `/api/apps/serve/*` (register/heartbeat/unregister/content) excluded from the per-IP limiter; other `/api/*` limited |
 
-> **Unverified / not in code:** no per-app limit was found for `nova:app:list`, `nova:net:websocket` socket count, `nova:net:ws:send` frames, `nova:net:fetch` call frequency, `nova:clipboard` call frequency, or `nova:events:unsubscribe`. Treat them as unbounded (subject to the generic IPC timeout and server-side limits).
+There is no dedicated per-app limit for `nova:app:list`, `nova:net:websocket` socket count, `nova:net:ws:send` frames, `nova:net:fetch` call frequency, `nova:clipboard` calls, or `nova:events:unsubscribe`. Their applicable limits are the generic IPC timeout and the relevant server/IP or StorageLedger/permission limits; none has a channel-specific counter documented here.
 
 ---
 
@@ -1293,15 +1287,15 @@ Every error string the sandbox can emit, with where it comes from. Common to all
 
 | Code | Thrown by | Trigger |
 |---|---|---|
-| `UNKNOWN_API` | dispatch (`:9580-9583`) | channel not in `API_HANDLERS` |
-| `PERMISSION_DENIED` | dispatch (`:9577-9579`) | channel in `GUEST_FORBIDDEN_IPC_APIS` — `This system capability is only available through trusted OS UI` |
-| `PERMISSION_DENIED` | MAC front door (`:9584-9596`) | grant row unmet — `Blocked by system security policy (MAC): requires …` / `… no policy rule for this endpoint` |
-| `INTERNAL_ERROR` | dispatch (`:9608-9612`) | handler threw / async rejection; raw message |
-| `TRANSPORT_ERROR` | isolated transport (`:10134-10135`) | console channel broken |
-| `TIMEOUT` | isolated-process dispatcher (`:9648-9657`) | 30 s — `The OS API request timed out` |
-| `TIMEOUT` | `nova:download` (`:3854-3856`) | save dialog not answered in 5 min — `Save dialog timed out` |
-| `UNAVAILABLE` | isolated-process gate (`:9627-9634`) | `This API is not available to isolated processes` |
-| `APP_UNAVAILABLE` | isolated-process gate (`:9636-9644`) | app missing/revoked/tampered |
+| `UNKNOWN_API` | dispatch  | channel not in `API_HANDLERS` |
+| `PERMISSION_DENIED` | dispatch  | channel in `GUEST_FORBIDDEN_IPC_APIS` — `This system capability is only available through trusted OS UI` |
+| `PERMISSION_DENIED` | MAC front door  | grant row unmet — `Blocked by system security policy (MAC): requires …` / `… no policy rule for this endpoint` |
+| `INTERNAL_ERROR` | dispatch  | handler threw / async rejection; raw message |
+| `TRANSPORT_ERROR` | isolated transport  | console channel broken |
+| `TIMEOUT` | isolated-process dispatcher  | 30 s — `The OS API request timed out` |
+| `TIMEOUT` | `nova:download`  | save dialog not answered in 5 min — `Save dialog timed out` |
+| `UNAVAILABLE` | isolated-process gate  | `This API is not available to isolated processes` |
+| `APP_UNAVAILABLE` | isolated-process gate  | app missing/revoked/tampered |
 
 ### 8.2 Validation & arguments
 
@@ -1387,7 +1381,7 @@ Seen on `/api/auth/*` and admin APIs; apps normally only see them wrapped as `UN
 
 ### 9.1 Legacy `vfs:*` channel aliases
 
-`LEGACY_VFS_CHANNEL_ALIASES` (`:9531-9555`) maps historical channel names to modern `nova:fs:*` channels. Resolution runs at **every entry point before** handler lookup and the MAC check ("translate-then-enforce", `:9501-9504`) — a legacy call takes exactly the same enforcement path as a modern one; there is no alias bypass. Responses echo the **modern** type string; the guest shim matches responses by requestId, never by type (`:9524-9529`).
+`LEGACY_VFS_CHANNEL_ALIASES`  maps historical channel names to modern `nova:fs:*` channels. Resolution runs at **every entry point before** handler lookup and the MAC check ("translate-then-enforce", ) — a legacy call takes exactly the same enforcement path as a modern one; there is no alias bypass. Responses echo the **modern** type string; the guest shim matches responses by requestId, never by type .
 
 | Legacy channel | Modern channel |
 |---|---|
@@ -1402,11 +1396,11 @@ Seen on `/api/auth/*` and admin APIs; apps normally only see them wrapped as `UN
 | `vfs:read` / `vfs:write` / `vfs:delete` / `vfs:list` / `vfs:mkdir` / `vfs:stat` / `vfs:rename` / `vfs:move` (bare spellings) | same modern channels |
 | `vfs:metadata`, **`vfs:metedata`** (typo, aliased "as free insurance"), `nova:vfs:metadata`, `nova:vfs:metedata` | `nova:fs:stat` |
 
-There is deliberately **no `vfs:access` channel alias** (`:9518-9522`).
+There is deliberately **no `vfs:access` channel alias** .
 
 ### 9.2 Legacy permission translation (manifest side)
 
-`LEGACY_PERMISSION_ALIASES` in `js/platform/core/app-registry.js:75-81` translates manifest permission names at registration (deduplicated when legacy names collapse):
+`LEGACY_PERMISSION_ALIASES` in  translates manifest permission names at registration (deduplicated when legacy names collapse):
 
 | Legacy permission | Modern permission |
 |---|---|
@@ -1416,43 +1410,36 @@ There is deliberately **no `vfs:access` channel alias** (`:9518-9522`).
 | `vfs:delete` | `fs:access` |
 | `vfs:metadata` | `fs:metadata` |
 
-Asymmetry to know: the **channel** alias table includes the `vfs:metedata`/`nova:vfs:metedata` typo spellings, but the **permission** translator does not — a manifest declaring `vfs:metedata` has it stripped as unknown (app-registry.test.js:181). Legacy `vfs:*` keys in `permissionReasons` are translated the same way.
+Asymmetry to know: the **channel** alias table includes the `vfs:metedata`/`nova:vfs:metedata` typo spellings, but the **permission** translator does not — a manifest declaring `vfs:metedata` has it stripped as unknown . Legacy `vfs:*` keys in `permissionReasons` are translated the same way.
 
 ### 9.3 `window.__novaPrivateStore` — legacy web-app bridge only
 
-There is **no** `window.__novaPrivateStore` for `.novaapp` apps (NOVAAPP.md:553, :714). The name exists only in the **legacy web-app bridge**: the App Manager injects a minimal `window.nova` shim (postMessage-based `ipc` with a 30 s timeout, `window.allowedPermissions`, `window.__novaPermResponse`) into wrapped web apps (`wa_*`/`webapp_*` entries) and sets `window.__novaPrivateStore = {}` as a compatibility marker (`js/platform/core/nova-app-launcher.js:1074`, `js/apps/appmanager/app.js:1070`). Sandboxed `.novaapp` packages get the full MessagePort bridge instead; use `novaOS.storage.*` for isolated, namespaced storage — your app can never read or overwrite another app's data through it.
+There is **no** `window.__novaPrivateStore` for `.novaapp` apps (, :714). The name exists only in the **legacy web-app bridge**: the App Manager injects a minimal `window.nova` shim (postMessage-based `ipc` with a 30 s timeout, `window.allowedPermissions`, `window.__novaPermResponse`) into wrapped web apps (`wa_*`/`webapp_*` entries) and sets `window.__novaPrivateStore = {}` as a compatibility marker . Sandboxed `.novaapp` packages get the full MessagePort bridge instead; use `novaOS.storage.*` for isolated, namespaced storage — your app can never read or overwrite another app's data through it.
 
-Other legacy artifacts apps may encounter: legacy localStorage keys (`nova_installed_apps`, `nova_app_permissions`, `nova_app_alarms`, …) live on as adoption/fallback shadows of their registry counterparts (see [`internals.md`](internals.md)); `window.NovaAppIdAliases` canonicalizes old app ids (e.g. `com.nbosp.quill` → `com.nbosp.textedit`), which also redirects their data subtrees.
+Other legacy artifacts apps may encounter: legacy localStorage keys (`nova_installed_apps`, `nova_app_permissions`, `nova_app_alarms`, …) remain fallback storage for older installs; `window.NovaAppIdAliases` canonicalizes old app IDs (e.g. `com.nbosp.quill` → `com.nbosp.textedit`).
 
 ---
-
-## 10. Document status
-
-- Everything in §3–§9 is code-verified: facade members from the shim/facade source (`:10235-13030`), channels from `API_HANDLERS` (`:9338-9463`) and the handler bodies, limits from the constants inventory and the test suites (values asserted in `tests/platform/security/*` and `tests/integration/*`).
-- **Response shapes that are undocumented in code:** the `nova:nested-webview` response bodies are action-specific and defined by `js/apps/system-webview/service.js` (not enumerated here); the exact success payload of `nova:open-with` (chooser delegation) and `nova:app:uninstall` is a thin `{success…}` wrapper. Everything else in §5 was read from the handler's `respond()` call.
-- Where the audit notes could not establish a payload/response shape or where two sources disagreed, this document says so inline (see the Unverified blockquote in §7.10; the share/download cancel semantics in §5.8; the mail action responses in §5.27, which are server-action-shaped).
-- Related docs: [`guide.md`](guide.md) — manifests, packaging, sandbox attributes, capability declaration. [`permissions.md`](permissions.md) — the permission catalog, risk tiers, prompts and the request flow. [`examples.md`](examples.md) — working recipes over these APIs. [`internals.md`](internals.md) — dispatch pipeline, MAC engine, storage ledger, known security observations.
 
 ---
 
 ## Appendix A. Raw protocol examples
 
-For completeness — the exact envelopes a raw `nova.ipc()` call produces. You should not need these unless you are debugging the bridge or calling a channel without a facade method.
+For completeness — the exact envelopes a raw `nova.ipc` call produces. You should not need these unless you are debugging the bridge or calling a channel without a facade method.
 
 **A.1 Storage set (success):**
 
-```js
+`js
 await nova.ipc('nova:storage:set', { key: 'todos', value: {items: 3} });
 // request  : {kind:'request', type:'nova:storage:set',
 //             payload:{key:'todos', value:{items:3}}, requestId:'shim_…'}
 // response : {type:'nova:storage:set:response', requestId:'shim_…',
 //             result:{success:true}}
 // resolves : {success:true, result:{success:true}, type:'nova:storage:set:response'}
-```
+`
 
 **A.2 Permission denied (MAC front door):**
 
-```js
+`js
 try { await nova.ipc('nova:clipboard:read', {}); }
 catch (e) {
   e.code;     // 'PERMISSION_DENIED'
@@ -1460,33 +1447,33 @@ catch (e) {
 }
 // response : {type:'nova:clipboard:read:response', requestId:'shim_…',
 //             error:{code:'PERMISSION_DENIED', message:'Blocked by system security policy (MAC): requires clipboard:read'}}
-```
+`
 
 **A.3 Legacy alias (translate-then-enforce):**
 
-```js
+`js
 await nova.ipc('vfs:read', { path: 'notes.txt' });
 // translated to 'nova:fs:read' BEFORE handler lookup and MAC check;
 // response carries type 'nova:fs:read:response' — matching is by requestId,
 // so the legacy caller never notices (§9.1).
-```
+`
 
 **A.4 Interactive channel (10-minute timeout):**
 
-```js
+`js
 const picked = await nova.ipc('nova:sysdialog:open',
   { title: 'Open note', multiple: false, accept: ['.txt', 'text/plain'] });
 // up to 10 minutes while the user browses; cancel resolves via the dialog contract
-```
+`
 
 **A.5 Pushed event (no pending request):**
 
-```js
+`js
 novaOS.alarms.onAlarm(a => console.log(a.name, a.queued));
 // host push: {type:'nova:background:alarm:response', requestId:'<fresh id>',
 //             result:{name:'sync', alarm:{…}, firedAt:'…', queued:true}}
 // dispatched to alarmListeners; never resolves a pendingRequests entry
-```
+`
 
 ## Appendix B. Count summary
 
@@ -1507,16 +1494,16 @@ novaOS.alarms.onAlarm(a => console.log(a.name, a.queued));
 
 | Task | Recommended call(s) | Gate / limit to know |
 |---|---|---|
-| Read my launch options / permission snapshot | `await novaOS.ready.get()` (or `nova.app.getInfo()`); options: `nova.app.getLaunchOptions()` | automatic handshake already ran; re-reads are safe |
+| Read my launch options / permission snapshot | `await novaOS.ready.get` (or `nova.app.getInfo`); options: `nova.app.getLaunchOptions` | automatic handshake already ran; re-reads are safe |
 | Persist a setting | `novaOS.storage.set(key, value)` | 5 MB/value, 256 MB/app; key `/^[\w\-. ]+$/` |
 | Save a file the user chooses | `novaOS.dialog.pickSave({ content, suggestedName })` | 10 MB content cap; interactive 10-min timeout |
-| Open a file the user chooses | `novaOS.dialog.pickOpen({ accept: ['.json'] })` or `nova.files.open()` | picked id gains scoped read/write, no fs grant needed |
+| Open a file the user chooses | `novaOS.dialog.pickOpen` or `nova.files.open` | picked id gains scoped read/write, no fs grant needed |
 | Read/write my own app data tree | `novaOS.fs.appdata.read/write/list/remove(path)` | no permission (own subtree) |
-| Watch my files | `novaOS.fs.watch(path, cb)` → `handle.unwatch()` | `fs:watch`; 8 watchers, 60 events/min, best-effort |
-| Show a notification with actions | `novaOS.notifications.createChannel()` once, then `post({channelId, tag, actions, progress})` | `device:notifications`; 10 new/min, 60 update/min; drain clicks with `consumeActions()` |
+| Watch my files | `novaOS.fs.watch(path, cb)` → `handle.unwatch` | `fs:watch`; 8 watchers, 60 events/min, best-effort |
+| Show a notification with actions | `novaOS.notifications.createChannel` once, then `post({channelId, tag, actions, progress})` | `device:notifications`; 10 new/min, 60 update/min; drain clicks with `consumeActions` |
 | Update a progress notification | `post({channelId, tag, progress})` with the same `tag` | counts against the 60/min update budget, not the 10/min |
-| Set the taskbar badge | `novaOS.badge.set(3)` / `set({text:'NEW'})` / `clear()` | `system:badge`; 30/min; 0–999 / 1–4 chars |
-| Request a permission at runtime | `await novaOS.permissions.request('net:external', 'why')` → boolean | 3 prompts/60 s, 5 s→15 min cooldown; peek with `checkRateLimited()` |
+| Set the taskbar badge | `novaOS.badge.set(3)` / `set({text:'NEW'})` / `clear` | `system:badge`; 30/min; 0–999 / 1–4 chars |
+| Request a permission at runtime | `await novaOS.permissions.request('net:external', 'why')` → boolean | 3 prompts/60 s, 5 s→15 min cooldown; peek with `checkRateLimited` |
 | Fetch a remote API | `await fetch(url, opts)` (patched global) | ANY-of `net:internal`/`net:external`; 16 MiB request body; plaintext http allowed |
 | Open a WebSocket | `const ws = await novaOS.net.websocket(url)` | `net:websocket` (+ `net:internal` for LAN hosts); open failure = generic timeout |
 | Share content out | `novaOS.app.share({ title, text, url })` | no permission; 5 sheets/min; text ≤ 4000 |
@@ -1524,9 +1511,9 @@ novaOS.alarms.onAlarm(a => console.log(a.name, a.queued));
 | Talk to another app | provider: `nova.ipc.provide('service:x', handler)`; caller: `nova.ipc.call(appId, 'service:x', data)` | both apps: `apps:communicate` + `manifest.ipc.exports`/`.receives`; 20/min; 256 KB |
 | Broadcast to apps | `nova.ipc.broadcast('action', data)` | same gates; `{delivered}` count |
 | Schedule work later (app running) | `novaOS.alarms.create({ name, periodMinutes: 15 })` + `onAlarm(cb)` | `system:schedule`; 32 alarms, ≥ 15 min; does **not** wake a closed app |
-| Survive window close | `novaOS.background.stayAlive()` (each session) | `system:background:live`; user sees a pinned Terminate notification |
-| Handle a scheduled wake | `nova.onBackgroundWake(cb)` / `novaOS.background.onWake(cb)`; finish early with `wakeDone()` | `system:background` (checked by the scheduler, not you); 10 s deadline |
-| Receive push from your backend | `const {token, endpoint} = await novaOS.push.register()`; `novaOS.push.onMessage(cb)` | `push:receive`; hand the token to your server, publish to `/api/push/publish` |
+| Survive window close | `novaOS.background.stayAlive` (each session) | `system:background:live`; user sees a pinned Terminate notification |
+| Handle a scheduled wake | `nova.onBackgroundWake(cb)` / `novaOS.background.onWake(cb)`; finish early with `wakeDone` | `system:background` (checked by the scheduler, not you); 10 s deadline |
+| Receive push from your backend | `const {token, endpoint} = await novaOS.push.register`; `novaOS.push.onMessage(cb)` | `push:receive`; hand the token to your server, publish to `/api/push/publish` |
 | Store a credential | `novaOS.secrets.set(key, value)` | `secrets:store`; 64 secrets, 8 KB each; never in backups |
 | React to theme changes | `nova.appearance.onChange(cb)` | no permission; immediate first callback |
 | Set the window title | `novaOS.window.setTitle('Notes — draft')` | 200-char cap |
@@ -1534,4 +1521,4 @@ novaOS.alarms.onAlarm(a => console.log(a.name, a.queued));
 | Download bytes to disk | `nova.browser.download({ url, filename })` (nested-webview opt-in) or `nova.ipc('nova:download', { base64Data, mimeType, filename })` | no permission, no size cap; the save dialog is the consent |
 | Embed a web view | manifest `allowNestedWebview: true` + `sandbox:nested-webview`; `nova.browser.createView({ container })` | every navigation re-checked against `net:*` grants |
 | React to registry changes | `novaOS.registry.watch('HKNU/software/myapp', cb)` | `registry.read`; prefix-filtered `nova:reg:changed` |
-| Export/import my data | `novaOS.data.backup()` / `restore(env)`; subsets via `export({keys})` / `import(env)` | `data:backup` / `data:export`; envelopes are checksummed + appId-pinned |
+| Export/import my data | `novaOS.data.backup` / `restore(env)`; subsets via `export({keys})` / `import(env)` | `data:backup` / `data:export`; envelopes are checksummed + appId-pinned |

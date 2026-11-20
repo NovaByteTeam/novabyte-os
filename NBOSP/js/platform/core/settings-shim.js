@@ -322,6 +322,7 @@
         persistLockWallpaperId(OS, activeUserUid(), value, logger);
       }
       bus.emit('settings:changed', { key, value });
+      if (key === 'theme') bus.emit('system:themeChanged', { theme: value });
       return true;
     };
 
@@ -382,6 +383,7 @@
         persistLockWallpaperId(OS, activeUserUid(), event.type === null ? 'stock-blue' : event.value, logger);
       }
       bus.emit('settings:changed', { key, value: event.type === null ? undefined : s._cache[key] });
+      if (key === 'theme') bus.emit('system:themeChanged', { theme: event.type === null ? undefined : s._cache[key] });
     });
 
     s.__registryBacked = true;

@@ -6187,19 +6187,6 @@ const AppSandbox = (() => {
     'system:notification', 'system:volumeChanged', 'system:themeChanged',
     'system:workspaceChanged', 'system:power', 'system:network',
     'app:installed', 'app:uninstalled', 'app:launched',
-    // As of this comment, nothing in the codebase calls OS.events.emit()
-    // for any of the five names below — subscribing today is a no-op, not
-    // a live leak. Pre-declared for whoever wires up mail/calendar/contacts
-    // sync, gated on the same *:read permission each domain's actual data
-    // access already requires (see EVENT_DOMAIN_PERMISSIONS below), rather
-    // than being reachable through the flat system:events grant alone. An
-    // app that can already read your mail gains nothing new from mail:new
-    // notifications; an app that only holds system:events (for volume/
-    // theme/power — genuinely low-stakes) can't piggyback into mail
-    // metadata just because these names exist in this set. Whoever
-    // implements the emit side should still double check the actual
-    // payload shape against this gate once it's real, since this was
-    // designed against the *names* only — no payload existed to review.
     'mail:new', 'mail:updated',
     'calendar:reminder', 'calendar:updated',
     'contacts:updated',
